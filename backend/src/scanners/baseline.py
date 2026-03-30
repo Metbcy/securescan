@@ -27,6 +27,12 @@ class BaselineScanner(BaseScanner):
         findings.extend(self._check_password_policy(scan_id))
         findings.extend(self._check_kernel_security(scan_id))
         findings.extend(self._check_env_secrets(scan_id))
+        findings.extend(self._check_sudoers(scan_id))
+        findings.extend(self._check_cron_security(scan_id))
+        findings.extend(self._check_user_privileges(scan_id))
+        findings.extend(await self._check_listening_ports(scan_id))
+        findings.extend(await self._check_package_updates(scan_id))
+        findings.extend(await self._check_world_writable_files(scan_id))
         return findings
 
     def _check_ssh_config(self, scan_id: str) -> list[Finding]:
@@ -301,5 +307,278 @@ class BaselineScanner(BaseScanner):
                         remediation="Review if this environment variable contains sensitive data. Use a secrets manager instead of env vars for production.",
                     ))
                     break  # Only one finding per env var
+
+        return findings
+
+    def _check_sudoers(self, scan_id: str) -> list[Finding]:
+        """Check /etc/sudoers for broad NOPASSWD usage."""
+        findings: list[Finding] = []
+        sudoers_path = "/etc/sudoers"
+        try:
+            with open(sudoers_path, "r") as f:
+                content = f.read()
+        except (FileNotFoundError, PermissionError):
+            return findings
+
+        for line_num, line in enumerate(content.split('\n'), 1):
+            stripped = line.strip()
+            if stripped.startswith('#') or not stripped:
+                continue
+            if 'NOPASSWD' in stripped:
+                # Broad NOPASSWD: applies to ALL commands
+                if 'ALL' in stripped.split('NOPASSWD')[-1]:
+                    findings.append(Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.HIGH,
+                        title="Broad NOPASSWD sudo access",
+                        description=f"Line {line_num} in /etc/sudoers grants NOPASSWD access to ALL commands. This should be restricted to specific commands.",
+                        file_path=sudoers_path,
+                        line_start=line_num,
+                        rule_id="BASELINE-SUDO-001",
+                        remediation="Restrict NOPASSWD to specific commands instead of ALL. Example: user ALL=(ALL) NOPASSWD: /usr/bin/specific_command",
+                    ))
+
+        return findings
+
+    def _check_cron_security(self, scan_id: str) -> list[Finding]:
+        """Check crontabs for jobs running as root that execute world-writable scripts."""
+        findings: list[Finding] = []
+        cron_paths = ["/etc/crontab"]
+        # Also check /var/spool/cron/ entries
+        spool_dir = "/var/spool/cron/crontabs"
+        if os.path.isdir(spool_dir):
+            try:
+                for entry in os.listdir(spool_dir):
+                    cron_paths.append(os.path.join(spool_dir, entry))
+            except PermissionError:
+                pass
+
+        for cron_path in cron_paths:
+            try:
+                with open(cron_path, "r") as f:
+                    content = f.read()
+            except (FileNotFoundError, PermissionError):
+                continue
+
+            for line_num, line in enumerate(content.split('\n'), 1):
+                stripped = line.strip()
+                if stripped.startswith('#') or not stripped:
+                    continue
+                # Check if root cron job references a script
+                parts = stripped.split()
+                if len(parts) >= 7 and parts[5] == 'root':
+                    script_path = parts[6]
+                    try:
+                        st = os.stat(script_path)
+                        if st.st_mode & stat.S_IWOTH:
+                            findings.append(Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=Severity.CRITICAL,
+                                title=f"Root cron job executes world-writable script",
+                                description=f"Cron job in {cron_path} at line {line_num} runs as root and executes '{script_path}' which is world-writable. An attacker could modify this script for privilege escalation.",
+                                file_path=cron_path,
+                                line_start=line_num,
+                                rule_id="BASELINE-CRON-001",
+                                remediation=f"Remove world-writable permission: chmod o-w {script_path}",
+                            ))
+                    except (FileNotFoundError, PermissionError, OSError):
+                        pass
+
+        return findings
+
+    def _check_user_privileges(self, scan_id: str) -> list[Finding]:
+        """Check /etc/passwd for users with UID 0 (should only be root) and users with no password."""
+        findings: list[Finding] = []
+
+        # Check for multiple UID 0 users
+        try:
+            with open("/etc/passwd", "r") as f:
+                for line_num, line in enumerate(f, 1):
+                    parts = line.strip().split(':')
+                    if len(parts) >= 4:
+                        username, _, uid_str, _ = parts[0], parts[1], parts[2], parts[3]
+                        try:
+                            uid = int(uid_str)
+                        except ValueError:
+                            continue
+                        if uid == 0 and username != "root":
+                            findings.append(Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=Severity.CRITICAL,
+                                title=f"Non-root user '{username}' has UID 0",
+                                description=f"User '{username}' in /etc/passwd has UID 0 (root privileges). Only the root account should have UID 0.",
+                                file_path="/etc/passwd",
+                                line_start=line_num,
+                                rule_id="BASELINE-USER-001",
+                                remediation=f"Review and remove or change the UID of user '{username}'. Use: sudo usermod -u <new_uid> {username}",
+                            ))
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        # Check for users with no password in /etc/shadow
+        try:
+            with open("/etc/shadow", "r") as f:
+                for line_num, line in enumerate(f, 1):
+                    parts = line.strip().split(':')
+                    if len(parts) >= 2:
+                        username = parts[0]
+                        password_hash = parts[1]
+                        # Empty password field or single '!' means no password set
+                        if password_hash in ('', '!', '*'):
+                            continue  # Locked or system accounts are fine
+                        if password_hash == '!!':
+                            # Password never set but account not locked
+                            if username not in ('nobody', 'nfsnobody'):
+                                findings.append(Finding(
+                                    scan_id=scan_id,
+                                    scanner=self.name,
+                                    scan_type=self.scan_type,
+                                    severity=Severity.MEDIUM,
+                                    title=f"User '{username}' has no password set",
+                                    description=f"User '{username}' in /etc/shadow has no password set (!!). This account should be locked or have a password.",
+                                    file_path="/etc/shadow",
+                                    line_start=line_num,
+                                    rule_id="BASELINE-USER-002",
+                                    remediation=f"Lock the account: sudo passwd -l {username}, or set a password: sudo passwd {username}",
+                                ))
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        return findings
+
+    async def _check_listening_ports(self, scan_id: str) -> list[Finding]:
+        """Detect unexpected listening services using ss or netstat."""
+        findings: list[Finding] = []
+
+        output = ""
+        for cmd in [["ss", "-tlnp"], ["netstat", "-tlnp"]]:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+                output = stdout.decode()
+                break
+            except (FileNotFoundError, asyncio.TimeoutError, Exception):
+                continue
+
+        if not output:
+            return findings
+
+        # Known safe ports
+        known_ports = {'22', '80', '443', '8080', '8443', '53'}
+        lines = output.strip().split('\n')[1:]  # Skip header
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 4:
+                continue
+            local_addr = parts[3] if 'ss' in output[:20] else parts[3]
+            # Extract port from address like *:8000 or 0.0.0.0:8000 or :::8000
+            port = local_addr.rsplit(':', 1)[-1] if ':' in local_addr else ""
+            if port and port not in known_ports:
+                # Check if listening on all interfaces (0.0.0.0 or *)
+                addr_part = local_addr.rsplit(':', 1)[0] if ':' in local_addr else ""
+                if addr_part in ('0.0.0.0', '*', '::'):
+                    findings.append(Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.LOW,
+                        title=f"Service listening on all interfaces port {port}",
+                        description=f"A service is listening on {local_addr} (all interfaces). Review if this service should be exposed. Full line: {line.strip()}",
+                        rule_id="BASELINE-PORT-001",
+                        remediation=f"If this service should not be publicly accessible, bind it to 127.0.0.1 or restrict access with a firewall.",
+                    ))
+
+        return findings
+
+    async def _check_package_updates(self, scan_id: str) -> list[Finding]:
+        """Check if there are security updates available."""
+        findings: list[Finding] = []
+
+        # Try apt (Debian/Ubuntu)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "apt", "list", "--upgradable",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+            output = stdout.decode()
+            lines = [l for l in output.strip().split('\n') if l and 'Listing...' not in l]
+            security_updates = [l for l in lines if 'security' in l.lower()]
+            if security_updates:
+                findings.append(Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.MEDIUM,
+                    title=f"{len(security_updates)} security update(s) available",
+                    description=f"There are {len(security_updates)} security updates available. Keeping systems patched is critical for security.",
+                    rule_id="BASELINE-PKG-001",
+                    remediation="Run: sudo apt update && sudo apt upgrade to install available security updates.",
+                ))
+            elif lines:
+                findings.append(Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.LOW,
+                    title=f"{len(lines)} package update(s) available",
+                    description=f"There are {len(lines)} package updates available.",
+                    rule_id="BASELINE-PKG-002",
+                    remediation="Run: sudo apt update && sudo apt upgrade to install available updates.",
+                ))
+        except (FileNotFoundError, asyncio.TimeoutError, Exception):
+            pass
+
+        return findings
+
+    async def _check_world_writable_files(self, scan_id: str) -> list[Finding]:
+        """Check common directories for world-writable files."""
+        findings: list[Finding] = []
+        check_dirs = ["/etc", "/usr", "/var"]
+
+        for check_dir in check_dirs:
+            if not os.path.isdir(check_dir):
+                continue
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "find", check_dir, "-maxdepth", "3", "-type", "f",
+                    "-perm", "-o+w", "-not", "-path", "*/proc/*",
+                    "-not", "-path", "*/sys/*",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+                writable_files = [f for f in stdout.decode().strip().split('\n') if f]
+
+                if writable_files:
+                    # Limit to first 10 files to avoid noise
+                    sample = writable_files[:10]
+                    remaining = len(writable_files) - len(sample)
+                    desc = f"Found {len(writable_files)} world-writable file(s) under {check_dir}: {', '.join(sample)}"
+                    if remaining > 0:
+                        desc += f" (and {remaining} more)"
+                    findings.append(Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.MEDIUM,
+                        title=f"World-writable files in {check_dir}",
+                        description=desc,
+                        rule_id="BASELINE-WWRITE-001",
+                        remediation=f"Review and fix permissions: find {check_dir} -type f -perm -o+w -exec chmod o-w {{}} \\;",
+                    ))
+            except (FileNotFoundError, asyncio.TimeoutError, Exception):
+                continue
 
         return findings

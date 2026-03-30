@@ -1,4 +1,6 @@
 from datetime import datetime
+import asyncio
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -11,6 +13,7 @@ from ..database import (
     save_findings,
     save_scan,
 )
+from ..dedup import deduplicate_findings
 from ..models import (
     Finding,
     Scan,
@@ -23,11 +26,13 @@ from ..scanners import get_scanners_for_types
 from ..scoring import build_summary
 from ..ai import AIEnricher
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 
 
 async def _run_scan(scan: Scan) -> None:
-    """Background task: execute scanners and persist results."""
+    """Background task: execute scanners in parallel and persist results."""
     try:
         scan.status = ScanStatus.RUNNING
         scan.started_at = datetime.now()
@@ -37,13 +42,35 @@ async def _run_scan(scan: Scan) -> None:
         all_findings: list[Finding] = []
         scanners_run: list[str] = []
 
+        # Filter to available scanners
+        available_scanners = []
         for scanner in scanners:
             available = await scanner.is_available()
             if not available:
                 continue
-            results = await scanner.scan(scan.target_path, scan.id)
-            all_findings.extend(results)
-            scanners_run.append(scanner.name)
+            available_scanners.append(scanner)
+
+        # Run scanners in parallel
+        if available_scanners:
+            logger.info("Running scanners in parallel: %s", [s.name for s in available_scanners])
+
+            async def _run_one(scanner):
+                results = await scanner.scan(scan.target_path, scan.id)
+                return scanner.name, results
+
+            tasks = [_run_one(s) for s in available_scanners]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.error("Scanner error: %s", result)
+                    continue
+                name, findings = result
+                all_findings.extend(findings)
+                scanners_run.append(name)
+
+        # Deduplicate findings
+        all_findings = deduplicate_findings(all_findings)
 
         await save_findings(all_findings)
 

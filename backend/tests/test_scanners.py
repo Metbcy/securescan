@@ -8,7 +8,7 @@ from src.models import ScanType
 
 
 def test_all_scanners_registered():
-    assert len(ALL_SCANNERS) == 5
+    assert len(ALL_SCANNERS) == 6
     names = [s.name for s in ALL_SCANNERS]
     assert "semgrep" in names
     assert "bandit" in names

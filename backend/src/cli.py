@@ -1,5 +1,7 @@
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import typer
@@ -15,6 +17,8 @@ from .database import (
     save_findings,
     save_scan,
 )
+from .dedup import deduplicate_findings
+from .exporters import findings_to_sarif, findings_to_csv, findings_to_junit
 from .models import (
     Finding,
     Scan,
@@ -37,6 +41,14 @@ SEVERITY_COLORS = {
     Severity.INFO: "dim",
 }
 
+SEVERITY_RANK = {
+    Severity.CRITICAL: 4,
+    Severity.HIGH: 3,
+    Severity.MEDIUM: 2,
+    Severity.LOW: 1,
+    Severity.INFO: 0,
+}
+
 
 async def _run_scan_async(
     target_path: str,
@@ -53,16 +65,38 @@ async def _run_scan_async(
     all_findings: list[Finding] = []
     scanners_run: list[str] = []
 
+    # Filter to available scanners
+    available_scanners = []
     for scanner in scanners:
         available = await scanner.is_available()
         if not available:
             console.print(f"  [dim]⏭ {scanner.name} not available, skipping[/dim]")
             continue
-        console.print(f"  [cyan]▶ Running {scanner.name}...[/cyan]")
-        results = await scanner.scan(target_path, scan.id)
-        all_findings.extend(results)
-        scanners_run.append(scanner.name)
-        console.print(f"  [green]✓ {scanner.name}: {len(results)} finding(s)[/green]")
+        available_scanners.append(scanner)
+
+    # Run scanners in parallel
+    if available_scanners:
+        scanner_names = [s.name for s in available_scanners]
+        console.print(f"  [cyan]▶ Running scanners in parallel: {', '.join(scanner_names)}[/cyan]")
+
+        async def _run_one(scanner):
+            results = await scanner.scan(target_path, scan.id)
+            return scanner.name, results
+
+        tasks = [_run_one(s) for s in available_scanners]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, Exception):
+                console.print(f"  [red]✗ Scanner error: {result}[/red]")
+                continue
+            name, findings = result
+            all_findings.extend(findings)
+            scanners_run.append(name)
+            console.print(f"  [green]✓ {name}: {len(findings)} finding(s)[/green]")
+
+    # Deduplicate findings
+    all_findings = deduplicate_findings(all_findings)
 
     await save_findings(all_findings)
 
@@ -139,6 +173,18 @@ def scan(
     scan_type: Optional[list[ScanType]] = typer.Option(
         None, "--type", "-t", help="Scan type(s) to run"
     ),
+    fail_on_severity: Optional[str] = typer.Option(
+        None, "--fail-on-severity", help="Exit with code 1 if any finding at or above this severity (critical, high, medium, low)"
+    ),
+    fail_on_count: Optional[int] = typer.Option(
+        None, "--fail-on-count", help="Exit with code 1 if total findings exceed this count"
+    ),
+    output: str = typer.Option(
+        "table", "--output", "-o", help="Output format: table, json, sarif, csv, junit"
+    ),
+    output_file: Optional[str] = typer.Option(
+        None, "--output-file", help="Write output to file instead of stdout"
+    ),
 ):
     """Run a security scan on the target path."""
     types = scan_type if scan_type else [ScanType.CODE, ScanType.DEPENDENCY, ScanType.IAC, ScanType.BASELINE]
@@ -146,13 +192,49 @@ def scan(
 
     result_scan, findings = asyncio.run(_run_scan_async(target_path, types))
 
-    console.print()
-    _print_findings(findings)
-    console.print()
-    _print_summary(result_scan, findings)
+    # Format output
+    output_content = None
+    if output == "table":
+        console.print()
+        _print_findings(findings)
+        console.print()
+        _print_summary(result_scan, findings)
+        if result_scan.summary:
+            console.print(f"\n[bold cyan]AI Summary:[/bold cyan] {result_scan.summary}\n")
+    elif output == "json":
+        output_content = json.dumps([f.model_dump(mode="json") for f in findings], indent=2, default=str)
+    elif output == "sarif":
+        output_content = json.dumps(findings_to_sarif(findings, result_scan), indent=2, default=str)
+    elif output == "csv":
+        output_content = findings_to_csv(findings)
+    elif output == "junit":
+        output_content = findings_to_junit(findings, result_scan)
+    else:
+        console.print(f"[red]Unknown output format: {output}[/red]")
+        raise typer.Exit(code=1)
 
-    if result_scan.summary:
-        console.print(f"\n[bold cyan]AI Summary:[/bold cyan] {result_scan.summary}\n")
+    if output_content is not None:
+        if output_file:
+            Path(output_file).write_text(output_content)
+            console.print(f"[green]Output written to {output_file}[/green]")
+        else:
+            console.print(output_content)
+
+    # Check failure thresholds
+    if fail_on_severity:
+        severity_threshold = fail_on_severity.lower()
+        threshold_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(severity_threshold)
+        if threshold_rank is None:
+            console.print(f"[red]Invalid severity: {fail_on_severity}. Use critical, high, medium, or low.[/red]")
+            raise typer.Exit(code=1)
+        for f in findings:
+            if SEVERITY_RANK.get(f.severity, 0) >= threshold_rank:
+                console.print(f"[bold red]✗ Failing: found {f.severity.value} finding(s) at or above threshold '{severity_threshold}'[/bold red]")
+                raise typer.Exit(code=1)
+
+    if fail_on_count is not None and len(findings) > fail_on_count:
+        console.print(f"[bold red]✗ Failing: {len(findings)} findings exceed threshold of {fail_on_count}[/bold red]")
+        raise typer.Exit(code=1)
 
 
 @app.command()

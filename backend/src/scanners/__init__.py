@@ -3,6 +3,7 @@ from .bandit import BanditScanner
 from .trivy import TrivyScanner
 from .checkov import CheckovScanner
 from .baseline import BaselineScanner
+from .secrets import SecretsScanner
 
 ALL_SCANNERS = [
     SemgrepScanner(),
@@ -10,6 +11,7 @@ ALL_SCANNERS = [
     TrivyScanner(),
     CheckovScanner(),
     BaselineScanner(),
+    SecretsScanner(),
 ]
 
 
