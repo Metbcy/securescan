@@ -48,6 +48,31 @@ pip install semgrep bandit safety pip-licenses checkov
 # Optional: Node.js/npm (for npm-audit scanner)
 ```
 
+### Windows Setup (PowerShell)
+
+```powershell
+cd backend
+py -3 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install -e .
+pip install semgrep bandit safety pip-licenses checkov
+
+# Optional: Trivy (see https://trivy.dev)
+# Optional: Node.js/npm (for npm-audit scanner)
+
+# Optional AI key
+$env:SECURESCAN_GROQ_API_KEY="your-key-here"
+
+# Start API
+python -m src.cli serve --host 127.0.0.1 --port 8000
+```
+
+If you use Command Prompt instead of PowerShell, activate with:
+
+```bat
+venv\Scripts\activate.bat
+```
+
 ### CLI Usage
 
 ```bash
@@ -76,6 +101,15 @@ npm run dev
 ```
 
 Open http://localhost:3000 — the dashboard connects to the backend API at http://localhost:8000.
+
+Windows (PowerShell):
+
+```powershell
+cd frontend
+npm install
+$env:NEXT_PUBLIC_API_URL="http://127.0.0.1:8000"
+npm run dev
+```
 
 ### Docker
 
@@ -107,6 +141,12 @@ Set a Groq API key (free tier) to enable AI-powered features:
 export SECURESCAN_GROQ_API_KEY=your-key-here
 ```
 
+Windows PowerShell:
+
+```powershell
+$env:SECURESCAN_GROQ_API_KEY="your-key-here"
+```
+
 Features:
 - Remediation suggestions for critical/high findings
 - Executive summary generation
@@ -116,6 +156,8 @@ Features:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| GET | `/` | API info with links to docs and health |
+| GET | `/health` | Simple health check |
 | POST | `/api/scans` | Start a new scan |
 | GET | `/api/scans` | List all scans |
 | GET | `/api/scans/{id}` | Get scan details |
