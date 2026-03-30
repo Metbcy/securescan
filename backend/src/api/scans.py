@@ -1,6 +1,7 @@
 from datetime import datetime
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -29,6 +30,21 @@ from ..ai import AIEnricher
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
+
+
+def validate_target_path(path: str) -> str:
+    """Validate and normalize target path. Raises ValueError if invalid."""
+    normalized = os.path.abspath(path)
+    if not os.path.exists(normalized):
+        raise ValueError(f"Path does not exist: {path}")
+    if not os.path.isdir(normalized) and not os.path.isfile(normalized):
+        raise ValueError(f"Path is not a file or directory: {path}")
+    # Prevent scanning sensitive system directories
+    sensitive = ['/etc/shadow', '/root/.ssh', '/proc', '/sys']
+    for s in sensitive:
+        if normalized.startswith(s):
+            raise ValueError(f"Scanning system path not allowed: {path}")
+    return normalized
 
 
 async def _run_scan(scan: Scan) -> None:
@@ -72,8 +88,6 @@ async def _run_scan(scan: Scan) -> None:
         # Deduplicate findings
         all_findings = deduplicate_findings(all_findings)
 
-        await save_findings(all_findings)
-
         summary = build_summary(all_findings, scanners_run)
 
         # AI enrichment (optional)
@@ -82,6 +96,9 @@ async def _run_scan(scan: Scan) -> None:
             await enricher.enrich_findings(all_findings)
             ai_summary = await enricher.generate_summary(all_findings, summary)
             scan.summary = ai_summary
+
+        # Save findings AFTER AI enrichment so remediation text is persisted
+        await save_findings(all_findings)
 
         scan.findings_count = summary.total_findings
         scan.risk_score = summary.risk_score
@@ -98,8 +115,13 @@ async def _run_scan(scan: Scan) -> None:
 @router.post("", response_model=Scan)
 async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
     """Start a new scan."""
+    try:
+        validated_path = validate_target_path(request.target_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     scan = Scan(
-        target_path=request.target_path,
+        target_path=validated_path,
         scan_types=request.scan_types,
     )
     await save_scan(scan)

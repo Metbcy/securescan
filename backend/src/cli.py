@@ -98,8 +98,6 @@ async def _run_scan_async(
     # Deduplicate findings
     all_findings = deduplicate_findings(all_findings)
 
-    await save_findings(all_findings)
-
     summary = build_summary(all_findings, scanners_run)
     scan.findings_count = summary.total_findings
     scan.risk_score = summary.risk_score
@@ -112,6 +110,9 @@ async def _run_scan_async(
         ai_summary = await enricher.generate_summary(all_findings, summary)
         scan.summary = ai_summary
         console.print("  [green]✓ AI enrichment complete[/green]")
+
+    # Save findings AFTER AI enrichment so remediation text is persisted
+    await save_findings(all_findings)
 
     scan.status = ScanStatus.COMPLETED
     scan.completed_at = datetime.now()

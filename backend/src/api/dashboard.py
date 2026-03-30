@@ -97,6 +97,9 @@ async def scanner_status():
             "scan_type": scanner.scan_type.value,
             "available": available,
             "message": message,
+            "description": scanner.description,
+            "checks": scanner.checks,
+            "install_hint": scanner.install_hint if not available else None,
         })
     return {"scanners": statuses}
 

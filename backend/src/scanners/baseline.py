@@ -11,6 +11,17 @@ from ..models import Finding, ScanType, Severity
 class BaselineScanner(BaseScanner):
     name = "baseline"
     scan_type = ScanType.BASELINE
+    description = "Checks system and OS configuration against security best practices inspired by CIS Benchmarks."
+    checks = [
+        "SSH hardening (root login, key-based auth)",
+        "Firewall status & rules",
+        "Password policies (age, complexity)",
+        "Kernel security (ASLR, IP forwarding)",
+        "File permissions on sensitive paths",
+        "Sudoers & cron job security",
+        "Listening ports & services",
+        "User privilege audit",
+    ]
 
     async def is_available(self) -> bool:
         return True  # No external tool needed

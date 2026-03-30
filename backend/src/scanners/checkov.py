@@ -11,6 +11,15 @@ from ..config import settings
 class CheckovScanner(BaseScanner):
     name = "checkov"
     scan_type = ScanType.IAC
+    description = "Infrastructure as Code scanner that detects misconfigurations in Terraform, Kubernetes, Docker, and CloudFormation."
+    checks = [
+        "Overly permissive IAM policies",
+        "Unencrypted storage & databases",
+        "Open security groups & network rules",
+        "Missing logging & monitoring",
+        "Insecure Kubernetes pod configurations",
+        "Docker security best practices",
+    ]
 
     async def is_available(self) -> bool:
         return shutil.which("checkov") is not None
@@ -73,8 +82,8 @@ class CheckovScanner(BaseScanner):
                 scan_id=scan_id,
                 scanner=self.name,
                 scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Checkov scan timed out",
+                severity=Severity.HIGH,
+                title="INCOMPLETE SCAN: Checkov scan timed out",
                 description=f"Scan timed out after {settings.scan_timeout}s",
             ))
         except Exception as e:

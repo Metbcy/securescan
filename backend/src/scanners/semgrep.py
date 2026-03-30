@@ -10,6 +10,15 @@ from ..config import settings
 class SemgrepScanner(BaseScanner):
     name = "semgrep"
     scan_type = ScanType.CODE
+    description = "Multi-language static analysis tool that finds bugs, vulnerabilities, and anti-patterns using pattern matching rules."
+    checks = [
+        "SQL injection & command injection",
+        "Cross-site scripting (XSS)",
+        "Insecure deserialization",
+        "Hardcoded secrets in code",
+        "OWASP Top 10 vulnerabilities",
+        "Language-specific anti-patterns",
+    ]
 
     async def is_available(self) -> bool:
         return shutil.which("semgrep") is not None
@@ -55,8 +64,8 @@ class SemgrepScanner(BaseScanner):
                 scan_id=scan_id,
                 scanner=self.name,
                 scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Semgrep scan timed out",
+                severity=Severity.HIGH,
+                title="INCOMPLETE SCAN: Semgrep scan timed out",
                 description=f"Scan timed out after {settings.scan_timeout}s",
             ))
         except Exception as e:

@@ -59,7 +59,7 @@ class Scan(BaseModel):
 
 class ScanRequest(BaseModel):
     target_path: str
-    scan_types: list[ScanType] = [ScanType.CODE, ScanType.DEPENDENCY]
+    scan_types: list[ScanType] = Field(default=[ScanType.CODE, ScanType.DEPENDENCY], min_length=1)
 
 
 class ScanSummary(BaseModel):

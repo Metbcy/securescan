@@ -52,6 +52,9 @@ export interface ScannerStatus {
   scan_type: string;
   available: boolean;
   message: string;
+  description: string;
+  checks: string[];
+  install_hint: string | null;
 }
 
 export async function fetchScans(): Promise<Scan[]> {

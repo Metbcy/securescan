@@ -36,7 +36,18 @@ SKIP_DIRS = {'node_modules', '.git', 'venv', '__pycache__', '.next', 'dist', 'bu
 
 class SecretsScanner(BaseScanner):
     name = "secrets"
-    scan_type = ScanType.CODE  # Reuse CODE type
+    scan_type = ScanType.CODE
+    description = "Detects hardcoded credentials, API keys, and tokens in source files, .env files, and git history."
+    checks = [
+        "AWS access keys & secret keys",
+        "GitHub & GitLab tokens",
+        "Private keys (RSA, EC, DSA)",
+        "Database connection strings",
+        "Slack, Google, Heroku API keys",
+        "JWT tokens & generic secrets",
+        "Secrets committed in git history",
+        ".env files with sensitive values",
+    ]
 
     async def is_available(self) -> bool:
         return True

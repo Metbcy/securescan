@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ScanSearch, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen } from "lucide-react";
 import { startScan, fetchScan, fetchFindings, fetchScanSummary } from "@/lib/api";
 import type { Scan, Finding, ScanSummary } from "@/lib/api";
 import { FindingsTable } from "@/components/findings-table";
 import { SeverityChart } from "@/components/severity-chart";
 import { RiskScore } from "@/components/risk-score";
+import { DirectoryPicker } from "@/components/directory-picker";
 
 const SCAN_TYPES = [
   { id: "code", label: "Code Analysis" },
@@ -23,6 +24,7 @@ export default function NewScanPage() {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const toggleType = (id: string) => {
     setSelectedTypes((prev) => {
@@ -101,15 +103,36 @@ export default function NewScanPage() {
           <label className="block text-sm font-medium text-[#a1a1aa] mb-2">
             Target Path
           </label>
-          <input
-            type="text"
-            value={targetPath}
-            onChange={(e) => setTargetPath(e.target.value)}
-            placeholder="/path/to/your/project"
-            disabled={!!isRunning}
-            className="w-full px-4 py-2.5 rounded-lg bg-[#141414] border border-[#262626] text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors disabled:opacity-50"
-          />
+          <div className="flex">
+            <input
+              type="text"
+              value={targetPath}
+              onChange={(e) => setTargetPath(e.target.value)}
+              placeholder="/path/to/your/project"
+              disabled={!!isRunning}
+              className="flex-1 px-4 py-2.5 rounded-l-lg bg-[#141414] border border-[#262626] border-r-0 text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              disabled={!!isRunning}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-r-lg bg-[#141414] border border-[#262626] text-[#a1a1aa] hover:bg-[#1a1a1a] hover:text-[#ededed] transition-colors disabled:opacity-50"
+            >
+              <FolderOpen size={16} />
+              <span className="text-sm">Browse</span>
+            </button>
+          </div>
         </div>
+
+        <DirectoryPicker
+          isOpen={pickerOpen}
+          onClose={() => setPickerOpen(false)}
+          onSelect={(path) => {
+            setTargetPath(path);
+            setPickerOpen(false);
+          }}
+          initialPath={targetPath || undefined}
+        />
 
         {/* Scan types */}
         <div>

@@ -13,6 +13,7 @@ from .models import (
     ScanType,
     Severity,
 )
+from .scoring import calculate_risk_score
 
 _db_path: str = settings.database_path
 
@@ -31,6 +32,8 @@ async def _get_db() -> aiosqlite.Connection:
 async def init_db() -> None:
     db = await _get_db()
     try:
+        await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA busy_timeout=5000")
         await db.execute("""
             CREATE TABLE IF NOT EXISTS scans (
                 id TEXT PRIMARY KEY,
@@ -218,12 +221,11 @@ async def get_scan_summary(scan_id: str) -> Optional[ScanSummary]:
             return None
 
         cursor = await db.execute(
-            """SELECT severity, COUNT(*) as cnt
-               FROM findings WHERE scan_id = ?
-               GROUP BY severity""",
+            "SELECT * FROM findings WHERE scan_id = ?",
             (scan_id,),
         )
-        severity_counts = {row["severity"]: row["cnt"] for row in await cursor.fetchall()}
+        rows = await cursor.fetchall()
+        findings = [_row_to_finding(row) for row in rows]
 
         cursor = await db.execute(
             "SELECT DISTINCT scanner FROM findings WHERE scan_id = ?",
@@ -231,23 +233,18 @@ async def get_scan_summary(scan_id: str) -> Optional[ScanSummary]:
         )
         scanners = [row["scanner"] for row in await cursor.fetchall()]
 
-        total = sum(severity_counts.values())
-        critical = severity_counts.get("critical", 0)
-        high = severity_counts.get("high", 0)
-        medium = severity_counts.get("medium", 0)
-        low = severity_counts.get("low", 0)
-        info = severity_counts.get("info", 0)
-
-        risk_score = critical * 10 + high * 5 + medium * 2 + low * 0.5 + info * 0
+        severity_counts = {s: 0 for s in Severity}
+        for f in findings:
+            severity_counts[f.severity] += 1
 
         return ScanSummary(
-            total_findings=total,
-            critical=critical,
-            high=high,
-            medium=medium,
-            low=low,
-            info=info,
-            risk_score=risk_score,
+            total_findings=len(findings),
+            critical=severity_counts[Severity.CRITICAL],
+            high=severity_counts[Severity.HIGH],
+            medium=severity_counts[Severity.MEDIUM],
+            low=severity_counts[Severity.LOW],
+            info=severity_counts[Severity.INFO],
+            risk_score=calculate_risk_score(findings),
             scanners_run=scanners,
         )
     finally:

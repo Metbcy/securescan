@@ -6,6 +6,8 @@ from ..models import Finding, ScanType
 class BaseScanner(ABC):
     name: str
     scan_type: ScanType
+    description: str = ""
+    checks: list[str] = []
 
     @abstractmethod
     async def scan(self, target_path: str, scan_id: str) -> list[Finding]:

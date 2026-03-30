@@ -11,6 +11,15 @@ from ..config import settings
 class BanditScanner(BaseScanner):
     name = "bandit"
     scan_type = ScanType.CODE
+    description = "Python-focused security linter that finds common security issues in Python code."
+    checks = [
+        "Use of unsafe functions (eval, exec, pickle)",
+        "Hardcoded passwords & bind addresses",
+        "Weak cryptographic algorithms",
+        "SQL injection via string formatting",
+        "Insecure temporary file creation",
+        "Try/except with bare pass (error suppression)",
+    ]
 
     async def is_available(self) -> bool:
         return shutil.which("bandit") is not None
@@ -65,7 +74,7 @@ class BanditScanner(BaseScanner):
                         description=r.get("issue_text", "No description"),
                         file_path=r.get("filename"),
                         line_start=r.get("line_number"),
-                        line_end=r.get("end_col_offset"),
+                        line_end=r.get("line_number"),
                         rule_id=r.get("test_id"),
                         cwe=cwe_str,
                         metadata={
@@ -78,8 +87,8 @@ class BanditScanner(BaseScanner):
                 scan_id=scan_id,
                 scanner=self.name,
                 scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Bandit scan timed out",
+                severity=Severity.HIGH,
+                title="INCOMPLETE SCAN: Bandit scan timed out",
                 description=f"Scan timed out after {settings.scan_timeout}s",
             ))
         except Exception as e:

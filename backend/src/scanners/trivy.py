@@ -10,6 +10,14 @@ from ..config import settings
 class TrivyScanner(BaseScanner):
     name = "trivy"
     scan_type = ScanType.DEPENDENCY
+    description = "Scans package manifests and lock files for known CVE vulnerabilities in your dependencies."
+    checks = [
+        "Known CVEs in npm/pip/gem/cargo packages",
+        "Outdated dependencies with security patches",
+        "OS package vulnerabilities",
+        "Container image vulnerabilities",
+        "License compliance issues",
+    ]
 
     async def is_available(self) -> bool:
         return shutil.which("trivy") is not None
@@ -61,8 +69,8 @@ class TrivyScanner(BaseScanner):
                 scan_id=scan_id,
                 scanner=self.name,
                 scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Trivy scan timed out",
+                severity=Severity.HIGH,
+                title="INCOMPLETE SCAN: Trivy scan timed out",
                 description=f"Scan timed out after {settings.scan_timeout}s",
             ))
         except Exception as e:
