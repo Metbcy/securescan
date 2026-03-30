@@ -3,7 +3,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 
 from ..database import (
     get_findings,
@@ -13,7 +13,7 @@ from ..database import (
     save_findings,
     save_scan,
 )
-from ..dedup import deduplicate_findings
+from ..dedup import deduplicate_findings, dedup_key
 from ..models import (
     Finding,
     Scan,
@@ -133,6 +133,50 @@ async def list_findings(
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
     return await get_findings(scan_id, severity=severity, scan_type=scan_type)
+
+
+@router.get("/compare")
+async def compare_scans(
+    scan_a: str = Query(..., description="Baseline scan ID"),
+    scan_b: str = Query(..., description="Latest scan ID"),
+):
+    """Compare two scans and show new, fixed, and unchanged findings."""
+    a = await get_scan(scan_a)
+    b = await get_scan(scan_b)
+    if a is None:
+        raise HTTPException(status_code=404, detail="Scan A not found")
+    if b is None:
+        raise HTTPException(status_code=404, detail="Scan B not found")
+
+    findings_a = await get_findings(scan_a)
+    findings_b = await get_findings(scan_b)
+
+    keyed_a = {dedup_key(f): f for f in findings_a}
+    keyed_b = {dedup_key(f): f for f in findings_b}
+
+    keys_a = set(keyed_a.keys())
+    keys_b = set(keyed_b.keys())
+
+    new_findings = [keyed_b[k] for k in keys_b - keys_a]
+    fixed_findings = [keyed_a[k] for k in keys_a - keys_b]
+    unchanged_findings = [keyed_b[k] for k in keys_a & keys_b]
+
+    risk_a = a.risk_score or 0.0
+    risk_b = b.risk_score or 0.0
+
+    return {
+        "scan_a": a,
+        "scan_b": b,
+        "new_findings": new_findings,
+        "fixed_findings": fixed_findings,
+        "unchanged_findings": unchanged_findings,
+        "summary": {
+            "new_count": len(new_findings),
+            "fixed_count": len(fixed_findings),
+            "unchanged_count": len(unchanged_findings),
+            "risk_delta": round(risk_b - risk_a, 2),
+        },
+    }
 
 
 @router.get("/{scan_id}/summary", response_model=ScanSummary)

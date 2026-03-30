@@ -2,17 +2,19 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ScanSearch, AlertTriangle, BarChart3 } from "lucide-react";
+import { ScanSearch, AlertTriangle, BarChart3, TrendingUp } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { RiskScore } from "@/components/risk-score";
 import { SeverityChart } from "@/components/severity-chart";
+import { TrendChart } from "@/components/trend-chart";
 import { FindingsTable } from "@/components/findings-table";
-import type { DashboardStats, Scan, ScanSummary, Finding } from "@/lib/api";
+import type { DashboardStats, Scan, ScanSummary, Finding, TrendPoint } from "@/lib/api";
 import {
   fetchDashboardStats,
   fetchScans,
   fetchScanSummary,
   fetchFindings,
+  fetchTrends,
 } from "@/lib/api";
 
 export default function Home() {
@@ -20,6 +22,7 @@ export default function Home() {
   const [latestScan, setLatestScan] = useState<Scan | null>(null);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
+  const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +34,9 @@ export default function Home() {
           fetchScans(),
         ]);
         setStats(statsData);
+
+        // Fetch trends (non-blocking — don't fail the page if this errors)
+        fetchTrends(30).then(setTrends).catch(() => {});
 
         if (scans.length > 0) {
           const latest = scans[0];
@@ -134,6 +140,17 @@ export default function Home() {
               info={summary.info}
             />
           </div>
+        </div>
+      )}
+
+      {/* Trend Chart */}
+      {trends.length > 0 && (
+        <div className="rounded-xl border border-[#262626] bg-[#141414] p-6">
+          <h2 className="text-sm font-medium text-[#a1a1aa] mb-4 flex items-center gap-2">
+            <TrendingUp size={16} />
+            Security Trends (30 days)
+          </h2>
+          <TrendChart data={trends} />
         </div>
       )}
 

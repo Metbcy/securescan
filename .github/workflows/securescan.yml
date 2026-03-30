@@ -1,0 +1,60 @@
+name: SecureScan Security Audit
+
+on:
+  workflow_call:
+    inputs:
+      scan_path:
+        description: 'Path to scan'
+        required: false
+        default: '.'
+        type: string
+      scan_types:
+        description: 'Scan types (comma-separated: code,dependency,baseline)'
+        required: false
+        default: 'code'
+        type: string
+      fail_on_severity:
+        description: 'Fail on severity threshold (critical,high,medium,low)'
+        required: false
+        default: 'high'
+        type: string
+      upload_sarif:
+        description: 'Upload SARIF to GitHub Security tab'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install SecureScan
+        run: |
+          pip install git+https://github.com/Metbcy/securescan.git#subdirectory=backend
+          pip install semgrep bandit
+
+      - name: Run Security Scan
+        run: |
+          TYPES=""
+          IFS=',' read -ra SCAN_TYPES <<< "${{ inputs.scan_types }}"
+          for type in "${SCAN_TYPES[@]}"; do
+            TYPES="$TYPES --type $type"
+          done
+          securescan scan ${{ inputs.scan_path }} $TYPES \
+            --output sarif \
+            --output-file results.sarif \
+            --fail-on-severity ${{ inputs.fail_on_severity }} || true
+
+      - name: Upload SARIF
+        if: inputs.upload_sarif && always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

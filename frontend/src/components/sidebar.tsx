@@ -11,11 +11,13 @@ import {
   Settings,
   Menu,
   X,
+  ArrowLeftRight,
 } from "lucide-react";
 
 const navItems = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "New Scan", href: "/scan", icon: ScanSearch },
+  { label: "Compare", href: "/compare", icon: ArrowLeftRight },
   { label: "History", href: "/history", icon: History },
   { label: "Scanners", href: "/scanners", icon: Settings },
 ];

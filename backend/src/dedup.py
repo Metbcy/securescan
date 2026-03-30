@@ -31,7 +31,7 @@ def deduplicate_findings(findings: list[Finding]) -> list[Finding]:
     return list(seen.values())
 
 
-def _dedup_key(finding: Finding) -> str:
+def dedup_key(finding: Finding) -> str:
     """Generate a deduplication key for a finding."""
     title_normalized = finding.title.lower().strip()
     # Remove scanner-specific prefixes
@@ -44,6 +44,10 @@ def _dedup_key(finding: Finding) -> str:
         title_normalized[:60],
     ]
     return "|".join(parts)
+
+
+# Keep backward-compatible alias
+_dedup_key = dedup_key
 
 
 def _severity_rank(severity: Severity) -> int:

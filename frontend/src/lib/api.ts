@@ -102,3 +102,68 @@ export async function startScan(targetPath: string, scanTypes: string[]): Promis
   if (!res.ok) throw new Error("Failed to start scan");
   return res.json();
 }
+
+// --- Directory browser ---
+
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
+
+export interface BrowseResult {
+  current: string;
+  parent: string | null;
+  entries: BrowseEntry[];
+}
+
+export async function browsePath(path?: string): Promise<BrowseResult> {
+  const params = path ? `?path=${encodeURIComponent(path)}` : "";
+  const res = await fetch(`${API_BASE}/api/browse${params}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to browse path");
+  return res.json();
+}
+
+// --- Scan comparison ---
+
+export interface CompareResult {
+  scan_a: Scan;
+  scan_b: Scan;
+  new_findings: Finding[];
+  fixed_findings: Finding[];
+  unchanged_findings: Finding[];
+  summary: {
+    new_count: number;
+    fixed_count: number;
+    unchanged_count: number;
+    risk_delta: number;
+  };
+}
+
+export async function compareScans(scanAId: string, scanBId: string): Promise<CompareResult> {
+  const res = await fetch(
+    `${API_BASE}/api/scans/compare?scan_a=${encodeURIComponent(scanAId)}&scan_b=${encodeURIComponent(scanBId)}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error("Failed to compare scans");
+  return res.json();
+}
+
+// --- Trends ---
+
+export interface TrendPoint {
+  date: string;
+  risk_score: number;
+  total_findings: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+export async function fetchTrends(days: number = 30): Promise<TrendPoint[]> {
+  const res = await fetch(`${API_BASE}/api/dashboard/trends?days=${days}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch trends");
+  const data = await res.json();
+  return data.data;
+}
