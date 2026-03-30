@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - SECURESCAN_DATABASE_PATH=/data/securescan.db
+      - SECURESCAN_GROQ_API_KEY=${GROQ_API_KEY:-}
+    volumes:
+      - scan-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock  # For container scanning
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  scan-data:
