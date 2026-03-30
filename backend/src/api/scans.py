@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from ..database import (
     get_findings,
@@ -21,7 +21,6 @@ from ..models import (
     ScanRequest,
     ScanStatus,
     ScanSummary,
-    Severity,
 )
 from ..scanners import get_scanners_for_types
 from ..scoring import build_summary
@@ -30,6 +29,8 @@ from ..ai import AIEnricher
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
+_RUNNING_SCAN_TASKS: dict[str, asyncio.Task[None]] = {}
+_CANCELLED_BY_USER = "Scan cancelled by user"
 
 
 def validate_target_path(path: str) -> str:
@@ -47,8 +48,16 @@ def validate_target_path(path: str) -> str:
     return normalized
 
 
-async def _run_scan(scan: Scan) -> None:
+async def _run_scan(scan_id: str) -> None:
     """Background task: execute scanners in parallel and persist results."""
+    scan = await get_scan(scan_id)
+    if scan is None:
+        logger.warning("Scan not found when trying to run: %s", scan_id)
+        return
+
+    if scan.status == ScanStatus.CANCELLED:
+        return
+
     try:
         scan.status = ScanStatus.RUNNING
         scan.started_at = datetime.now()
@@ -85,6 +94,10 @@ async def _run_scan(scan: Scan) -> None:
                 all_findings.extend(findings)
                 scanners_run.append(name)
 
+        latest_scan = await get_scan(scan.id)
+        if latest_scan is not None and latest_scan.status == ScanStatus.CANCELLED:
+            return
+
         # Deduplicate findings
         all_findings = deduplicate_findings(all_findings)
 
@@ -97,6 +110,10 @@ async def _run_scan(scan: Scan) -> None:
             ai_summary = await enricher.generate_summary(all_findings, summary)
             scan.summary = ai_summary
 
+        latest_scan = await get_scan(scan.id)
+        if latest_scan is not None and latest_scan.status == ScanStatus.CANCELLED:
+            return
+
         # Save findings AFTER AI enrichment so remediation text is persisted
         await save_findings(all_findings)
 
@@ -105,15 +122,26 @@ async def _run_scan(scan: Scan) -> None:
         scan.status = ScanStatus.COMPLETED
         scan.completed_at = datetime.now()
         await save_scan(scan)
+    except asyncio.CancelledError:
+        latest_scan = await get_scan(scan_id)
+        if latest_scan is not None and latest_scan.status != ScanStatus.CANCELLED:
+            latest_scan.status = ScanStatus.CANCELLED
+            latest_scan.error = _CANCELLED_BY_USER
+            latest_scan.completed_at = datetime.now()
+            await save_scan(latest_scan)
     except Exception as e:
-        scan.status = ScanStatus.FAILED
-        scan.error = str(e)
-        scan.completed_at = datetime.now()
-        await save_scan(scan)
+        latest_scan = await get_scan(scan_id)
+        if latest_scan is not None and latest_scan.status != ScanStatus.CANCELLED:
+            latest_scan.status = ScanStatus.FAILED
+            latest_scan.error = str(e)
+            latest_scan.completed_at = datetime.now()
+            await save_scan(latest_scan)
+    finally:
+        _RUNNING_SCAN_TASKS.pop(scan_id, None)
 
 
 @router.post("", response_model=Scan)
-async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
+async def create_scan(request: ScanRequest):
     """Start a new scan."""
     try:
         validated_path = validate_target_path(request.target_path)
@@ -125,7 +153,9 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         scan_types=request.scan_types,
     )
     await save_scan(scan)
-    background_tasks.add_task(_run_scan, scan)
+    task = asyncio.create_task(_run_scan(scan.id))
+    _RUNNING_SCAN_TASKS[scan.id] = task
+    task.add_done_callback(lambda _: _RUNNING_SCAN_TASKS.pop(scan.id, None))
     return scan
 
 
@@ -133,6 +163,31 @@ async def create_scan(request: ScanRequest, background_tasks: BackgroundTasks):
 async def list_scans():
     """List all scans."""
     return await get_scans()
+
+
+@router.post("/{scan_id}/cancel", response_model=Scan)
+async def cancel_scan(scan_id: str):
+    """Cancel an active scan."""
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.status in {ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot cancel scan in '{scan.status.value}' state",
+        )
+
+    scan.status = ScanStatus.CANCELLED
+    scan.error = _CANCELLED_BY_USER
+    scan.completed_at = datetime.now()
+    await save_scan(scan)
+
+    running_task = _RUNNING_SCAN_TASKS.get(scan_id)
+    if running_task is not None and not running_task.done():
+        running_task.cancel()
+
+    return scan
 
 
 @router.get("/compare")

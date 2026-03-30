@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen } from "lucide-react";
-import { startScan, fetchScan, fetchFindings, fetchScanSummary } from "@/lib/api";
+import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen, StopCircle } from "lucide-react";
+import { startScan, fetchScan, fetchFindings, fetchScanSummary, cancelScan } from "@/lib/api";
 import type { Scan, Finding, ScanSummary } from "@/lib/api";
 import { FindingsTable } from "@/components/findings-table";
 import { SeverityChart } from "@/components/severity-chart";
@@ -23,6 +23,7 @@ export default function NewScanPage() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -48,9 +49,9 @@ export default function NewScanPage() {
         ]);
         setFindings(fin);
         setSummary(sum);
-      } else if (updated.status === "failed") {
+      } else if (updated.status === "failed" || updated.status === "cancelled") {
         localStorage.removeItem("securescan_active_scan");
-        setError(updated.error || "Scan failed");
+        setError(updated.error || (updated.status === "cancelled" ? "Scan cancelled" : "Scan failed"));
       } else {
         setTimeout(() => poll(scanId), 2000);
       }
@@ -73,9 +74,9 @@ export default function NewScanPage() {
             Promise.all([fetchFindings(scanId), fetchScanSummary(scanId)]).then(
               ([fin, sum]) => { setFindings(fin); setSummary(sum); }
             );
-          } else if (s.status === "failed") {
+          } else if (s.status === "failed" || s.status === "cancelled") {
             localStorage.removeItem("securescan_active_scan");
-            setError(s.error || "Scan failed");
+            setError(s.error || (s.status === "cancelled" ? "Scan cancelled" : "Scan failed"));
           } else {
             poll(scanId);
           }
@@ -106,7 +107,7 @@ export default function NewScanPage() {
         scanId: newScan.id,
         targetPath: targetPath.trim(),
       }));
-      if (newScan.status === "completed" || newScan.status === "failed") {
+      if (newScan.status === "completed" || newScan.status === "failed" || newScan.status === "cancelled") {
         localStorage.removeItem("securescan_active_scan");
         if (newScan.status === "completed") {
           const [fin, sum] = await Promise.all([
@@ -116,7 +117,7 @@ export default function NewScanPage() {
           setFindings(fin);
           setSummary(sum);
         } else {
-          setError(newScan.error || "Scan failed");
+          setError(newScan.error || (newScan.status === "cancelled" ? "Scan cancelled" : "Scan failed"));
         }
       } else {
         poll(newScan.id);
@@ -125,6 +126,22 @@ export default function NewScanPage() {
       setError("Failed to start scan. Is the backend running?");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!scan) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      const updated = await cancelScan(scan.id);
+      setScan(updated);
+      localStorage.removeItem("securescan_active_scan");
+      setError(updated.error || "Scan cancelled");
+    } catch {
+      setError("Failed to stop scan");
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -248,6 +265,24 @@ export default function NewScanPage() {
           <p className="text-xs text-blue-400/60 mt-1">
             Status: {scan.status} • Polling every 2s
           </p>
+          <button
+            type="button"
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {cancelling ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Stopping…
+              </>
+            ) : (
+              <>
+                <StopCircle size={14} />
+                Stop Scan
+              </>
+            )}
+          </button>
         </div>
       )}
 

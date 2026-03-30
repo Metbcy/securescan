@@ -6,6 +6,9 @@ from .baseline import BaselineScanner
 from .secrets import SecretsScanner
 from .safety import SafetyScanner
 from .license_checker import LicenseScanner
+from .dockerfile import DockerfileScanner
+from .npm_audit import NpmAuditScanner
+from .gitleaks import GitHygieneScanner
 
 ALL_SCANNERS = [
     SemgrepScanner(),
@@ -16,6 +19,9 @@ ALL_SCANNERS = [
     SecretsScanner(),
     SafetyScanner(),
     LicenseScanner(),
+    DockerfileScanner(),
+    NpmAuditScanner(),
+    GitHygieneScanner(),
 ]
 
 

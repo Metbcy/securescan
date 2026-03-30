@@ -4,7 +4,7 @@ AI-powered security scanning dashboard that orchestrates multiple open-source se
 
 ## Features
 
-- **Multi-scanner orchestration** — Semgrep, Bandit, Trivy, Checkov, and custom baseline checks
+- **Multi-scanner orchestration** — 11 scanners across code, dependency, IaC, and baseline categories
 - **AI-powered analysis** — Groq/Llama 3 enrichment for remediation suggestions and executive summaries
 - **Risk scoring** — Aggregate 0-100 risk score with severity-weighted algorithm
 - **Dashboard** — Clean, modern Next.js dashboard with charts and findings tables
@@ -42,10 +42,10 @@ source venv/bin/activate
 pip install -e .
 
 # Install scanners
-pip install semgrep bandit
+pip install semgrep bandit safety pip-licenses checkov
 
 # Optional: Trivy (see https://trivy.dev)
-# Optional: Checkov (pip install checkov)
+# Optional: Node.js/npm (for npm-audit scanner)
 ```
 
 ### CLI Usage
@@ -89,8 +89,14 @@ docker compose up
 |---------|------|--------------|
 | **Semgrep** | Code (SAST) | SQL injection, XSS, hardcoded secrets, command injection |
 | **Bandit** | Code (Python) | Python-specific security issues, insecure imports |
-| **Trivy** | Dependencies | Known CVEs in packages (requirements.txt, package.json) |
-| **Checkov** | IaC | Terraform, K8s, Docker misconfigurations |
+| **Secrets** | Code | Hardcoded credentials, API keys, tokens, private keys |
+| **Git Hygiene** | Code | Sensitive files in repo, missing `.gitignore` protections |
+| **Trivy** | Dependencies | Known CVEs in package manifests and lockfiles |
+| **Safety** | Dependencies | Python dependency vulnerabilities from safety DB |
+| **License Checker** | Dependencies | Copyleft/unknown license compliance risks |
+| **npm Audit** | Dependencies | npm package advisories and transitive vulns |
+| **Checkov** | IaC | Terraform, K8s, Docker, and cloud misconfigurations |
+| **Dockerfile** | IaC | Insecure Docker patterns (`:latest`, root user, `curl \| sh`, secrets in `ENV`) |
 | **Baseline** | System Config | SSH, firewall, password policy, kernel security checks |
 
 ## AI Enrichment
@@ -115,8 +121,13 @@ Features:
 | GET | `/api/scans/{id}` | Get scan details |
 | GET | `/api/scans/{id}/findings` | Get scan findings |
 | GET | `/api/scans/{id}/summary` | Get scan summary |
+| POST | `/api/scans/{id}/cancel` | Cancel an active scan |
+| GET | `/api/scans/compare` | Compare two scans (new, fixed, unchanged) |
 | GET | `/api/dashboard/status` | Scanner availability |
 | GET | `/api/dashboard/stats` | Aggregate statistics |
+| GET | `/api/dashboard/trends` | Risk/findings trend data |
+| GET | `/api/browse` | Filesystem directory picker data |
+| POST | `/api/dashboard/install/{scanner}` | Install supported scanners |
 
 ## Running Tests
 
@@ -131,7 +142,7 @@ pytest tests/ -v
 - **Backend**: Python, FastAPI, SQLite, asyncio
 - **Frontend**: Next.js 15, Tailwind CSS, Recharts
 - **AI**: Groq API (Llama 3)
-- **Scanners**: Semgrep, Bandit, Trivy, Checkov
+- **Scanners**: 11 integrated scanners (code, dependency, IaC, baseline)
 
 ## License
 

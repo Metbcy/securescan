@@ -21,7 +21,7 @@ export interface Scan {
   id: string;
   target_path: string;
   scan_types: string[];
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   started_at?: string;
   completed_at?: string;
   findings_count: number;
@@ -110,6 +110,12 @@ export async function startScan(targetPath: string, scanTypes: string[]): Promis
     body: JSON.stringify({ target_path: targetPath, scan_types: scanTypes }),
   });
   if (!res.ok) throw new Error("Failed to start scan");
+  return res.json();
+}
+
+export async function cancelScan(scanId: string): Promise<Scan> {
+  const res = await fetch(`${API_BASE}/api/scans/${scanId}/cancel`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to cancel scan");
   return res.json();
 }
 

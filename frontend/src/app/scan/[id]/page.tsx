@@ -15,6 +15,7 @@ const STATUS_ICON: Record<string, React.ElementType> = {
   running: Clock,
   failed: XCircle,
   pending: Clock,
+  cancelled: AlertTriangle,
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -22,6 +23,7 @@ const STATUS_COLOR: Record<string, string> = {
   running: "text-blue-400",
   failed: "text-red-400",
   pending: "text-zinc-400",
+  cancelled: "text-amber-400",
 };
 
 export default function ScanDetailPage() {
@@ -152,10 +154,22 @@ export default function ScanDetailPage() {
       )}
 
       {/* Error info */}
-      {scan.status === "failed" && scan.error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-5">
-          <h2 className="text-sm font-medium text-red-400 mb-2">Error</h2>
-          <p className="text-sm text-red-300 font-mono">{scan.error}</p>
+      {(scan.status === "failed" || scan.status === "cancelled") && scan.error && (
+        <div className={`rounded-xl p-5 ${
+          scan.status === "failed"
+            ? "border border-red-500/20 bg-red-500/10"
+            : "border border-amber-500/20 bg-amber-500/10"
+        }`}>
+          <h2 className={`text-sm font-medium mb-2 ${
+            scan.status === "failed" ? "text-red-400" : "text-amber-300"
+          }`}>
+            {scan.status === "failed" ? "Error" : "Cancelled"}
+          </h2>
+          <p className={`text-sm font-mono ${
+            scan.status === "failed" ? "text-red-300" : "text-amber-200"
+          }`}>
+            {scan.error}
+          </p>
         </div>
       )}
     </div>

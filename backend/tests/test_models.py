@@ -10,6 +10,14 @@ def test_severity_enum():
     assert Severity.INFO.value == "info"
 
 
+def test_scan_status_enum():
+    assert ScanStatus.PENDING.value == "pending"
+    assert ScanStatus.RUNNING.value == "running"
+    assert ScanStatus.COMPLETED.value == "completed"
+    assert ScanStatus.FAILED.value == "failed"
+    assert ScanStatus.CANCELLED.value == "cancelled"
+
+
 def test_finding_creation():
     f = Finding(
         scan_id="test-scan",

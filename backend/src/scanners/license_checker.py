@@ -93,7 +93,7 @@ class LicenseScanner(BaseScanner):
         findings = []
         try:
             proc = await asyncio.create_subprocess_exec(
-                "npx", "license-checker", "--json", "--start", str(target),
+                "npx", "--yes", "license-checker", "--json", "--start", str(target),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
