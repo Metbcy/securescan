@@ -41,6 +41,7 @@ export default function NewScanPage() {
       setScan(updated);
 
       if (updated.status === "completed") {
+        localStorage.removeItem("securescan_active_scan");
         const [fin, sum] = await Promise.all([
           fetchFindings(scanId),
           fetchScanSummary(scanId),
@@ -48,6 +49,7 @@ export default function NewScanPage() {
         setFindings(fin);
         setSummary(sum);
       } else if (updated.status === "failed") {
+        localStorage.removeItem("securescan_active_scan");
         setError(updated.error || "Scan failed");
       } else {
         setTimeout(() => poll(scanId), 2000);
@@ -56,6 +58,35 @@ export default function NewScanPage() {
       setError("Failed to poll scan status");
     }
   }, []);
+
+  // Restore active scan on mount
+  useEffect(() => {
+    const activeScan = localStorage.getItem("securescan_active_scan");
+    if (activeScan) {
+      try {
+        const { scanId, targetPath: savedPath } = JSON.parse(activeScan);
+        setTargetPath(savedPath || "");
+        fetchScan(scanId).then((s) => {
+          setScan(s);
+          if (s.status === "completed") {
+            localStorage.removeItem("securescan_active_scan");
+            Promise.all([fetchFindings(scanId), fetchScanSummary(scanId)]).then(
+              ([fin, sum]) => { setFindings(fin); setSummary(sum); }
+            );
+          } else if (s.status === "failed") {
+            localStorage.removeItem("securescan_active_scan");
+            setError(s.error || "Scan failed");
+          } else {
+            poll(scanId);
+          }
+        }).catch(() => {
+          localStorage.removeItem("securescan_active_scan");
+        });
+      } catch {
+        localStorage.removeItem("securescan_active_scan");
+      }
+    }
+  }, [poll]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,7 +101,13 @@ export default function NewScanPage() {
     try {
       const newScan = await startScan(targetPath.trim(), Array.from(selectedTypes));
       setScan(newScan);
+      // Persist active scan to localStorage
+      localStorage.setItem("securescan_active_scan", JSON.stringify({
+        scanId: newScan.id,
+        targetPath: targetPath.trim(),
+      }));
       if (newScan.status === "completed" || newScan.status === "failed") {
+        localStorage.removeItem("securescan_active_scan");
         if (newScan.status === "completed") {
           const [fin, sum] = await Promise.all([
             fetchFindings(newScan.id),
