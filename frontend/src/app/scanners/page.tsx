@@ -130,6 +130,33 @@ export default function ScannersPage() {
                   {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   {isExpanded ? "Hide" : "Show"} what it checks ({scanner.checks.length})
                 </button>
+
+                {!scanner.available && (
+                  <div className="mt-4 p-3 rounded-lg bg-[#0e0e0e] border border-[#1a1a1a] flex items-center justify-between gap-3">
+                    <p className="text-xs text-[#71717a] font-mono">
+                      {scanner.install_hint || `Install ${scanner.name} to enable`}
+                    </p>
+                    {scanner.installable && (
+                      <button
+                        onClick={() => handleInstall(scanner.name)}
+                        disabled={installing === scanner.name}
+                        className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {installing === scanner.name ? (
+                          <>
+                            <Loader2 size={12} className="animate-spin" />
+                            Installing…
+                          </>
+                        ) : (
+                          <>
+                            <Download size={12} />
+                            Install
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {isExpanded && (
@@ -142,33 +169,6 @@ export default function ScannersPage() {
                       </li>
                     ))}
                   </ul>
-
-                  {!scanner.available && (
-                    <div className="mt-3 p-3 rounded-lg bg-[#0e0e0e] border border-[#1a1a1a] flex items-center justify-between gap-3">
-                      <p className="text-xs text-[#71717a] font-mono">
-                        {scanner.install_hint || `Install ${scanner.name} to enable`}
-                      </p>
-                      {scanner.installable && (
-                        <button
-                          onClick={() => handleInstall(scanner.name)}
-                          disabled={installing === scanner.name}
-                          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {installing === scanner.name ? (
-                            <>
-                              <Loader2 size={12} className="animate-spin" />
-                              Installing…
-                            </>
-                          ) : (
-                            <>
-                              <Download size={12} />
-                              Install
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>

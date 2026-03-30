@@ -8,13 +8,15 @@ from src.models import ScanType
 
 
 def test_all_scanners_registered():
-    assert len(ALL_SCANNERS) == 6
+    assert len(ALL_SCANNERS) == 8
     names = [s.name for s in ALL_SCANNERS]
     assert "semgrep" in names
     assert "bandit" in names
     assert "trivy" in names
     assert "checkov" in names
     assert "baseline" in names
+    assert "safety" in names
+    assert "licenses" in names
 
 
 def test_get_scanners_for_code():
@@ -29,7 +31,9 @@ def test_get_scanners_for_dependency():
     scanners = get_scanners_for_types([ScanType.DEPENDENCY])
     names = [s.name for s in scanners]
     assert "trivy" in names
-    assert len(scanners) == 1
+    assert "safety" in names
+    assert "licenses" in names
+    assert len(scanners) == 3
 
 
 def test_get_scanners_for_baseline():

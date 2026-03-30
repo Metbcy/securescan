@@ -87,11 +87,14 @@ async def browse_directory(path: str | None = Query(default=None)):
 
 import asyncio as _asyncio
 
-# Allowed pip-installable scanners
+# Installable scanners with their install method
 INSTALLABLE_SCANNERS = {
-    "checkov": "checkov",
-    "semgrep": "semgrep",
-    "bandit": "bandit",
+    "checkov": {"method": "pip", "package": "checkov"},
+    "semgrep": {"method": "pip", "package": "semgrep"},
+    "bandit": {"method": "pip", "package": "bandit"},
+    "safety": {"method": "pip", "package": "safety"},
+    "licenses": {"method": "pip", "package": "pip-licenses"},
+    "trivy": {"method": "script", "command": ["sh", "-c", "curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin"]},
 }
 
 
@@ -110,22 +113,30 @@ async def scanner_status():
             "description": scanner.description,
             "checks": scanner.checks,
             "install_hint": scanner.install_hint if not available else None,
-            "installable": installable and not available,
+            "installable": installable,
         })
     return {"scanners": statuses}
 
 
 @router.post("/install/{scanner_name}")
 async def install_scanner(scanner_name: str):
-    """Install a pip-installable scanner."""
+    """Install a scanner via pip or a custom script."""
     if scanner_name not in INSTALLABLE_SCANNERS:
         raise HTTPException(status_code=400, detail=f"Scanner '{scanner_name}' cannot be auto-installed. Install it manually.")
 
-    package = INSTALLABLE_SCANNERS[scanner_name]
+    info = INSTALLABLE_SCANNERS[scanner_name]
+    method = info["method"]
 
     try:
+        if method == "pip":
+            cmd = ["pip", "install", info["package"]]
+        elif method == "script":
+            cmd = info["command"]
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown install method '{method}'")
+
         proc = await _asyncio.create_subprocess_exec(
-            "pip", "install", package,
+            *cmd,
             stdout=_asyncio.subprocess.PIPE,
             stderr=_asyncio.subprocess.PIPE,
         )

@@ -4,6 +4,8 @@ from .trivy import TrivyScanner
 from .checkov import CheckovScanner
 from .baseline import BaselineScanner
 from .secrets import SecretsScanner
+from .safety import SafetyScanner
+from .license_checker import LicenseScanner
 
 ALL_SCANNERS = [
     SemgrepScanner(),
@@ -12,6 +14,8 @@ ALL_SCANNERS = [
     CheckovScanner(),
     BaselineScanner(),
     SecretsScanner(),
+    SafetyScanner(),
+    LicenseScanner(),
 ]
 
 
