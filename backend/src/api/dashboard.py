@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from ..database import get_scans, get_findings
@@ -85,6 +85,15 @@ async def browse_directory(path: str | None = Query(default=None)):
 # Dashboard endpoints
 # ---------------------------------------------------------------------------
 
+import asyncio as _asyncio
+
+# Allowed pip-installable scanners
+INSTALLABLE_SCANNERS = {
+    "checkov": "checkov",
+    "semgrep": "semgrep",
+    "bandit": "bandit",
+}
+
 
 @router.get("/status")
 async def scanner_status():
@@ -92,6 +101,7 @@ async def scanner_status():
     statuses = []
     for scanner in ALL_SCANNERS:
         available, message = await scanner.check_or_warn()
+        installable = scanner.name in INSTALLABLE_SCANNERS
         statuses.append({
             "name": scanner.name,
             "scan_type": scanner.scan_type.value,
@@ -100,8 +110,43 @@ async def scanner_status():
             "description": scanner.description,
             "checks": scanner.checks,
             "install_hint": scanner.install_hint if not available else None,
+            "installable": installable and not available,
         })
     return {"scanners": statuses}
+
+
+@router.post("/install/{scanner_name}")
+async def install_scanner(scanner_name: str):
+    """Install a pip-installable scanner."""
+    if scanner_name not in INSTALLABLE_SCANNERS:
+        raise HTTPException(status_code=400, detail=f"Scanner '{scanner_name}' cannot be auto-installed. Install it manually.")
+
+    package = INSTALLABLE_SCANNERS[scanner_name]
+
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "pip", "install", package,
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await _asyncio.wait_for(proc.communicate(), timeout=120)
+
+        if proc.returncode == 0:
+            return {
+                "success": True,
+                "message": f"Successfully installed {scanner_name}",
+                "output": stdout.decode(errors="ignore").strip(),
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Failed to install {scanner_name}",
+                "output": stderr.decode(errors="ignore").strip(),
+            }
+    except _asyncio.TimeoutError:
+        return {"success": False, "message": f"Installation of {scanner_name} timed out"}
+    except Exception as e:
+        return {"success": False, "message": f"Error installing {scanner_name}: {str(e)}"}
 
 
 @router.get("/stats")

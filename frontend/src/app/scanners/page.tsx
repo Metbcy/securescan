@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle, XCircle, Settings, Shield, ChevronDown, ChevronUp } from "lucide-react";
-import { fetchScannerStatus } from "@/lib/api";
+import { AlertTriangle, CheckCircle, XCircle, Settings, Shield, ChevronDown, ChevronUp, Download, Loader2 } from "lucide-react";
+import { fetchScannerStatus, installScanner } from "@/lib/api";
 import type { ScannerStatus } from "@/lib/api";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -17,6 +17,7 @@ export default function ScannersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [installing, setInstalling] = useState<string | null>(null);
 
   const toggleExpand = (name: string) => {
     setExpanded((prev) => {
@@ -25,6 +26,24 @@ export default function ScannersPage() {
       else next.add(name);
       return next;
     });
+  };
+
+  const handleInstall = async (name: string) => {
+    setInstalling(name);
+    try {
+      const result = await installScanner(name);
+      if (result.success) {
+        // Refresh scanner list
+        const updated = await fetchScannerStatus();
+        setScanners(updated);
+      } else {
+        setError(result.message);
+      }
+    } catch {
+      setError(`Failed to install ${name}`);
+    } finally {
+      setInstalling(null);
+    }
   };
 
   useEffect(() => {
@@ -124,11 +143,30 @@ export default function ScannersPage() {
                     ))}
                   </ul>
 
-                  {!scanner.available && scanner.install_hint && (
-                    <div className="mt-3 p-3 rounded-lg bg-[#0e0e0e] border border-[#1a1a1a]">
+                  {!scanner.available && (
+                    <div className="mt-3 p-3 rounded-lg bg-[#0e0e0e] border border-[#1a1a1a] flex items-center justify-between gap-3">
                       <p className="text-xs text-[#71717a] font-mono">
-                        Install: {scanner.install_hint}
+                        {scanner.install_hint || `Install ${scanner.name} to enable`}
                       </p>
+                      {scanner.installable && (
+                        <button
+                          onClick={() => handleInstall(scanner.name)}
+                          disabled={installing === scanner.name}
+                          className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {installing === scanner.name ? (
+                            <>
+                              <Loader2 size={12} className="animate-spin" />
+                              Installing…
+                            </>
+                          ) : (
+                            <>
+                              <Download size={12} />
+                              Install
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

@@ -55,6 +55,13 @@ export interface ScannerStatus {
   description: string;
   checks: string[];
   install_hint: string | null;
+  installable: boolean;
+}
+
+export async function installScanner(name: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${API_BASE}/api/dashboard/install/${name}`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to install scanner");
+  return res.json();
 }
 
 export async function fetchScans(): Promise<Scan[]> {

@@ -135,28 +135,6 @@ async def list_scans():
     return await get_scans()
 
 
-@router.get("/{scan_id}", response_model=Scan)
-async def read_scan(scan_id: str):
-    """Get scan details."""
-    scan = await get_scan(scan_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    return scan
-
-
-@router.get("/{scan_id}/findings", response_model=list[Finding])
-async def list_findings(
-    scan_id: str,
-    severity: Optional[str] = None,
-    scan_type: Optional[str] = None,
-):
-    """Get findings for a scan, optionally filtered by severity or scan_type."""
-    scan = await get_scan(scan_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="Scan not found")
-    return await get_findings(scan_id, severity=severity, scan_type=scan_type)
-
-
 @router.get("/compare")
 async def compare_scans(
     scan_a: str = Query(..., description="Baseline scan ID"),
@@ -199,6 +177,28 @@ async def compare_scans(
             "risk_delta": round(risk_b - risk_a, 2),
         },
     }
+
+
+@router.get("/{scan_id}", response_model=Scan)
+async def read_scan(scan_id: str):
+    """Get scan details."""
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return scan
+
+
+@router.get("/{scan_id}/findings", response_model=list[Finding])
+async def list_findings(
+    scan_id: str,
+    severity: Optional[str] = None,
+    scan_type: Optional[str] = None,
+):
+    """Get findings for a scan, optionally filtered by severity or scan_type."""
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return await get_findings(scan_id, severity=severity, scan_type=scan_type)
 
 
 @router.get("/{scan_id}/summary", response_model=ScanSummary)
