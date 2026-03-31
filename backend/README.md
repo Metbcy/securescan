@@ -15,7 +15,7 @@ pip install -e .
 
 ```bash
 pip install semgrep bandit
-# For Trivy: see https://trivy.dev/latest/getting-started/installation/
+# For Trivy: see https://trivy.dev/docs/latest/getting-started/installation/
 ```
 
 ## Usage

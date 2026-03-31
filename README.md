@@ -44,7 +44,7 @@ pip install -e .
 # Install scanners
 pip install semgrep bandit safety pip-licenses checkov
 
-# Optional: Trivy (see https://trivy.dev)
+# Optional: Trivy (see https://trivy.dev/docs/latest/getting-started/installation/)
 # Optional: Node.js/npm (for npm-audit scanner)
 ```
 
@@ -57,7 +57,7 @@ py -3 -m venv venv
 python -m pip install -e .
 pip install semgrep bandit safety pip-licenses checkov
 
-# Optional: Trivy (see https://trivy.dev)
+# Optional: Trivy (see https://trivy.dev/docs/latest/getting-started/installation/)
 # Optional: Node.js/npm (for npm-audit scanner)
 
 # Optional AI key

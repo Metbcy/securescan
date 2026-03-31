@@ -24,7 +24,7 @@ class TrivyScanner(BaseScanner):
 
     @property
     def install_hint(self) -> str:
-        return "See https://trivy.dev/latest/getting-started/installation/"
+        return "See https://trivy.dev/docs/latest/getting-started/installation/"
 
     async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
         findings: list[Finding] = []
