@@ -1,0 +1,87 @@
+{
+  "framework": "SOC 2",
+  "version": "2017 Trust Services Criteria",
+  "controls": {
+    "SOC2-CC6": {
+      "name": "Logical and Physical Access Controls",
+      "cwes": [
+        "CWE-250", "CWE-255", "CWE-264", "CWE-269", "CWE-276", "CWE-284",
+        "CWE-285", "CWE-287", "CWE-306", "CWE-521", "CWE-522", "CWE-639",
+        "CWE-732", "CWE-798", "CWE-862", "CWE-863"
+      ],
+      "keywords": [
+        "access control", "authentication", "authorization", "privilege",
+        "credential", "hardcoded password", "least privilege", "MFA"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-CC7": {
+      "name": "System Operations",
+      "cwes": [
+        "CWE-117", "CWE-223", "CWE-532", "CWE-778"
+      ],
+      "keywords": [
+        "monitoring", "logging", "incident detection", "vulnerability management"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-CC8": {
+      "name": "Change Management",
+      "cwes": [],
+      "keywords": [
+        "change management", "code review", "deployment"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-CC9": {
+      "name": "Risk Mitigation",
+      "cwes": [
+        "CWE-1035", "CWE-1104"
+      ],
+      "keywords": [
+        "risk assessment", "vendor management", "third party", "vulnerability"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-C1": {
+      "name": "Confidentiality",
+      "cwes": [
+        "CWE-200", "CWE-311", "CWE-312", "CWE-319", "CWE-326", "CWE-327",
+        "CWE-359", "CWE-497", "CWE-522", "CWE-532"
+      ],
+      "keywords": [
+        "confidential", "encryption", "data protection", "sensitive data",
+        "PII", "data leak", "information disclosure"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-A1": {
+      "name": "Availability",
+      "cwes": [],
+      "keywords": [
+        "availability", "backup", "disaster recovery", "redundancy", "failover"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-PI1": {
+      "name": "Processing Integrity",
+      "cwes": [
+        "CWE-20", "CWE-74", "CWE-79", "CWE-89", "CWE-94", "CWE-502"
+      ],
+      "keywords": [
+        "input validation", "data integrity", "injection", "data processing"
+      ],
+      "rule_ids": {}
+    },
+    "SOC2-P1": {
+      "name": "Privacy",
+      "cwes": [
+        "CWE-200", "CWE-359", "CWE-532"
+      ],
+      "keywords": [
+        "privacy", "PII", "personal data", "GDPR", "data subject", "consent"
+      ],
+      "rule_ids": {}
+    }
+  }
+}

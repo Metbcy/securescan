@@ -1,0 +1,177 @@
+{
+  "framework": "CIS Controls",
+  "version": "v8",
+  "controls": {
+    "CIS-01": {
+      "name": "Inventory and Control of Enterprise Assets",
+      "cwes": [],
+      "keywords": [
+        "asset inventory"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-02": {
+      "name": "Inventory and Control of Software Assets",
+      "cwes": [
+        "CWE-1035", "CWE-1104"
+      ],
+      "keywords": [
+        "software inventory", "SBOM"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-03": {
+      "name": "Data Protection",
+      "cwes": [
+        "CWE-311", "CWE-312", "CWE-319", "CWE-326", "CWE-327", "CWE-522"
+      ],
+      "keywords": [
+        "data protection", "encryption at rest", "encryption in transit",
+        "sensitive data", "PII"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-04": {
+      "name": "Secure Configuration",
+      "cwes": [
+        "CWE-2", "CWE-16", "CWE-260", "CWE-521", "CWE-756"
+      ],
+      "keywords": [
+        "hardening", "secure configuration", "default configuration",
+        "default password", "CIS benchmark", "security baseline"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-05": {
+      "name": "Account Management",
+      "cwes": [
+        "CWE-250", "CWE-269", "CWE-276", "CWE-284", "CWE-732"
+      ],
+      "keywords": [
+        "account management", "privileged account", "admin account",
+        "service account", "least privilege"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-06": {
+      "name": "Access Control Management",
+      "cwes": [
+        "CWE-264", "CWE-284", "CWE-285", "CWE-639", "CWE-862", "CWE-863"
+      ],
+      "keywords": [
+        "access control", "role-based", "RBAC", "authorization", "permission"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-07": {
+      "name": "Continuous Vulnerability Management",
+      "cwes": [
+        "CWE-1035", "CWE-1104"
+      ],
+      "keywords": [
+        "vulnerability scan", "CVE", "patch management",
+        "vulnerability management", "outdated"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-08": {
+      "name": "Audit Log Management",
+      "cwes": [
+        "CWE-117", "CWE-223", "CWE-532", "CWE-778"
+      ],
+      "keywords": [
+        "audit log", "logging", "log management", "log retention"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-09": {
+      "name": "Email and Web Browser Protections",
+      "cwes": [
+        "CWE-79", "CWE-601"
+      ],
+      "keywords": [
+        "email security", "phishing", "browser security",
+        "content security policy", "CSP"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-10": {
+      "name": "Malware Defenses",
+      "cwes": [
+        "CWE-494", "CWE-829"
+      ],
+      "keywords": [
+        "malware", "antivirus"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-11": {
+      "name": "Data Recovery",
+      "cwes": [],
+      "keywords": [
+        "backup", "data recovery", "disaster recovery"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-12": {
+      "name": "Network Infrastructure Management",
+      "cwes": [
+        "CWE-757", "CWE-319"
+      ],
+      "keywords": [
+        "network segmentation", "firewall", "network security", "TLS", "SSL"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-13": {
+      "name": "Network Monitoring and Defense",
+      "cwes": [],
+      "keywords": [
+        "IDS", "IPS", "network monitoring"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-14": {
+      "name": "Security Awareness and Skills Training",
+      "cwes": [],
+      "keywords": [],
+      "rule_ids": {}
+    },
+    "CIS-15": {
+      "name": "Service Provider Management",
+      "cwes": [],
+      "keywords": [
+        "third party", "vendor", "supply chain"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-16": {
+      "name": "Application Software Security",
+      "cwes": [
+        "CWE-20", "CWE-74", "CWE-79", "CWE-89", "CWE-94", "CWE-116",
+        "CWE-502", "CWE-611", "CWE-798", "CWE-918"
+      ],
+      "keywords": [
+        "SAST", "DAST", "code review", "secure coding",
+        "input validation", "output encoding"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-17": {
+      "name": "Incident Response Management",
+      "cwes": [],
+      "keywords": [
+        "incident response"
+      ],
+      "rule_ids": {}
+    },
+    "CIS-18": {
+      "name": "Penetration Testing",
+      "cwes": [],
+      "keywords": [
+        "penetration test", "pentest", "red team"
+      ],
+      "rule_ids": {}
+    }
+  }
+}

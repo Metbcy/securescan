@@ -1,0 +1,117 @@
+{
+  "framework": "PCI DSS",
+  "version": "v4.0",
+  "controls": {
+    "PCI-1": {
+      "name": "Network Security Controls",
+      "cwes": [],
+      "keywords": [
+        "firewall", "network segmentation"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-2": {
+      "name": "Secure Configurations",
+      "cwes": [
+        "CWE-2", "CWE-16", "CWE-260", "CWE-756"
+      ],
+      "keywords": [
+        "default password", "hardening", "secure configuration"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-3": {
+      "name": "Protect Stored Account Data",
+      "cwes": [
+        "CWE-311", "CWE-312", "CWE-316", "CWE-326"
+      ],
+      "keywords": [
+        "data at rest", "encryption at rest", "stored credentials"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-4": {
+      "name": "Strong Cryptography During Transmission",
+      "cwes": [
+        "CWE-319", "CWE-326", "CWE-327", "CWE-757"
+      ],
+      "keywords": [
+        "TLS", "SSL", "encryption in transit", "cleartext", "plaintext"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-5": {
+      "name": "Protect from Malicious Software",
+      "cwes": [
+        "CWE-494", "CWE-829"
+      ],
+      "keywords": [
+        "malware", "antivirus"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-6": {
+      "name": "Develop and Maintain Secure Systems",
+      "cwes": [
+        "CWE-20", "CWE-74", "CWE-79", "CWE-89", "CWE-94", "CWE-116",
+        "CWE-434", "CWE-502", "CWE-611", "CWE-798", "CWE-918"
+      ],
+      "keywords": [
+        "secure coding", "code review", "vulnerability", "injection",
+        "XSS", "SQL injection", "SAST", "input validation"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-7": {
+      "name": "Restrict Access by Business Need",
+      "cwes": [
+        "CWE-264", "CWE-284", "CWE-285", "CWE-732", "CWE-862"
+      ],
+      "keywords": [
+        "access control", "least privilege", "need to know", "RBAC"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-8": {
+      "name": "Identify Users and Authenticate Access",
+      "cwes": [
+        "CWE-255", "CWE-287", "CWE-307", "CWE-521", "CWE-522", "CWE-798"
+      ],
+      "keywords": [
+        "authentication", "MFA", "multi-factor", "password policy",
+        "credential", "hardcoded password"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-9": {
+      "name": "Restrict Physical Access",
+      "cwes": [],
+      "keywords": [],
+      "rule_ids": {}
+    },
+    "PCI-10": {
+      "name": "Log and Monitor All Access",
+      "cwes": [
+        "CWE-117", "CWE-223", "CWE-532", "CWE-778"
+      ],
+      "keywords": [
+        "audit log", "logging", "monitoring", "log integrity"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-11": {
+      "name": "Test Security Regularly",
+      "cwes": [],
+      "keywords": [
+        "vulnerability scan", "penetration test", "IDS"
+      ],
+      "rule_ids": {}
+    },
+    "PCI-12": {
+      "name": "Organizational Policies",
+      "cwes": [],
+      "keywords": [],
+      "rule_ids": {}
+    }
+  }
+}
