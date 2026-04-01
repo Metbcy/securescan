@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen, StopCircle } from "lucide-react";
-import { startScan, fetchScan, fetchFindings, fetchScanSummary, cancelScan } from "@/lib/api";
+import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen, StopCircle, Download } from "lucide-react";
+import { startScan, fetchScan, fetchFindings, fetchScanSummary, cancelScan, getReportUrl } from "@/lib/api";
 import type { Scan, Finding, ScanSummary } from "@/lib/api";
 import { FindingsTable } from "@/components/findings-table";
 import { SeverityChart } from "@/components/severity-chart";
@@ -292,6 +292,27 @@ export default function NewScanPage() {
           <div className="flex items-center gap-2 text-green-400">
             <CheckCircle size={18} />
             <span className="font-medium">Scan completed</span>
+          </div>
+
+          <div className="flex gap-3">
+            <a
+              href={getReportUrl(scan.id, "pdf")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#262626] bg-[#141414] hover:bg-[#1a1a1a] text-sm font-medium text-[#ededed] transition-colors"
+            >
+              <Download size={14} />
+              PDF Report
+            </a>
+            <a
+              href={getReportUrl(scan.id, "html")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#262626] bg-[#141414] hover:bg-[#1a1a1a] text-sm font-medium text-[#ededed] transition-colors"
+            >
+              <Download size={14} />
+              HTML Report
+            </a>
           </div>
 
           {/* AI Summary */}

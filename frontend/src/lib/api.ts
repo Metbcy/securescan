@@ -15,6 +15,7 @@ export interface Finding {
   cwe?: string;
   remediation?: string;
   metadata: Record<string, unknown>;
+  compliance_tags: string[];
 }
 
 export interface Scan {
@@ -182,4 +183,42 @@ export async function fetchTrends(days: number = 30): Promise<TrendPoint[]> {
   if (!res.ok) throw new Error("Failed to fetch trends");
   const data = await res.json();
   return data.data;
+}
+
+// --- Compliance ---
+
+export interface ComplianceFramework {
+  id: string;
+  name: string;
+  version: string;
+  total_controls: number;
+}
+
+export interface ComplianceCoverage {
+  framework: string;
+  framework_id: string;
+  version: string;
+  total_controls: number;
+  controls_violated: string[];
+  controls_clear: string[];
+  violated_details: { id: string; name: string }[];
+  coverage_percentage: number;
+}
+
+export async function fetchComplianceFrameworks(): Promise<ComplianceFramework[]> {
+  const res = await fetch(`${API_BASE}/api/compliance/frameworks`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch compliance frameworks");
+  const data = await res.json();
+  return data.frameworks;
+}
+
+export async function fetchComplianceCoverage(scanId: string): Promise<ComplianceCoverage[]> {
+  const res = await fetch(`${API_BASE}/api/compliance/coverage?scan_id=${encodeURIComponent(scanId)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch compliance coverage");
+  const data = await res.json();
+  return data.coverage;
+}
+
+export function getReportUrl(scanId: string, format: "pdf" | "html"): string {
+  return `${API_BASE}/api/scans/${scanId}/report?format=${format}`;
 }

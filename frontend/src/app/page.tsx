@@ -8,13 +8,14 @@ import { RiskScore } from "@/components/risk-score";
 import { SeverityChart } from "@/components/severity-chart";
 import { TrendChart } from "@/components/trend-chart";
 import { FindingsTable } from "@/components/findings-table";
-import type { DashboardStats, Scan, ScanSummary, Finding, TrendPoint } from "@/lib/api";
+import type { DashboardStats, Scan, ScanSummary, Finding, TrendPoint, ComplianceCoverage } from "@/lib/api";
 import {
   fetchDashboardStats,
   fetchScans,
   fetchScanSummary,
   fetchFindings,
   fetchTrends,
+  fetchComplianceCoverage,
 } from "@/lib/api";
 
 export default function Home() {
@@ -23,6 +24,7 @@ export default function Home() {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
+  const [compliance, setCompliance] = useState<ComplianceCoverage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +51,7 @@ export default function Home() {
             ]);
             setSummary(sum);
             setFindings(fin);
+            fetchComplianceCoverage(latest.id).then(setCompliance).catch(() => {});
           }
         }
       } catch {
@@ -151,6 +154,28 @@ export default function Home() {
             Security Trends (30 days)
           </h2>
           <TrendChart data={trends} />
+        </div>
+      )}
+
+      {/* Compliance Coverage */}
+      {compliance.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-3">Compliance Coverage</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {compliance.map((c) => (
+              <div key={c.framework_id} className="rounded-xl border border-[#262626] bg-[#141414] p-4">
+                <h3 className="text-sm font-medium text-[#ededed] mb-1">{c.framework}</h3>
+                <p className="text-xs text-[#52525b] mb-3">v{c.version}</p>
+                <div className="flex items-end gap-2 mb-2">
+                  <span className="text-2xl font-bold text-red-400">{c.controls_violated.length}</span>
+                  <span className="text-sm text-[#52525b]">/ {c.total_controls} controls violated</span>
+                </div>
+                <div className="w-full h-2 bg-[#262626] rounded-full overflow-hidden">
+                  <div className="h-full bg-red-500 rounded-full" style={{ width: `${c.coverage_percentage}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -60,6 +60,7 @@ export function FindingsTable({ findings }: FindingsTableProps) {
             <th className="px-4 py-3">Title</th>
             <th className="px-4 py-3">File</th>
             <th className="px-4 py-3">Line</th>
+            <th className="px-4 py-3">Compliance</th>
           </tr>
         </thead>
         <tbody>
@@ -91,10 +92,22 @@ export function FindingsTable({ findings }: FindingsTableProps) {
                   <td className="px-4 py-3 text-[#a1a1aa] font-mono text-xs">
                     {f.line_start != null ? f.line_start : "—"}
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      {f.compliance_tags?.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
                 </tr>
                 {expanded && (
                   <tr className="bg-[#0e0e0e]">
-                    <td colSpan={6} className="px-6 py-4">
+                    <td colSpan={7} className="px-6 py-4">
                       <div className="space-y-3 text-sm">
                         {f.description && (
                           <div>
