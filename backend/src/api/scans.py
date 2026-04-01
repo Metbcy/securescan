@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse, Response
 
 from ..database import (
     get_findings,
@@ -26,6 +27,7 @@ from ..models import (
 )
 from ..scanners import get_scanners_for_types
 from ..config import settings
+from ..reports import ReportGenerator
 from ..scoring import build_summary
 from ..ai import AIEnricher
 
@@ -241,6 +243,41 @@ async def compare_scans(
             "risk_delta": round(risk_b - risk_a, 2),
         },
     }
+
+
+@router.get("/{scan_id}/report")
+async def generate_report(
+    scan_id: str,
+    format: str = Query("html", description="Report format: html or pdf"),
+):
+    """Generate a security assessment report for a scan."""
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.status != ScanStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Scan must be completed to generate a report")
+
+    findings_list = await get_findings(scan_id)
+    summary_data = await get_scan_summary(scan_id)
+
+    compliance_coverage = []
+    compliance_data_dir = Path(settings.compliance_data_dir)
+    if compliance_data_dir.exists():
+        mapper = ComplianceMapper(compliance_data_dir)
+        compliance_coverage = mapper.get_coverage(findings_list)
+
+    generator = ReportGenerator(Path(settings.report_template_dir))
+
+    if format == "pdf":
+        pdf_bytes = generator.generate_pdf(scan, findings_list, summary_data, compliance_coverage)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="securescan-report-{scan_id[:8]}.pdf"'},
+        )
+    else:
+        html = generator.generate_html(scan, findings_list, summary_data, compliance_coverage)
+        return HTMLResponse(content=html)
 
 
 @router.get("/{scan_id}", response_model=Scan)
