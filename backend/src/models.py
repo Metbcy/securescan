@@ -43,6 +43,7 @@ class Finding(BaseModel):
     cwe: Optional[str] = None
     remediation: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
+    compliance_tags: list[str] = Field(default_factory=list)
 
 
 class Scan(BaseModel):
