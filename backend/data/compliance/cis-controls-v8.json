@@ -1,6 +1,6 @@
 {
   "framework": "CIS Controls",
-  "version": "v8",
+  "version": "8",
   "controls": {
     "CIS-01": {
       "name": "Inventory and Control of Enterprise Assets",

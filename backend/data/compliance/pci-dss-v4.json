@@ -1,6 +1,6 @@
 {
   "framework": "PCI DSS",
-  "version": "v4.0",
+  "version": "4.0",
   "controls": {
     "PCI-1": {
       "name": "Network Security Controls",
