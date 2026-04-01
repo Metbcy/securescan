@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Security Assessment Report — {{ scan.id[:8] }}</title>
+  <style>
+    /* ── PDF page sizing ──────────────────────────────────────────── */
+    @page {
+      size: A4;
+      margin: 2cm;
+    }
+
+    /* ── Reset / base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   "Helvetica Neue", Arial, "Liberation Sans", sans-serif;
+      background: #0d1117;
+      color: #c9d1d9;
+    }
+
+    /* ── Typography ───────────────────────────────────────────────── */
+    h1 { font-size: 2rem;   font-weight: 700; letter-spacing: -0.03em; }
+    h2 { font-size: 1.35rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 0.75rem; }
+    h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 0.5rem; }
+    p  { margin-bottom: 0.6rem; }
+
+    a  { color: #58a6ff; text-decoration: none; }
+
+    /* ── Colour palette ───────────────────────────────────────────── */
+    :root {
+      --bg-base:    #0d1117;
+      --bg-card:    #161b22;
+      --bg-raised:  #21262d;
+      --border:     #30363d;
+      --text-muted: #8b949e;
+      --text-main:  #c9d1d9;
+      --text-head:  #f0f6fc;
+
+      --critical: #ff4444;
+      --high:     #ff8c00;
+      --medium:   #e3b341;
+      --low:      #3fb950;
+      --info:     #58a6ff;
+
+      --critical-bg: rgba(255, 68,  68,  0.12);
+      --high-bg:     rgba(255, 140,  0,  0.12);
+      --medium-bg:   rgba(227, 179, 65,  0.12);
+      --low-bg:      rgba(63,  185, 80,  0.12);
+      --info-bg:     rgba(88,  166, 255, 0.12);
+
+      --green-tint:  rgba(63, 185, 80, 0.08);
+    }
+
+    /* ── Page sections ────────────────────────────────────────────── */
+    .page-break { page-break-after: always; break-after: page; }
+
+    section {
+      padding: 2rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Cover page ───────────────────────────────────────────────── */
+    .cover {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 3rem 2.5rem;
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cover-brand {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+    }
+
+    .cover h1 {
+      color: var(--text-head);
+      line-height: 1.2;
+      margin-bottom: 0.5rem;
+    }
+
+    .cover-subtitle {
+      font-size: 1rem;
+      color: var(--text-muted);
+      margin-bottom: 2.5rem;
+    }
+
+    .cover-meta {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 0.35rem 1.25rem;
+      font-size: 0.875rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .cover-meta dt { color: var(--text-muted); }
+    .cover-meta dd { color: var(--text-main); font-family: "SFMono-Regular", Consolas, monospace; }
+
+    /* ── Risk score badge ─────────────────────────────────────────── */
+    .risk-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .risk-badge.risk-critical { background: var(--critical-bg); color: var(--critical); border: 1px solid var(--critical); }
+    .risk-badge.risk-high     { background: var(--high-bg);     color: var(--high);     border: 1px solid var(--high); }
+    .risk-badge.risk-medium   { background: var(--medium-bg);   color: var(--medium);   border: 1px solid var(--medium); }
+    .risk-badge.risk-low      { background: var(--low-bg);      color: var(--low);      border: 1px solid var(--low); }
+    .risk-badge.risk-info     { background: var(--info-bg);     color: var(--info);     border: 1px solid var(--info); }
+
+    /* ── Section header accent ────────────────────────────────────── */
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .section-title {
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--text-head);
+      padding-bottom: 0.65rem;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 1.25rem;
+    }
+
+    /* ── Stat grid ────────────────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      margin: 1.25rem 0;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 0.75rem;
+      text-align: center;
+    }
+
+    .stat-card .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      line-height: 1;
+      margin-bottom: 0.3rem;
+    }
+
+    .stat-card .stat-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .stat-card.sev-critical .stat-value { color: var(--critical); }
+    .stat-card.sev-high     .stat-value { color: var(--high); }
+    .stat-card.sev-medium   .stat-value { color: var(--medium); }
+    .stat-card.sev-low      .stat-value { color: var(--low); }
+    .stat-card.sev-info     .stat-value { color: var(--info); }
+
+    /* ── Summary AI text ──────────────────────────────────────────── */
+    .ai-summary {
+      background: var(--bg-card);
+      border-left: 3px solid var(--info);
+      border-radius: 0 6px 6px 0;
+      padding: 1rem 1.25rem;
+      color: var(--text-main);
+      font-size: 0.9rem;
+      line-height: 1.7;
+      margin-bottom: 1.25rem;
+      white-space: pre-wrap;
+    }
+
+    /* ── Ordered list (top findings) ──────────────────────────────── */
+    .top-findings-list {
+      list-style: none;
+      counter-reset: tf;
+      padding: 0;
+    }
+
+    .top-findings-list li {
+      counter-increment: tf;
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      padding: 0.6rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.875rem;
+    }
+
+    .top-findings-list li:last-child { border-bottom: none; }
+
+    .top-findings-list li::before {
+      content: counter(tf);
+      flex-shrink: 0;
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 0.05rem;
+    }
+
+    .top-findings-list .tf-title { color: var(--text-head); font-weight: 600; }
+    .top-findings-list .tf-meta  { color: var(--text-muted); font-size: 0.75rem; }
+
+    /* ── Info row (scanners used etc.) ────────────────────────────── */
+    .info-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0.75rem 0;
+    }
+
+    .tag-chip {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.75rem;
+      color: var(--text-main);
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
+    /* ── Tables ───────────────────────────────────────────────────── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .data-table th {
+      background: var(--bg-raised);
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      padding: 0.6rem 0.8rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .data-table td {
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-main);
+      vertical-align: top;
+    }
+
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td      { background: var(--bg-raised); }
+
+    .data-table .mono {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.8rem;
+    }
+
+    /* Coverage percentage bar */
+    .pct-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .pct-bar-track {
+      flex: 1;
+      height: 6px;
+      background: var(--bg-raised);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .pct-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--low);
+    }
+
+    .pct-bar-fill.pct-warn  { background: var(--medium); }
+    .pct-bar-fill.pct-alert { background: var(--critical); }
+
+    .pct-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      min-width: 3rem;
+      text-align: right;
+    }
+
+    /* Violated controls detail */
+    .control-block {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.9rem 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .control-block h4 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-head);
+      margin-bottom: 0.6rem;
+    }
+
+    .control-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .control-pill {
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.15rem 0.55rem;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
+    /* ── Severity section headers ─────────────────────────────────── */
+    .sev-section-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.55rem 0.9rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .sev-section-header:first-of-type { margin-top: 0; }
+
+    .sev-section-header.sev-critical { background: var(--critical-bg); border: 1px solid var(--critical); }
+    .sev-section-header.sev-high     { background: var(--high-bg);     border: 1px solid var(--high); }
+    .sev-section-header.sev-medium   { background: var(--medium-bg);   border: 1px solid var(--medium); }
+    .sev-section-header.sev-low      { background: var(--low-bg);      border: 1px solid var(--low); }
+    .sev-section-header.sev-info     { background: var(--info-bg);     border: 1px solid var(--info); }
+
+    .sev-section-header .sev-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .sev-section-header.sev-critical .sev-label { color: var(--critical); }
+    .sev-section-header.sev-high     .sev-label { color: var(--high); }
+    .sev-section-header.sev-medium   .sev-label { color: var(--medium); }
+    .sev-section-header.sev-low      .sev-label { color: var(--low); }
+    .sev-section-header.sev-info     .sev-label { color: var(--info); }
+
+    .sev-section-header .sev-count {
+      margin-left: auto;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Finding card ─────────────────────────────────────────────── */
+    .finding-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .finding-card-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .sev-badge {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 0.15rem;
+    }
+
+    .sev-badge.sev-critical { background: var(--critical-bg); color: var(--critical); border: 1px solid var(--critical); }
+    .sev-badge.sev-high     { background: var(--high-bg);     color: var(--high);     border: 1px solid var(--high); }
+    .sev-badge.sev-medium   { background: var(--medium-bg);   color: var(--medium);   border: 1px solid var(--medium); }
+    .sev-badge.sev-low      { background: var(--low-bg);      color: var(--low);      border: 1px solid var(--low); }
+    .sev-badge.sev-info     { background: var(--info-bg);     color: var(--info);     border: 1px solid var(--info); }
+
+    .finding-title {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text-head);
+    }
+
+    .finding-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 0.65rem;
+      line-height: 1.65;
+    }
+
+    .finding-meta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1.25rem;
+      font-size: 0.775rem;
+      margin-bottom: 0.65rem;
+    }
+
+    .finding-meta-row .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      color: var(--text-muted);
+    }
+
+    .finding-meta-row .meta-item strong {
+      color: var(--text-main);
+      font-weight: 500;
+    }
+
+    .finding-meta-row .meta-item code {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.75rem;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.05rem 0.35rem;
+      color: var(--text-main);
+    }
+
+    /* Compliance tag badges */
+    .compliance-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-bottom: 0.65rem;
+    }
+
+    .comp-tag {
+      display: inline-block;
+      background: rgba(88, 166, 255, 0.1);
+      border: 1px solid rgba(88, 166, 255, 0.3);
+      border-radius: 3px;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--info);
+      font-family: "SFMono-Regular", Consolas, monospace;
+    }
+
+    /* Remediation box */
+    .remediation-box {
+      background: var(--green-tint);
+      border: 1px solid rgba(63, 185, 80, 0.25);
+      border-left: 3px solid var(--low);
+      border-radius: 0 6px 6px 0;
+      padding: 0.7rem 1rem;
+      font-size: 0.82rem;
+      color: #aee8b0;
+      line-height: 1.65;
+    }
+
+    .remediation-box .remediation-label {
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--low);
+      margin-bottom: 0.3rem;
+    }
+
+    /* ── Scanner coverage section ─────────────────────────────────── */
+    .scanner-row td.scanner-name {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.82rem;
+      color: var(--info);
+    }
+
+    .duration-value {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 0.85rem;
+      color: var(--medium);
+    }
+
+    /* ── Footer ───────────────────────────────────────────────────── */
+    .report-footer {
+      padding: 1.5rem 0 0.5rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ── Utility ──────────────────────────────────────────────────── */
+    .text-muted  { color: var(--text-muted); }
+    .text-head   { color: var(--text-head); }
+    .mono        { font-family: "SFMono-Regular", Consolas, monospace; }
+    .mb-1        { margin-bottom: 0.5rem; }
+    .mb-2        { margin-bottom: 1rem; }
+    .mt-1        { margin-top: 0.5rem; }
+    .mt-2        { margin-top: 1rem; }
+
+    /* no-findings placeholder */
+    .no-findings {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      background: var(--bg-card);
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+
+{# ─── Helpers ────────────────────────────────────────────────────────────── #}
+{%- macro risk_class(score) -%}
+  {%- if score >= 70 -%}risk-critical
+  {%- elif score >= 50 -%}risk-high
+  {%- elif score >= 25 -%}risk-medium
+  {%- elif score >= 1  -%}risk-low
+  {%- else             -%}risk-info{%- endif -%}
+{%- endmacro -%}
+
+{%- macro risk_label(score) -%}
+  {%- if score >= 70 -%}CRITICAL
+  {%- elif score >= 50 -%}HIGH
+  {%- elif score >= 25 -%}MEDIUM
+  {%- elif score >= 1  -%}LOW
+  {%- else             -%}INFO{%- endif -%}
+{%- endmacro -%}
+
+{%- macro sev_class(sev) -%}sev-{{ sev | lower }}{%- endmacro -%}
+
+{%- macro pct_class(pct) -%}
+  {%- if pct < 50 -%}pct-alert
+  {%- elif pct < 80 -%}pct-warn
+  {%- endif -%}
+{%- endmacro -%}
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  1. COVER PAGE                                                              #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<div class="cover">
+  <p class="cover-brand">SecureScan &mdash; Automated Security Analysis</p>
+
+  <h1>Security Assessment<br>Report</h1>
+  <p class="cover-subtitle">Comprehensive vulnerability &amp; compliance findings</p>
+
+  <div class="mb-2">
+    {%- set score = (scan.risk_score or 0) | float -%}
+    <span class="risk-badge {{ risk_class(score) }}">
+      &#9679;&ensp;Risk Score: {{ "%.1f" | format(score) }}&ensp;&mdash;&ensp;{{ risk_label(score) }}
+    </span>
+  </div>
+
+  <dl class="cover-meta">
+    <dt>Target</dt>
+    <dd>{{ scan.target_path }}</dd>
+
+    <dt>Scan ID</dt>
+    <dd>{{ scan.id }}</dd>
+
+    <dt>Status</dt>
+    <dd>{{ scan.status | upper }}</dd>
+
+    <dt>Started</dt>
+    <dd>
+      {%- if scan.started_at -%}
+        {{ scan.started_at.strftime("%Y-%m-%d %H:%M UTC") }}
+      {%- else -%}—{%- endif -%}
+    </dd>
+
+    <dt>Completed</dt>
+    <dd>
+      {%- if scan.completed_at -%}
+        {{ scan.completed_at.strftime("%Y-%m-%d %H:%M UTC") }}
+      {%- else -%}—{%- endif -%}
+    </dd>
+
+    <dt>Scan Types</dt>
+    <dd>{{ scan.scan_types | map(attribute='value') | join(", ") }}</dd>
+
+    <dt>Total Findings</dt>
+    <dd>{{ scan.findings_count }}</dd>
+  </dl>
+</div>
+<div class="page-break"></div>
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  2. EXECUTIVE SUMMARY                                                       #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<section>
+  <p class="section-label">Section 1</p>
+  <h2 class="section-title">Executive Summary</h2>
+
+  {%- if scan.summary %}
+  <div class="ai-summary">{{ scan.summary }}</div>
+  {%- else %}
+  <div class="ai-summary text-muted">No AI-generated summary available for this scan.</div>
+  {%- endif %}
+
+  {# Stat grid #}
+  <div class="stat-grid">
+    <div class="stat-card sev-critical">
+      <div class="stat-value">{{ summary.critical }}</div>
+      <div class="stat-label">Critical</div>
+    </div>
+    <div class="stat-card sev-high">
+      <div class="stat-value">{{ summary.high }}</div>
+      <div class="stat-label">High</div>
+    </div>
+    <div class="stat-card sev-medium">
+      <div class="stat-value">{{ summary.medium }}</div>
+      <div class="stat-label">Medium</div>
+    </div>
+    <div class="stat-card sev-low">
+      <div class="stat-value">{{ summary.low }}</div>
+      <div class="stat-label">Low</div>
+    </div>
+    <div class="stat-card sev-info">
+      <div class="stat-value">{{ summary.info }}</div>
+      <div class="stat-label">Info</div>
+    </div>
+  </div>
+
+  <p class="text-muted" style="font-size:0.82rem; margin-bottom:0.75rem;">
+    <strong class="text-head">{{ summary.total_findings }}</strong> total finding{{ "s" if summary.total_findings != 1 else "" }} identified across all scanners.
+  </p>
+
+  {# Scanners used #}
+  <h3 class="mt-1">Scanners Used</h3>
+  <div class="info-row mb-2">
+    {%- for scanner in summary.scanners_run %}
+    <span class="tag-chip">{{ scanner }}</span>
+    {%- else %}
+    <span class="text-muted" style="font-size:0.82rem;">No scanners recorded.</span>
+    {%- endfor %}
+  </div>
+
+  {# Top 3 critical / high findings #}
+  <h3>Top Findings</h3>
+  {%- if top_findings %}
+  <ol class="top-findings-list">
+    {%- for f in top_findings[:3] %}
+    <li>
+      <div>
+        <div class="tf-title">{{ f.title }}</div>
+        <div class="tf-meta">
+          {{ f.severity | upper }}
+          {%- if f.file_path %} &middot; {{ f.file_path }}{% if f.line_start %}:{{ f.line_start }}{% endif %}{%- endif %}
+          {%- if f.cwe %} &middot; {{ f.cwe }}{%- endif %}
+        </div>
+      </div>
+    </li>
+    {%- endfor %}
+  </ol>
+  {%- else %}
+  <p class="text-muted" style="font-size:0.85rem;">No critical or high findings.</p>
+  {%- endif %}
+</section>
+<div class="page-break"></div>
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  3. COMPLIANCE SUMMARY                                                      #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<section>
+  <p class="section-label">Section 2</p>
+  <h2 class="section-title">Compliance Summary</h2>
+
+  {%- if compliance_coverage %}
+
+  {# Overview table #}
+  <table class="data-table mb-2">
+    <thead>
+      <tr>
+        <th>Framework</th>
+        <th>Version</th>
+        <th>Total Controls</th>
+        <th>Violated</th>
+        <th>Clear</th>
+        <th>Coverage</th>
+      </tr>
+    </thead>
+    <tbody>
+      {%- for fw in compliance_coverage %}
+      {%- set pct = fw.coverage_percentage | float %}
+      <tr>
+        <td class="text-head" style="font-weight:600;">{{ fw.framework }}</td>
+        <td class="mono">{{ fw.version or "—" }}</td>
+        <td style="text-align:center;">{{ fw.total_controls }}</td>
+        <td style="text-align:center; color:var(--critical);">{{ fw.controls_violated }}</td>
+        <td style="text-align:center; color:var(--low);">{{ fw.controls_clear }}</td>
+        <td style="min-width:140px;">
+          <div class="pct-bar">
+            <div class="pct-bar-track">
+              <div class="pct-bar-fill {{ pct_class(pct) }}" style="width:{{ pct | round(1) }}%;"></div>
+            </div>
+            <span class="pct-label">{{ "%.1f" | format(pct) }}%</span>
+          </div>
+        </td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+
+  {# Per-framework violated controls detail #}
+  {%- for fw in compliance_coverage %}
+  {%- if fw.violated_details %}
+  <div class="control-block">
+    <h4>{{ fw.framework }}{% if fw.version %} {{ fw.version }}{% endif %} — Violated Controls</h4>
+    <div class="control-pills">
+      {%- for ctrl in fw.violated_details %}
+      <span class="control-pill" title="{{ ctrl.name }}">{{ ctrl.id }}</span>
+      {%- endfor %}
+    </div>
+    {# Detailed names table #}
+    <table class="data-table mt-1" style="font-size:0.78rem; margin-bottom:0;">
+      <thead>
+        <tr>
+          <th style="width:8rem;">Control ID</th>
+          <th>Control Name</th>
+        </tr>
+      </thead>
+      <tbody>
+        {%- for ctrl in fw.violated_details %}
+        <tr>
+          <td class="mono" style="color:var(--medium);">{{ ctrl.id }}</td>
+          <td>{{ ctrl.name }}</td>
+        </tr>
+        {%- endfor %}
+      </tbody>
+    </table>
+  </div>
+  {%- endif %}
+  {%- endfor %}
+
+  {%- else %}
+  <div class="no-findings">No compliance frameworks were mapped for this scan.</div>
+  {%- endif %}
+</section>
+<div class="page-break"></div>
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  4. FINDINGS BY SEVERITY                                                    #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<section>
+  <p class="section-label">Section 3</p>
+  <h2 class="section-title">Findings by Severity</h2>
+
+  {%- set sev_levels = ["critical", "high", "medium", "low", "info"] %}
+  {%- set ns = namespace(any_findings=false) %}
+
+  {%- for level in sev_levels %}
+  {%- set level_findings = findings | selectattr("severity", "equalto", level) | list %}
+  {%- if level_findings %}
+  {%- set ns.any_findings = true %}
+
+  <div class="sev-section-header sev-{{ level }}">
+    <span class="sev-label">{{ level | capitalize }}</span>
+    <span class="sev-count">{{ level_findings | length }} finding{{ "s" if level_findings | length != 1 else "" }}</span>
+  </div>
+
+  {%- for f in level_findings %}
+  <div class="finding-card">
+    <div class="finding-card-header">
+      <span class="sev-badge sev-{{ level }}">{{ level }}</span>
+      <span class="finding-title">{{ f.title }}</span>
+    </div>
+
+    {%- if f.description %}
+    <p class="finding-desc">{{ f.description }}</p>
+    {%- endif %}
+
+    <div class="finding-meta-row">
+      {%- if f.file_path %}
+      <span class="meta-item">
+        <span>File:</span>
+        <code>{{ f.file_path }}{% if f.line_start %}:{{ f.line_start }}{% endif %}</code>
+      </span>
+      {%- endif %}
+
+      {%- if f.cwe %}
+      <span class="meta-item">
+        <span>CWE:</span>
+        <strong>{{ f.cwe }}</strong>
+      </span>
+      {%- endif %}
+
+      {%- if f.scanner %}
+      <span class="meta-item">
+        <span>Scanner:</span>
+        <strong>{{ f.scanner }}</strong>
+      </span>
+      {%- endif %}
+    </div>
+
+    {%- if f.compliance_tags %}
+    <div class="compliance-tags">
+      {%- for tag in f.compliance_tags %}
+      <span class="comp-tag">{{ tag }}</span>
+      {%- endfor %}
+    </div>
+    {%- endif %}
+
+    {%- if f.remediation %}
+    <div class="remediation-box">
+      <div class="remediation-label">Remediation</div>
+      {{ f.remediation }}
+    </div>
+    {%- endif %}
+  </div>
+  {%- endfor %}
+
+  {%- endif %}
+  {%- endfor %}
+
+  {%- if not ns.any_findings %}
+  <div class="no-findings">No findings were recorded for this scan. Great work!</div>
+  {%- endif %}
+</section>
+<div class="page-break"></div>
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  5. SCANNER COVERAGE                                                        #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<section>
+  <p class="section-label">Section 4</p>
+  <h2 class="section-title">Scanner Coverage</h2>
+
+  {# Scan duration #}
+  {%- if scan.started_at and scan.completed_at %}
+  {%- set duration_sec = (scan.completed_at - scan.started_at).total_seconds() | int %}
+  {%- set dur_min = (duration_sec // 60) %}
+  {%- set dur_sec = (duration_sec % 60) %}
+  <p class="mb-2" style="font-size:0.875rem;">
+    Scan duration:
+    <span class="duration-value">
+      {%- if dur_min > 0 %}{{ dur_min }}m {{ dur_sec }}s{%- else %}{{ dur_sec }}s{%- endif %}
+    </span>
+    &ensp;<span class="text-muted">({{ scan.started_at.strftime("%H:%M:%S") }} &rarr; {{ scan.completed_at.strftime("%H:%M:%S") }} UTC, {{ scan.completed_at.strftime("%Y-%m-%d") }})</span>
+  </p>
+  {%- elif scan.started_at %}
+  <p class="mb-2 text-muted" style="font-size:0.875rem;">Scan started at {{ scan.started_at.strftime("%Y-%m-%d %H:%M UTC") }} — completion time not recorded.</p>
+  {%- endif %}
+
+  {%- if summary.scanners_run %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Scanner</th>
+        <th>Scan Type(s)</th>
+        <th>Findings</th>
+      </tr>
+    </thead>
+    <tbody>
+      {%- for scanner in summary.scanners_run %}
+      {%- set scanner_findings = findings | selectattr("scanner", "equalto", scanner) | list %}
+      {%- set scanner_types = scanner_findings | map(attribute="scan_type") | map(attribute="value") | unique | list %}
+      <tr class="scanner-row">
+        <td class="text-muted" style="font-size:0.75rem; width:2rem;">{{ loop.index }}</td>
+        <td class="scanner-name">{{ scanner }}</td>
+        <td>
+          {%- if scanner_types %}
+          <div class="info-row" style="margin:0; gap:0.3rem;">
+            {%- for st in scanner_types %}
+            <span class="tag-chip" style="font-size:0.7rem; padding:0.1rem 0.45rem;">{{ st }}</span>
+            {%- endfor %}
+          </div>
+          {%- else %}
+          <span class="text-muted">—</span>
+          {%- endif %}
+        </td>
+        <td style="text-align:center;">
+          {%- set sc = scanner_findings | length %}
+          <span style="font-weight:600; color:{% if sc == 0 %}var(--low){% elif sc > 10 %}var(--critical){% else %}var(--medium){% endif %};">
+            {{ sc }}
+          </span>
+        </td>
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+  {%- else %}
+  <div class="no-findings">No scanner information available.</div>
+  {%- endif %}
+</section>
+
+{# ─────────────────────────────────────────────────────────────────────────── #}
+{#  Footer                                                                     #}
+{# ─────────────────────────────────────────────────────────────────────────── #}
+<footer class="report-footer">
+  <span>SecureScan &mdash; Security Assessment Report &mdash; Scan {{ scan.id }}</span>
+  <span>
+    {%- if scan.completed_at %}
+    Generated {{ scan.completed_at.strftime("%Y-%m-%d") }}
+    {%- elif scan.started_at %}
+    Generated {{ scan.started_at.strftime("%Y-%m-%d") }}
+    {%- endif %}
+  </span>
+</footer>
+
+</body>
+</html>
