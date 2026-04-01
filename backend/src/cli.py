@@ -10,6 +10,7 @@ from rich.table import Table
 
 from .compliance import ComplianceMapper
 from .config import settings
+from .reports import ReportGenerator
 from .database import (
     get_findings,
     get_scan_summary,
@@ -219,6 +220,30 @@ def scan(
         output_content = findings_to_csv(findings)
     elif output == "junit":
         output_content = findings_to_junit(findings, result_scan)
+    elif output == "report-html":
+        compliance_coverage = []
+        compliance_data_dir = Path(settings.compliance_data_dir)
+        if compliance_data_dir.exists():
+            mapper = ComplianceMapper(compliance_data_dir)
+            compliance_coverage = mapper.get_coverage(findings)
+        summary_obj = build_summary(findings, [])
+        generator = ReportGenerator(Path(settings.report_template_dir))
+        output_content = generator.generate_html(result_scan, findings, summary_obj, compliance_coverage)
+    elif output == "report-pdf":
+        compliance_coverage = []
+        compliance_data_dir = Path(settings.compliance_data_dir)
+        if compliance_data_dir.exists():
+            mapper = ComplianceMapper(compliance_data_dir)
+            compliance_coverage = mapper.get_coverage(findings)
+        summary_obj = build_summary(findings, [])
+        generator = ReportGenerator(Path(settings.report_template_dir))
+        pdf_bytes = generator.generate_pdf(result_scan, findings, summary_obj, compliance_coverage)
+        if output_file:
+            Path(output_file).write_bytes(pdf_bytes)
+            console.print(f"[green]PDF report written to {output_file}[/green]")
+        else:
+            console.print("[red]PDF output requires --output-file[/red]")
+        output_content = None
     else:
         console.print(f"[red]Unknown output format: {output}[/red]")
         raise typer.Exit(code=1)
