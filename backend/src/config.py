@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     scanners_enabled: list[str] = ["semgrep", "bandit", "trivy"]
     groq_api_key: Optional[str] = None
     scan_timeout: int = 300
+    compliance_data_dir: str = "data/compliance"
+    report_template_dir: str = "templates/reports"
 
     model_config = {"env_prefix": "SECURESCAN_"}
 

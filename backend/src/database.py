@@ -67,6 +67,12 @@ async def init_db() -> None:
                 FOREIGN KEY (scan_id) REFERENCES scans(id)
             )
         """)
+        # Migration: add compliance_tags column if not present
+        try:
+            await db.execute("ALTER TABLE findings ADD COLUMN compliance_tags TEXT DEFAULT '[]'")
+        except Exception:
+            pass  # Column already exists
+
         await db.commit()
     finally:
         await db.close()
@@ -106,8 +112,8 @@ async def save_findings(findings: list[Finding]) -> None:
         await db.executemany(
             """INSERT OR REPLACE INTO findings
                (id, scan_id, scanner, scan_type, severity, title, description,
-                file_path, line_start, line_end, rule_id, cwe, remediation, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                file_path, line_start, line_end, rule_id, cwe, remediation, metadata, compliance_tags)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     f.id,
@@ -124,6 +130,7 @@ async def save_findings(findings: list[Finding]) -> None:
                     f.cwe,
                     f.remediation,
                     json.dumps(f.metadata),
+                    json.dumps(f.compliance_tags),
                 )
                 for f in findings
             ],
@@ -164,6 +171,7 @@ def _row_to_finding(row: aiosqlite.Row) -> Finding:
         cwe=row["cwe"],
         remediation=row["remediation"],
         metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+        compliance_tags=json.loads(row["compliance_tags"]) if row["compliance_tags"] else [],
     )
 
 
@@ -193,6 +201,7 @@ async def get_findings(
     scan_id: str,
     severity: Optional[str] = None,
     scan_type: Optional[str] = None,
+    compliance: Optional[str] = None,
 ) -> list[Finding]:
     db = await _get_db()
     try:
@@ -204,6 +213,9 @@ async def get_findings(
         if scan_type:
             query += " AND scan_type = ?"
             params.append(scan_type)
+        if compliance:
+            query += " AND compliance_tags LIKE ?"
+            params.append(f'%"{compliance}"%')
         query += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END"
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()

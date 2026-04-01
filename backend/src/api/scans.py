@@ -2,6 +2,7 @@ from datetime import datetime
 import asyncio
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -14,6 +15,7 @@ from ..database import (
     save_findings,
     save_scan,
 )
+from ..compliance import ComplianceMapper
 from ..dedup import deduplicate_findings, dedup_key
 from ..models import (
     Finding,
@@ -23,6 +25,7 @@ from ..models import (
     ScanSummary,
 )
 from ..scanners import get_scanners_for_types
+from ..config import settings
 from ..scoring import build_summary
 from ..ai import AIEnricher
 
@@ -100,6 +103,12 @@ async def _run_scan(scan_id: str) -> None:
 
         # Deduplicate findings
         all_findings = deduplicate_findings(all_findings)
+
+        # Compliance tagging
+        compliance_data_dir = Path(settings.compliance_data_dir)
+        if compliance_data_dir.exists():
+            mapper = ComplianceMapper(compliance_data_dir)
+            mapper.tag_findings(all_findings)
 
         summary = build_summary(all_findings, scanners_run)
 
@@ -248,12 +257,13 @@ async def list_findings(
     scan_id: str,
     severity: Optional[str] = None,
     scan_type: Optional[str] = None,
+    compliance: Optional[str] = None,
 ):
-    """Get findings for a scan, optionally filtered by severity or scan_type."""
+    """Get findings for a scan, optionally filtered by severity, scan_type, or compliance tag."""
     scan = await get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return await get_findings(scan_id, severity=severity, scan_type=scan_type)
+    return await get_findings(scan_id, severity=severity, scan_type=scan_type, compliance=compliance)
 
 
 @router.get("/{scan_id}/summary", response_model=ScanSummary)

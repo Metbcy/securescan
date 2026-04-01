@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .compliance import ComplianceMapper
 from .config import settings
 from .database import (
     get_findings,
@@ -97,6 +98,14 @@ async def _run_scan_async(
 
     # Deduplicate findings
     all_findings = deduplicate_findings(all_findings)
+
+    # Compliance tagging
+    compliance_data_dir = Path(settings.compliance_data_dir)
+    if compliance_data_dir.exists():
+        mapper = ComplianceMapper(compliance_data_dir)
+        mapper.tag_findings(all_findings)
+        tagged_count = sum(1 for f in all_findings if f.compliance_tags)
+        console.print(f"  [green]✓ Compliance: tagged {tagged_count}/{len(all_findings)} findings[/green]")
 
     summary = build_summary(all_findings, scanners_run)
     scan.findings_count = summary.total_findings
