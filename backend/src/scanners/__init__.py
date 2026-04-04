@@ -9,6 +9,9 @@ from .license_checker import LicenseScanner
 from .dockerfile import DockerfileScanner
 from .npm_audit import NpmAuditScanner
 from .gitleaks import GitHygieneScanner
+from .dast_builtin import BuiltinDastScanner
+from .zap_scanner import ZapScanner
+from .nmap_scanner import NmapScanner
 
 ALL_SCANNERS = [
     SemgrepScanner(),
@@ -22,6 +25,9 @@ ALL_SCANNERS = [
     DockerfileScanner(),
     NpmAuditScanner(),
     GitHygieneScanner(),
+    BuiltinDastScanner(),
+    ZapScanner(),
+    NmapScanner(),
 ]
 
 

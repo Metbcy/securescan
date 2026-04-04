@@ -85,7 +85,12 @@ async def _run_scan(scan_id: str) -> None:
             logger.info("Running scanners in parallel: %s", [s.name for s in available_scanners])
 
             async def _run_one(scanner):
-                results = await scanner.scan(scan.target_path, scan.id)
+                results = await scanner.scan(
+                    scan.target_path,
+                    scan.id,
+                    target_url=scan.target_url,
+                    target_host=scan.target_host,
+                )
                 return scanner.name, results
 
             tasks = [_run_one(s) for s in available_scanners]
@@ -162,6 +167,8 @@ async def create_scan(request: ScanRequest):
     scan = Scan(
         target_path=validated_path,
         scan_types=request.scan_types,
+        target_url=request.target_url,
+        target_host=request.target_host,
     )
     await save_scan(scan)
     task = asyncio.create_task(_run_scan(scan.id))
