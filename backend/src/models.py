@@ -18,6 +18,8 @@ class ScanType(str, Enum):
     DEPENDENCY = "dependency"
     IAC = "iac"
     BASELINE = "baseline"
+    DAST = "dast"
+    NETWORK = "network"
 
 
 class ScanStatus(str, Enum):
@@ -57,11 +59,15 @@ class Scan(BaseModel):
     risk_score: Optional[float] = None
     summary: Optional[str] = None
     error: Optional[str] = None
+    target_url: Optional[str] = None
+    target_host: Optional[str] = None
 
 
 class ScanRequest(BaseModel):
     target_path: str
     scan_types: list[ScanType] = Field(default=[ScanType.CODE, ScanType.DEPENDENCY], min_length=1)
+    target_url: Optional[str] = None
+    target_host: Optional[str] = None
 
 
 class ScanSummary(BaseModel):
@@ -73,3 +79,23 @@ class ScanSummary(BaseModel):
     info: int
     risk_score: float
     scanners_run: list[str]
+
+
+class SBOMComponent(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    sbom_id: str
+    name: str
+    version: str
+    type: str = "library"
+    purl: Optional[str] = None
+    license: Optional[str] = None
+    supplier: Optional[str] = None
+
+
+class SBOMDocument(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    scan_id: Optional[str] = None
+    target_path: str
+    format: str = "cyclonedx"
+    components: list[SBOMComponent] = []
+    created_at: datetime = Field(default_factory=datetime.now)

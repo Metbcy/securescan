@@ -7,6 +7,8 @@ import aiosqlite
 from .config import settings
 from .models import (
     Finding,
+    SBOMComponent,
+    SBOMDocument,
     Scan,
     ScanStatus,
     ScanSummary,
@@ -73,6 +75,38 @@ async def init_db() -> None:
         except Exception:
             pass  # Column already exists
 
+        # Migration: add target_url and target_host columns to scans
+        for col in ["target_url", "target_host"]:
+            try:
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {col} TEXT")
+            except Exception:
+                pass  # Column already exists
+
+        # SBOM tables
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sbom_documents (
+                id TEXT PRIMARY KEY,
+                scan_id TEXT,
+                target_path TEXT NOT NULL,
+                format TEXT NOT NULL DEFAULT 'cyclonedx',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (scan_id) REFERENCES scans(id)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS sbom_components (
+                id TEXT PRIMARY KEY,
+                sbom_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                version TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'library',
+                purl TEXT,
+                license TEXT,
+                supplier TEXT,
+                FOREIGN KEY (sbom_id) REFERENCES sbom_documents(id)
+            )
+        """)
+
         await db.commit()
     finally:
         await db.close()
@@ -84,8 +118,8 @@ async def save_scan(scan: Scan) -> None:
         await db.execute(
             """INSERT OR REPLACE INTO scans
                (id, target_path, scan_types, status, started_at, completed_at,
-                findings_count, risk_score, summary, error)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                findings_count, risk_score, summary, error, target_url, target_host)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 scan.id,
                 scan.target_path,
@@ -97,6 +131,8 @@ async def save_scan(scan: Scan) -> None:
                 scan.risk_score,
                 scan.summary,
                 scan.error,
+                scan.target_url,
+                scan.target_host,
             ),
         )
         await db.commit()
@@ -152,6 +188,8 @@ def _row_to_scan(row: aiosqlite.Row) -> Scan:
         risk_score=row["risk_score"],
         summary=row["summary"],
         error=row["error"],
+        target_url=row["target_url"] if "target_url" in row.keys() else None,
+        target_host=row["target_host"] if "target_host" in row.keys() else None,
     )
 
 
@@ -259,5 +297,71 @@ async def get_scan_summary(scan_id: str) -> Optional[ScanSummary]:
             risk_score=calculate_risk_score(findings),
             scanners_run=scanners,
         )
+    finally:
+        await db.close()
+
+
+# --- SBOM persistence ---
+
+async def save_sbom(doc: SBOMDocument) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO sbom_documents (id, scan_id, target_path, format, created_at) VALUES (?, ?, ?, ?, ?)",
+            (doc.id, doc.scan_id, doc.target_path, doc.format, doc.created_at.isoformat()),
+        )
+        for comp in doc.components:
+            await db.execute(
+                "INSERT OR REPLACE INTO sbom_components (id, sbom_id, name, version, type, purl, license, supplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (comp.id, comp.sbom_id, comp.name, comp.version, comp.type, comp.purl, comp.license, comp.supplier),
+            )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_sbom(sbom_id: str) -> Optional[SBOMDocument]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM sbom_documents WHERE id = ?", (sbom_id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        doc_row = dict(row)
+        cursor = await db.execute("SELECT * FROM sbom_components WHERE sbom_id = ?", (sbom_id,))
+        comp_rows = await cursor.fetchall()
+        components = [SBOMComponent(**dict(c)) for c in comp_rows]
+        return SBOMDocument(
+            id=doc_row["id"],
+            scan_id=doc_row["scan_id"],
+            target_path=doc_row["target_path"],
+            format=doc_row["format"],
+            components=components,
+            created_at=datetime.fromisoformat(doc_row["created_at"]),
+        )
+    finally:
+        await db.close()
+
+
+async def get_sboms_for_scan(scan_id: str) -> list[SBOMDocument]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM sbom_documents WHERE scan_id = ?", (scan_id,))
+        doc_rows = await cursor.fetchall()
+        results = []
+        for doc_row in doc_rows:
+            doc_row = dict(doc_row)
+            cursor = await db.execute("SELECT * FROM sbom_components WHERE sbom_id = ?", (doc_row["id"],))
+            comp_rows = await cursor.fetchall()
+            components = [SBOMComponent(**dict(c)) for c in comp_rows]
+            results.append(SBOMDocument(
+                id=doc_row["id"],
+                scan_id=doc_row["scan_id"],
+                target_path=doc_row["target_path"],
+                format=doc_row["format"],
+                components=components,
+                created_at=datetime.fromisoformat(doc_row["created_at"]),
+            ))
+        return results
     finally:
         await db.close()

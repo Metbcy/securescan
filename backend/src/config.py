@@ -9,6 +9,10 @@ class Settings(BaseSettings):
     scan_timeout: int = 300
     compliance_data_dir: str = "data/compliance"
     report_template_dir: str = "templates/reports"
+    nmap_extra_args: str = ""
+    zap_api_key: Optional[str] = None
+    zap_address: str = "http://localhost:8080"
+    dast_timeout: int = 120
 
     model_config = {"env_prefix": "SECURESCAN_"}
 
