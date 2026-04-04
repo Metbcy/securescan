@@ -14,11 +14,15 @@ const SCAN_TYPES = [
   { id: "dependency", label: "Dependency Scan" },
   { id: "iac", label: "IaC Analysis" },
   { id: "baseline", label: "Baseline Scan" },
+  { id: "dast", label: "DAST (Web App)" },
+  { id: "network", label: "Network Scan" },
 ];
 
 export default function NewScanPage() {
   const [targetPath, setTargetPath] = useState("");
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(["code", "dependency"]));
+  const [targetUrl, setTargetUrl] = useState("");
+  const [targetHost, setTargetHost] = useState("");
   const [scan, setScan] = useState<Scan | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
@@ -100,7 +104,12 @@ export default function NewScanPage() {
     setSummary(null);
 
     try {
-      const newScan = await startScan(targetPath.trim(), Array.from(selectedTypes));
+      const newScan = await startScan(
+        targetPath.trim(),
+        Array.from(selectedTypes),
+        targetUrl.trim() || undefined,
+        targetHost.trim() || undefined,
+      );
       setScan(newScan);
       // Persist active scan to localStorage
       localStorage.setItem("securescan_active_scan", JSON.stringify({
@@ -228,6 +237,34 @@ export default function NewScanPage() {
             ))}
           </div>
         </div>
+
+        {selectedTypes.has("dast") && (
+          <div>
+            <label className="block text-sm font-medium text-[#a1a1aa] mb-2">Target URL (for DAST)</label>
+            <input
+              type="url"
+              value={targetUrl}
+              onChange={(e) => setTargetUrl(e.target.value)}
+              placeholder="https://example.com"
+              disabled={!!isRunning}
+              className="w-full px-4 py-2.5 rounded-lg bg-[#141414] border border-[#262626] text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors disabled:opacity-50"
+            />
+          </div>
+        )}
+
+        {selectedTypes.has("network") && (
+          <div>
+            <label className="block text-sm font-medium text-[#a1a1aa] mb-2">Target Host (for Network Scan)</label>
+            <input
+              type="text"
+              value={targetHost}
+              onChange={(e) => setTargetHost(e.target.value)}
+              placeholder="192.168.1.1 or hostname"
+              disabled={!!isRunning}
+              className="w-full px-4 py-2.5 rounded-lg bg-[#141414] border border-[#262626] text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors disabled:opacity-50"
+            />
+          </div>
+        )}
 
         {/* Submit */}
         <button

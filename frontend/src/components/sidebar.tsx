@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   ArrowLeftRight,
+  Package,
 } from "lucide-react";
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { label: "New Scan", href: "/scan", icon: ScanSearch },
   { label: "Compare", href: "/compare", icon: ArrowLeftRight },
   { label: "History", href: "/history", icon: History },
+  { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Scanners", href: "/scanners", icon: Settings },
 ];
 

@@ -29,6 +29,8 @@ export interface Scan {
   risk_score?: number;
   summary?: string;
   error?: string;
+  target_url?: string;
+  target_host?: string;
 }
 
 export interface ScanSummary {
@@ -104,11 +106,21 @@ export async function fetchScannerStatus(): Promise<ScannerStatus[]> {
   return data.scanners ?? data;
 }
 
-export async function startScan(targetPath: string, scanTypes: string[]): Promise<Scan> {
+export async function startScan(
+  targetPath: string,
+  scanTypes: string[],
+  targetUrl?: string,
+  targetHost?: string,
+): Promise<Scan> {
   const res = await fetch(`${API_BASE}/api/scans`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_path: targetPath, scan_types: scanTypes }),
+    body: JSON.stringify({
+      target_path: targetPath,
+      scan_types: scanTypes,
+      target_url: targetUrl || undefined,
+      target_host: targetHost || undefined,
+    }),
   });
   if (!res.ok) throw new Error("Failed to start scan");
   return res.json();
@@ -221,4 +233,50 @@ export async function fetchComplianceCoverage(scanId: string): Promise<Complianc
 
 export function getReportUrl(scanId: string, format: "pdf" | "html"): string {
   return `${API_BASE}/api/scans/${scanId}/report?format=${format}`;
+}
+
+// --- SBOM ---
+
+export interface SBOMComponent {
+  id: string;
+  sbom_id: string;
+  name: string;
+  version: string;
+  type: string;
+  purl?: string;
+  license?: string;
+  supplier?: string;
+}
+
+export interface SBOMDocument {
+  id: string;
+  scan_id?: string;
+  target_path: string;
+  format: string;
+  components: SBOMComponent[];
+  created_at: string;
+}
+
+export async function generateSBOM(
+  targetPath: string,
+  format: string = "cyclonedx",
+  scanId?: string,
+): Promise<{ sbom_id: string; format: string; component_count: number; document: Record<string, unknown> }> {
+  const params = new URLSearchParams({ target_path: targetPath, format });
+  if (scanId) params.set("scan_id", scanId);
+  const res = await fetch(`${API_BASE}/api/sbom/generate?${params}`, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to generate SBOM");
+  return res.json();
+}
+
+export async function fetchSBOM(sbomId: string): Promise<SBOMDocument> {
+  const res = await fetch(`${API_BASE}/api/sbom/${sbomId}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch SBOM");
+  return res.json();
+}
+
+export async function exportSBOM(sbomId: string, format: string = "cyclonedx"): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/api/sbom/${sbomId}/export?format=${format}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to export SBOM");
+  return res.json();
 }
