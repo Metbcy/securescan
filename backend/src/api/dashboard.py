@@ -128,7 +128,8 @@ async def install_scanner(scanner_name: str):
 
     try:
         if method == "pip":
-            cmd = ["pip", "install", info["package"]]
+            import sys
+            cmd = [sys.executable, "-m", "pip", "install", info["package"]]
         elif method == "script":
             cmd = info["command"]
         else:

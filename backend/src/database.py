@@ -343,6 +343,21 @@ async def get_sbom(sbom_id: str) -> Optional[SBOMDocument]:
         await db.close()
 
 
+async def get_all_sboms() -> list[dict]:
+    """Return all SBOM documents with component counts (no full component data)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            """SELECT d.id, d.scan_id, d.target_path, d.format, d.created_at,
+                      (SELECT COUNT(*) FROM sbom_components c WHERE c.sbom_id = d.id) AS component_count
+               FROM sbom_documents d ORDER BY d.created_at DESC"""
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 async def get_sboms_for_scan(scan_id: str) -> list[SBOMDocument]:
     db = await _get_db()
     try:

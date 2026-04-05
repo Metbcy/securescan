@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from ..database import get_sbom, get_sboms_for_scan, save_sbom
+from ..database import get_all_sboms, get_sbom, get_sboms_for_scan, save_sbom
 from ..models import SBOMDocument
 from ..sbom import SBOMGenerator
 
@@ -45,6 +45,12 @@ async def generate_sbom(
         "component_count": len(doc.components),
         "document": exported,
     }
+
+
+@router.get("/history")
+async def list_sboms():
+    """List all previously generated SBOMs with metadata and component counts."""
+    return await get_all_sboms()
 
 
 @router.get("/{sbom_id}")

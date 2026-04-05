@@ -10,6 +10,8 @@ const TYPE_LABELS: Record<string, string> = {
   dependency: "Dependency Scan",
   iac: "Infrastructure as Code",
   baseline: "System Configuration",
+  dast: "Dynamic Application Security",
+  network: "Network Security",
 };
 
 export default function ScannersPage() {

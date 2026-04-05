@@ -257,6 +257,21 @@ export interface SBOMDocument {
   created_at: string;
 }
 
+export interface SBOMHistoryEntry {
+  id: string;
+  scan_id: string | null;
+  target_path: string;
+  format: string;
+  created_at: string;
+  component_count: number;
+}
+
+export async function fetchSBOMHistory(): Promise<SBOMHistoryEntry[]> {
+  const res = await fetch(`${API_BASE}/api/sbom/history`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch SBOM history");
+  return res.json();
+}
+
 export async function generateSBOM(
   targetPath: string,
   format: string = "cyclonedx",

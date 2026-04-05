@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Package, Loader2, Download, FolderOpen, ChevronDown, ChevronRight, Search } from "lucide-react";
-import { generateSBOM } from "@/lib/api";
+import { useState, useMemo, useEffect } from "react";
+import { Package, Loader2, Download, FolderOpen, ChevronDown, ChevronRight, Search, History, Clock, FolderCode, Eye } from "lucide-react";
+import { generateSBOM, fetchSBOMHistory, exportSBOM } from "@/lib/api";
+import type { SBOMHistoryEntry } from "@/lib/api";
 import { DirectoryPicker } from "@/components/directory-picker";
 
 interface ParsedComponent {
@@ -87,6 +88,41 @@ export default function SBOMPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [showRawJson, setShowRawJson] = useState(false);
+  const [tab, setTab] = useState<"generate" | "history">("generate");
+  const [history, setHistory] = useState<SBOMHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [viewingSbomId, setViewingSbomId] = useState<string | null>(null);
+  const [viewingLoading, setViewingLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab === "history") {
+      setHistoryLoading(true);
+      setHistoryError(null);
+      fetchSBOMHistory()
+        .then(setHistory)
+        .catch(() => setHistoryError("Failed to load SBOM history. Is the backend running?"))
+        .finally(() => setHistoryLoading(false));
+    }
+  }, [tab]);
+
+  const handleViewSbom = async (entry: SBOMHistoryEntry) => {
+    setViewingLoading(true);
+    setViewingSbomId(entry.id);
+    try {
+      const exported = await exportSBOM(entry.id, entry.format);
+      setSbom({ sbom_id: entry.id, component_count: entry.component_count, document: exported });
+      setFormat(entry.format as "cyclonedx" | "spdx");
+      setSearch("");
+      setShowRawJson(false);
+      setTab("generate");
+    } catch {
+      setHistoryError("Failed to load SBOM details");
+    } finally {
+      setViewingLoading(false);
+      setViewingSbomId(null);
+    }
+  };
 
   const components = useMemo(() => {
     if (!sbom) return [];
@@ -120,6 +156,8 @@ export default function SBOMPage() {
     try {
       const result = await generateSBOM(targetPath.trim(), format);
       setSbom(result);
+      // Refresh history in background so new entry appears
+      fetchSBOMHistory().then(setHistory).catch(() => {});
     } catch {
       setError("Failed to generate SBOM. Is the backend running?");
     } finally {
@@ -143,6 +181,107 @@ export default function SBOMPage() {
       <h1 className="text-2xl font-bold tracking-tight">SBOM Generator</h1>
       <p className="text-sm text-[#a1a1aa]">Generate a Software Bill of Materials for any project directory.</p>
 
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-[#262626]">
+        {([
+          { key: "generate" as const, label: "Generate", icon: Package },
+          { key: "history" as const, label: "History", icon: History },
+        ]).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              tab === key
+                ? "border-blue-500 text-blue-500"
+                : "border-transparent text-[#a1a1aa] hover:text-[#ededed] hover:border-[#404040]"
+            }`}
+          >
+            <Icon size={16} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* History tab */}
+      {tab === "history" && (
+        <div className="space-y-4">
+          {historyLoading && (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="animate-spin text-[#52525b]" />
+            </div>
+          )}
+          {historyError && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4">
+              <p className="text-sm text-red-400">{historyError}</p>
+            </div>
+          )}
+          {!historyLoading && !historyError && history.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <Package size={48} className="text-[#52525b] mb-4" />
+              <h2 className="text-xl font-semibold mb-2">No SBOMs generated yet</h2>
+              <p className="text-[#a1a1aa]">Generate your first SBOM and it will appear here.</p>
+            </div>
+          )}
+          {!historyLoading && history.length > 0 && (
+            <div className="rounded-xl border border-[#262626] overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-[#141414]">
+                  <tr className="border-b border-[#262626]">
+                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Target Path</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Format</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Components</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Generated</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#262626]">
+                  {history.map((entry) => (
+                    <tr key={entry.id} className="hover:bg-[#141414]/50 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <FolderCode size={14} className="text-[#52525b] shrink-0" />
+                          <span className="font-mono text-xs text-[#ededed] truncate max-w-[300px]" title={entry.target_path}>
+                            {entry.target_path}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-blue-500/10 text-blue-400 border-blue-500/20">
+                          {entry.format === "cyclonedx" ? "CycloneDX" : "SPDX"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[#a1a1aa] font-medium">{entry.component_count}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1.5 text-xs text-[#a1a1aa]">
+                          <Clock size={12} />
+                          {new Date(entry.created_at).toLocaleString()}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleViewSbom(entry)}
+                          disabled={viewingLoading && viewingSbomId === entry.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#262626] bg-[#141414] text-xs hover:bg-[#1a1a1a] transition-colors disabled:opacity-50"
+                        >
+                          {viewingLoading && viewingSbomId === entry.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Eye size={12} />
+                          )}
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Generate tab */}
+      {tab === "generate" && <>
       <form onSubmit={handleGenerate} className="space-y-5">
         <div>
           <label className="block text-sm font-medium text-[#a1a1aa] mb-2">Target Path</label>
@@ -285,6 +424,7 @@ export default function SBOMPage() {
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }
