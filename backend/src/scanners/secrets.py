@@ -56,7 +56,7 @@ class SecretsScanner(BaseScanner):
     def install_hint(self) -> str:
         return "Built-in scanner, always available"
 
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings = []
         target = Path(target_path)
 

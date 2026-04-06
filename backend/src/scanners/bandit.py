@@ -28,7 +28,7 @@ class BanditScanner(BaseScanner):
     def install_hint(self) -> str:
         return "pip install bandit"
 
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
 
         # Only scan if target contains Python files

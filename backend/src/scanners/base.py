@@ -10,7 +10,7 @@ class BaseScanner(ABC):
     checks: list[str] = []
 
     @abstractmethod
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         """Run the scanner and return findings."""
         pass
 

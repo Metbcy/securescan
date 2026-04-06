@@ -33,7 +33,7 @@ class NpmAuditScanner(BaseScanner):
     def install_hint(self) -> str:
         return "Install Node.js from https://nodejs.org"
 
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings = []
         target = Path(target_path)
 

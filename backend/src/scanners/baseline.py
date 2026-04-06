@@ -30,7 +30,7 @@ class BaselineScanner(BaseScanner):
     def install_hint(self) -> str:
         return "Built-in scanner — always available"
 
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
         findings.extend(self._check_ssh_config(scan_id))
         findings.extend(self._check_file_permissions(scan_id))

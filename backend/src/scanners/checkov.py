@@ -28,7 +28,7 @@ class CheckovScanner(BaseScanner):
     def install_hint(self) -> str:
         return "pip install checkov"
 
-    async def scan(self, target_path: str, scan_id: str) -> list[Finding]:
+    async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
         try:
             proc = await asyncio.create_subprocess_exec(
