@@ -4,7 +4,7 @@ AI-powered security scanning dashboard that orchestrates multiple open-source se
 
 ## Features
 
-- **Multi-scanner orchestration** — 11 scanners across code, dependency, IaC, and baseline categories
+- **Multi-scanner orchestration** — 14 scanners across code, dependency, IaC, DAST, network, and baseline categories
 - **AI-powered analysis** — Groq/Llama 3 enrichment for remediation suggestions and executive summaries
 - **Risk scoring** — Aggregate 0-100 risk score with severity-weighted algorithm
 - **Dashboard** — Clean, modern Next.js dashboard with charts and findings tables
@@ -132,6 +132,9 @@ docker compose up
 | **Checkov** | IaC | Terraform, K8s, Docker, and cloud misconfigurations |
 | **Dockerfile** | IaC | Insecure Docker patterns (`:latest`, root user, `curl \| sh`, secrets in `ENV`) |
 | **Baseline** | System Config | SSH, firewall, password policy, kernel security checks |
+| **DAST Built-in** | DAST | Missing security headers, information disclosure, insecure cookie flags |
+| **OWASP ZAP** | DAST | Web app vulnerabilities via ZAP active/passive scanning |
+| **Nmap** | Network | Open ports, service detection, risk classification |
 
 ## AI Enrichment
 
@@ -184,7 +187,7 @@ pytest tests/ -v
 - **Backend**: Python, FastAPI, SQLite, asyncio
 - **Frontend**: Next.js 15, Tailwind CSS, Recharts
 - **AI**: Groq API (Llama 3)
-- **Scanners**: 11 integrated scanners (code, dependency, IaC, baseline)
+- **Scanners**: 14 integrated scanners (code, dependency, IaC, DAST, network, baseline)
 
 ## License
 
