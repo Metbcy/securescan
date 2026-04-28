@@ -1,34 +1,39 @@
-# Example: Add this to your repo at .github/workflows/security.yml
-name: Security Scan
+# Drop into .github/workflows/securescan.yml in your repo.
+# Diff-aware security scan: posts a single upserted PR comment of NEW
+# findings introduced by the PR, and uploads SARIF to the Security tab.
+#
+# Behavior notes:
+# - The PR comment is upserted via the marker `<!-- securescan:diff -->`,
+#   so re-runs replace the previous comment in place instead of stacking.
+# - SARIF uses stable per-finding fingerprints, so GitHub's Security tab
+#   deduplicates across re-runs and won't raise spurious "new alert" noise.
+# - Only NEW findings (introduced by the PR) drive `fail-on-severity`.
+
+name: SecureScan
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  push:
+    branches: [main]   # also gate main pushes; comment is posted only on PRs
+
+permissions:
+  contents: read
+  pull-requests: write     # for the upserted PR comment
+  security-events: write   # for SARIF upload
 
 jobs:
-  security:
+  securescan:
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          # SecureScan needs the base ref to compute the diff.
+          fetch-depth: 0
 
-      - name: Install SecureScan
-        run: |
-          pip install git+https://github.com/Metbcy/securescan.git#subdirectory=backend
-          pip install semgrep bandit
-
-      - name: Run SecureScan
-        run: |
-          securescan scan . --type code --output sarif --output-file results.sarif --fail-on-severity high
-
-      - name: Upload Results to GitHub Security
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+      - uses: Metbcy/securescan@v1
         with:
-          sarif_file: results.sarif
+          scan-types: code,dependency
+          fail-on-severity: high
+          # baseline: .securescan/baseline.json    # optional: suppress legacy findings
+          # comment-on-pr: true                    # default
+          # upload-sarif: true                     # default
