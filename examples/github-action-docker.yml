@@ -1,0 +1,70 @@
+# Diff-aware SecureScan via the published container image (no third-party action).
+# Use this if you prefer to bypass Metbcy/securescan@v1 and call the container
+# directly -- useful for environments that don't allow non-trusted actions.
+#
+# Image pinning: this example pins to :v0.2.0 (immutable) for reproducible
+# CI runs. You can switch to :latest to track new releases automatically,
+# but :v0.2.0 (or any released tag) is recommended for production pipelines.
+
+name: SecureScan (docker)
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+jobs:
+  securescan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Run SecureScan diff in container
+        env:
+          IMAGE: ghcr.io/metbcy/securescan:v0.2.0
+        run: |
+          mkdir -p .securescan
+          docker pull "$IMAGE"
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$PWD/.securescan:/output" \
+            -e CI=true -e GITHUB_REPOSITORY -e GITHUB_SHA \
+            "$IMAGE" diff /workspace \
+              --base-ref "${{ github.event.pull_request.base.sha || 'main' }}" \
+              --head-ref "${{ github.sha }}" \
+              --type code --type dependency \
+              --output github-pr-comment \
+              --output-file /output/diff.md
+          docker run --rm \
+            -v "$PWD:/workspace" \
+            -v "$PWD/.securescan:/output" \
+            -e CI=true \
+            "$IMAGE" diff /workspace \
+              --base-ref "${{ github.event.pull_request.base.sha || 'main' }}" \
+              --head-ref "${{ github.sha }}" \
+              --type code --type dependency \
+              --output sarif \
+              --output-file /output/diff.sarif
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .securescan/diff.sarif
+          category: securescan
+
+      - name: Post or update PR comment
+        if: github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-file: .securescan/diff.md
+          edit-mode: replace
+          # peter-evans uses comment markers internally; the file already starts
+          # with `<!-- securescan:diff -->` so an explicit comment-tag is optional.
