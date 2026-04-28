@@ -1,14 +1,31 @@
-"""Export scan results in standard formats."""
-import json
+"""Export scan results in standard formats.
+
+All exporters in this module produce byte-identical output for the same
+logical input. Findings are passed through ``sort_findings_canonical``
+before rendering, every dict-of-rules / set-of-tags is iterated in
+sorted order, and wall-clock timestamps that would otherwise differ
+between re-runs of the same scan are intentionally omitted from SARIF
+(the scan's ``started_at``/``completed_at`` are still persisted on the
+``Scan`` model itself for audit purposes).
+"""
 import xml.etree.ElementTree as ET
-from datetime import datetime
-from .models import Finding, Scan, ScanSummary, Severity
+
+from .models import Finding, Scan, ScanSummary, Severity  # noqa: F401
+from .ordering import sort_findings_canonical
 
 
 def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
-    """Convert findings to SARIF v2.1.0 format for GitHub/GitLab integration."""
-    rules = {}
-    results = []
+    """Convert findings to SARIF v2.1.0 format for GitHub/GitLab integration.
+
+    Output is deterministic: findings are sorted by the canonical key,
+    rules are emitted in lexicographic ``ruleId`` order, and no
+    wall-clock timestamps are included in ``invocations`` so the same
+    logical scan re-uploaded to GitHub's Security tab does not generate
+    spurious "new alert" diffs.
+    """
+    findings = sort_findings_canonical(findings)
+    rules: dict[str, dict] = {}
+    results: list[dict] = []
 
     severity_to_level = {
         Severity.CRITICAL: "error",
@@ -74,14 +91,12 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
                     "name": "SecureScan",
                     "version": "0.1.0",
                     "informationUri": "https://github.com/Metbcy/securescan",
-                    "rules": list(rules.values()),
+                    "rules": [rule for _, rule in sorted(rules.items(), key=lambda kv: kv[0])],
                 }
             },
             "results": results,
             "invocations": [{
                 "executionSuccessful": scan.status == "completed",
-                "startTimeUtc": scan.started_at.isoformat() if scan.started_at else None,
-                "endTimeUtc": scan.completed_at.isoformat() if scan.completed_at else None,
             }],
         }],
     }
@@ -99,7 +114,10 @@ def _severity_score(severity: Severity) -> str:
 
 
 def findings_to_csv(findings: list[Finding]) -> str:
-    """Export findings as CSV string."""
+    """Export findings as CSV string. Findings are sorted canonically so
+    the output is byte-identical for the same logical input.
+    """
+    findings = sort_findings_canonical(findings)
     lines = ["severity,scanner,title,file,line,rule_id,cwe,description,remediation"]
     for f in findings:
         row = [
@@ -118,7 +136,11 @@ def findings_to_csv(findings: list[Finding]) -> str:
 
 
 def findings_to_junit(findings: list[Finding], scan: Scan) -> str:
-    """Export findings as JUnit XML for CI/CD test frameworks."""
+    """Export findings as JUnit XML for CI/CD test frameworks. Findings
+    are sorted canonically so the output is byte-identical for the same
+    logical input.
+    """
+    findings = sort_findings_canonical(findings)
     suite = ET.Element("testsuite", {
         "name": "SecureScan",
         "tests": str(len(findings)),

@@ -1,16 +1,23 @@
-"""SBOM (Software Bill of Materials) generator for SecureScan."""
+"""SBOM (Software Bill of Materials) generator for SecureScan.
+
+Generation and export are deterministic: ``Path.rglob`` results are
+sorted, components are sorted by ``(name, version, purl)`` after
+deduplication, and the ``metadata.timestamp`` (CycloneDX) /
+``creationInfo.created`` (SPDX) fields go through
+``timeutil.now_for_output`` so a frozen-time CI run produces
+byte-identical SBOM JSON.
+"""
 
 import asyncio
 import json
 import logging
 import re
 import shutil
-import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from .models import SBOMComponent, SBOMDocument
+from .timeutil import now_for_output
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +37,18 @@ class SBOMGenerator:
     # ------------------------------------------------------------------
 
     async def generate(self) -> SBOMDocument:
-        """Generate an SBOM document. Tries Syft first, falls back to built-in parsers."""
+        """Generate an SBOM document. Tries Syft first, falls back to built-in parsers.
+
+        The returned document has its ``created_at`` set via
+        ``now_for_output`` (so ``SECURESCAN_FAKE_NOW`` freezes it) and
+        its ``components`` sorted canonically by ``(name, version, purl)``
+        so identical scans yield byte-identical exports.
+        """
         doc = SBOMDocument(
             target_path=str(self.target_path),
             scan_id=self.scan_id,
         )
+        doc.created_at = now_for_output()
 
         components: list[SBOMComponent] = []
 
@@ -47,7 +61,10 @@ class SBOMGenerator:
         if not components:
             components = await self._builtin_parse(doc.id)
 
-        # Deduplicate by purl (or name+version if no purl)
+        # Deduplicate by purl (or name+version if no purl), then sort
+        # canonically so the SBOM is order-stable across runs even when
+        # the underlying filesystem walk yields manifests in a different
+        # order on different machines.
         seen: set[str] = set()
         unique: list[SBOMComponent] = []
         for comp in components:
@@ -56,6 +73,7 @@ class SBOMGenerator:
                 seen.add(key)
                 unique.append(comp)
 
+        unique.sort(key=lambda c: (c.name, c.version, c.purl or "", c.type))
         doc.components = unique
         return doc
 
@@ -145,6 +163,10 @@ class SBOMGenerator:
                 results.append(path)
         except PermissionError:
             pass
+        # rglob's traversal order is filesystem-dependent; sort so that
+        # downstream parsing emits components in a deterministic order
+        # before the canonical post-dedup sort runs.
+        results.sort()
         return results
 
     @staticmethod

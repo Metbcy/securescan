@@ -31,6 +31,7 @@ from .models import (
 from .scanners import ALL_SCANNERS, get_scanners_for_types
 from .scoring import build_summary
 from .ai import AIEnricher
+from .ordering import sort_findings_canonical
 
 app = typer.Typer(name="securescan", help="AI-powered security scanning CLI")
 console = Console()
@@ -202,6 +203,11 @@ def scan(
     console.print(f"\n[bold]🔍 SecureScan — scanning {target_path}[/bold]\n")
 
     result_scan, findings = asyncio.run(_run_scan_async(target_path, types))
+
+    # Canonicalize finding order so every output format (table, json,
+    # sarif, csv, junit, report-html) is byte-identical for re-runs of
+    # the same logical scan.
+    findings = sort_findings_canonical(findings)
 
     # Format output
     output_content = None
