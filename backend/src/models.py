@@ -46,6 +46,7 @@ class Finding(BaseModel):
     remediation: Optional[str] = None
     metadata: dict = Field(default_factory=dict)
     compliance_tags: list[str] = Field(default_factory=list)
+    fingerprint: str = ""  # populated by populate_fingerprints() before save
 
 
 class Scan(BaseModel):

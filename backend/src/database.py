@@ -66,12 +66,21 @@ async def init_db() -> None:
                 cwe TEXT,
                 remediation TEXT,
                 metadata TEXT DEFAULT '{}',
+                fingerprint TEXT DEFAULT '',
                 FOREIGN KEY (scan_id) REFERENCES scans(id)
             )
         """)
         # Migration: add compliance_tags column if not present
         try:
             await db.execute("ALTER TABLE findings ADD COLUMN compliance_tags TEXT DEFAULT '[]'")
+        except Exception:
+            pass  # Column already exists
+
+        # Migration: add fingerprint column to existing DBs (forward-only).
+        # Empty default lets old rows coexist; the diff classifier (SS4) will
+        # recompute the fingerprint on read when it is empty.
+        try:
+            await db.execute("ALTER TABLE findings ADD COLUMN fingerprint TEXT DEFAULT ''")
         except Exception:
             pass  # Column already exists
 
@@ -148,8 +157,8 @@ async def save_findings(findings: list[Finding]) -> None:
         await db.executemany(
             """INSERT OR REPLACE INTO findings
                (id, scan_id, scanner, scan_type, severity, title, description,
-                file_path, line_start, line_end, rule_id, cwe, remediation, metadata, compliance_tags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                file_path, line_start, line_end, rule_id, cwe, remediation, metadata, compliance_tags, fingerprint)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     f.id,
@@ -167,6 +176,7 @@ async def save_findings(findings: list[Finding]) -> None:
                     f.remediation,
                     json.dumps(f.metadata),
                     json.dumps(f.compliance_tags),
+                    f.fingerprint,
                 )
                 for f in findings
             ],
@@ -194,6 +204,7 @@ def _row_to_scan(row: aiosqlite.Row) -> Scan:
 
 
 def _row_to_finding(row: aiosqlite.Row) -> Finding:
+    keys = row.keys()
     return Finding(
         id=row["id"],
         scan_id=row["scan_id"],
@@ -210,6 +221,7 @@ def _row_to_finding(row: aiosqlite.Row) -> Finding:
         remediation=row["remediation"],
         metadata=json.loads(row["metadata"]) if row["metadata"] else {},
         compliance_tags=json.loads(row["compliance_tags"]) if row["compliance_tags"] else [],
+        fingerprint=(row["fingerprint"] if "fingerprint" in keys and row["fingerprint"] else ""),
     )
 
 

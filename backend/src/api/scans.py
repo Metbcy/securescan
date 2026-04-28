@@ -18,6 +18,7 @@ from ..database import (
 )
 from ..compliance import ComplianceMapper
 from ..dedup import deduplicate_findings, dedup_key
+from ..fingerprint import populate_fingerprints
 from ..models import (
     Finding,
     Scan,
@@ -130,7 +131,10 @@ async def _run_scan(scan_id: str) -> None:
         if latest_scan is not None and latest_scan.status == ScanStatus.CANCELLED:
             return
 
-        # Save findings AFTER AI enrichment so remediation text is persisted
+        # Save findings AFTER AI enrichment so remediation text is persisted.
+        # Populate fingerprints first so the diff classifier (SS4) and
+        # PR-comment renderer (SS7) get a stable identity for every finding.
+        populate_fingerprints(all_findings)
         await save_findings(all_findings)
 
         scan.findings_count = summary.total_findings
