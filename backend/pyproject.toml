@@ -1,6 +1,6 @@
 [project]
 name = "securescan"
-version = "0.1.0"
+version = "0.2.0"
 description = "Diff-aware security scanning with multi-tool orchestration, deterministic SARIF, and PR-comment rendering."
 readme = "README.md"
 requires-python = ">=3.10"

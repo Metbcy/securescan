@@ -9,9 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR; SS16 promotes them into the next versioned section at release time. -->
 
-## [0.2.0] - YYYY-MM-DD
-
-<!-- TODO: SS16-pyproject-bump finalizes the date and ensures items match what actually shipped -->
+## [0.2.0] - 2026-04-28
 
 This release reframes SecureScan around CI/CD adoption: diff-aware scans,
 deterministic output, a first-class GitHub Action, and signed distribution
@@ -31,7 +29,7 @@ unchanged; the new surfaces are opt-in.
 - Deterministic SARIF output with stable rule ordering, canonical finding
   sort, and `partialFingerprints` for cleaner re-uploads to GitHub's
   Security tab without false-new-alert noise.
-- `Metbcy/securescan-action@v1` GitHub Action (composite, wheel-first with
+- `Metbcy/securescan@v1` GitHub Action (composite, wheel-first with
   container fallback) that wraps `securescan diff`, posts the PR comment,
   and uploads SARIF.
 - Multi-arch container image published to `ghcr.io/Metbcy/securescan` with
