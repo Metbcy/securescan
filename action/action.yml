@@ -1,0 +1,78 @@
+name: SecureScan
+description: Diff-aware security scan that posts PR comments and uploads SARIF.
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  base-ref:
+    description: Git ref to use as the "before" side. Defaults to the PR base sha.
+    required: false
+    default: ''
+  head-ref:
+    description: Git ref to use as the "after" side. Defaults to the PR head sha (immutable).
+    required: false
+    default: ''
+  scan-types:
+    description: Comma-separated scanners to run (code,dependency,iac,baseline,dast,network).
+    required: false
+    default: 'code'
+  fail-on-severity:
+    description: Exit non-zero if NEW findings >= this severity (none|critical|high|medium|low).
+    required: false
+    default: 'none'
+  comment-on-pr:
+    description: Post the diff as a PR comment (upserted via marker).
+    required: false
+    default: 'true'
+  upload-sarif:
+    description: Upload SARIF to the GitHub Security tab.
+    required: false
+    default: 'true'
+  image-tag:
+    description: Tag of ghcr.io/metbcy/securescan to use when falling back to the container.
+    required: false
+    default: 'latest'
+  prefer-image:
+    description: Skip the wheel install path and always run the container.
+    required: false
+    default: 'false'
+  baseline:
+    description: Path (relative to repo root) of a baseline JSON file to suppress legacy findings.
+    required: false
+    default: ''
+  github-token:
+    description: Token used for PR comment upsert. Defaults to GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve inputs
+      id: resolve
+      shell: bash
+      run: ${{ github.action_path }}/entrypoint-resolve.sh
+      env:
+        INPUT_BASE_REF: ${{ inputs.base-ref }}
+        INPUT_HEAD_REF: ${{ inputs.head-ref }}
+    - name: Run securescan diff
+      shell: bash
+      run: ${{ github.action_path }}/entrypoint.sh
+      env:
+        INPUT_BASE_REF: ${{ steps.resolve.outputs.base_ref }}
+        INPUT_HEAD_REF: ${{ steps.resolve.outputs.head_ref }}
+        INPUT_SCAN_TYPES: ${{ inputs.scan-types }}
+        INPUT_FAIL_ON_SEVERITY: ${{ inputs.fail-on-severity }}
+        INPUT_COMMENT_ON_PR: ${{ inputs.comment-on-pr }}
+        INPUT_UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+        INPUT_PREFER_IMAGE: ${{ inputs.prefer-image }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+    - name: Upload SARIF to Security tab
+      if: always() && inputs.upload-sarif == 'true'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ github.workspace }}/.securescan/diff.sarif
+        category: securescan
