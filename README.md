@@ -1,121 +1,152 @@
-# 🛡️ SecureScan
+# SecureScan
 
-AI-powered security scanning dashboard that orchestrates multiple open-source security tools and presents findings in a unified interface.
+> Diff-aware security scanning for CI/CD. Posts a single, upserting PR
+> comment of NEW findings only — backed by 14 scanners, deterministic
+> SARIF, and signed releases.
 
-## Features
+[![CI](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml)
+[![Container](https://github.com/Metbcy/securescan/actions/workflows/container.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/container.yml)
+[![PyPI](https://img.shields.io/pypi/v/securescan.svg)](https://pypi.org/project/securescan/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-- **Multi-scanner orchestration** — 14 scanners across code, dependency, IaC, DAST, network, and baseline categories
-- **AI-powered analysis** — Groq/Llama 3 enrichment for remediation suggestions and executive summaries
-- **Risk scoring** — Aggregate 0-100 risk score with severity-weighted algorithm
-- **Dashboard** — Clean, modern Next.js dashboard with charts and findings tables
-- **CLI** — Full-featured command-line interface for scripting and CI/CD
-- **Extensible** — Easy to add new scanners via the base scanner interface
+## Why?
 
-## Architecture
+The most actionable security question on a PR is *"what changed in this
+diff that I should worry about?"* — not *"what's in my repo right now?"*.
+SecureScan answers the first question by classifying findings into
+NEW / FIXED / UNCHANGED across the base ref and the head ref, then
+posting only the NEW ones (with severity counts) as a single upserted
+PR comment. Pre-existing legacy findings stay out of the way until you
+choose to address them, so the tool can be left on across an org without
+drowning every PR in noise.
 
+Pair that with deterministic output (sorted findings, stable per-finding
+fingerprints, no wall-clock timestamps) and the same comment can be
+upserted on every push to the PR branch via a comment marker, the SARIF
+re-uploads cleanly to GitHub's Security tab without false-new-alert
+noise, and the renderer is byte-identical for the same inputs.
+
+## Install
+
+There are three supported install paths. Pick the one that matches how
+you want to run SecureScan.
+
+### GitHub Action (recommended for CI)
+
+The composite action wraps `securescan diff`, posts the upserted PR
+comment, and uploads SARIF to the Security tab. It tries the wheel first
+and falls back to the pinned container image when scanner binaries
+aren't on `PATH`.
+
+```yaml
+# .github/workflows/securescan.yml
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write    # required for the upserted PR comment
+  security-events: write  # required for SARIF upload to the Security tab
+
+jobs:
+  securescan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # diff needs both base and head commits
+      - uses: Metbcy/securescan@v0.2.0  # `@v1` floats to latest stable once released
+        with:
+          scan-types: code,dependency
+          fail-on-severity: high
 ```
-┌─────────────────────────┐
-│  Next.js Dashboard      │
-│  (Charts, Tables, UI)   │
-└──────────┬──────────────┘
-           │ REST API
-┌──────────┴──────────────┐
-│  FastAPI Backend        │
-│  ├── Scanner Modules    │
-│  ├── AI Enrichment      │
-│  └── SQLite Storage     │
-└─────────────────────────┘
-```
 
-## Quick Start
+The action's full input/output reference lives in
+[`action/README.md`](./action/README.md).
 
-### Prerequisites
-- Python 3.10+
-- Node.js 20+
-
-### Backend Setup
+### PyPI (`pip` / `pipx`)
 
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -e .
-
-# Install scanners
-pip install semgrep bandit safety pip-licenses checkov
-
-# Optional: Trivy (see https://trivy.dev/docs/latest/getting-started/installation/)
-# Optional: Node.js/npm (for npm-audit scanner)
+pip install securescan
+# or, isolated:
+pipx install securescan
 ```
 
-### Windows Setup (PowerShell)
+The wheel only ships SecureScan itself. The underlying scanner CLIs
+(`semgrep`, `bandit`, `safety`, `pip-licenses`, `checkov`, `trivy`,
+`npm`, `nmap`, ZAP, …) need to be installed separately and on `PATH` for
+the scanners that wrap them to run. Use `securescan status` to see what
+is detected. If you don't want to manage scanner installs yourself, use
+the container.
 
-```powershell
-cd backend
-py -3 -m venv venv
-.\venv\Scripts\Activate.ps1
-python -m pip install -e .
-pip install semgrep bandit safety pip-licenses checkov
+### Container (`ghcr.io/metbcy/securescan`)
 
-# Optional: Trivy (see https://trivy.dev/docs/latest/getting-started/installation/)
-# Optional: Node.js/npm (for npm-audit scanner)
-
-# Optional AI key
-$env:SECURESCAN_GROQ_API_KEY="your-key-here"
-
-# Start API
-python -m src.cli serve --host 127.0.0.1 --port 8000
-```
-
-If you use Command Prompt instead of PowerShell, activate with:
-
-```bat
-venv\Scripts\activate.bat
-```
-
-### CLI Usage
+The image is multi-arch (amd64 + arm64), comes with all 14 scanners
+pre-installed at pinned versions, and is what the GitHub Action falls
+back to when wheel-mode prerequisites aren't met.
 
 ```bash
-# Check available scanners
-securescan status
-
-# Scan a project
-securescan scan ./your-project
-
-# Scan specific types only
-securescan scan ./your-project --type code --type baseline
-
-# Start the API server
-securescan serve --port 8000
-
-# View scan history
-securescan history
+docker run --rm -v "$PWD:/work" -w /work \
+  ghcr.io/metbcy/securescan:v0.2.0 \
+  diff . --base-ref origin/main --head-ref HEAD \
+         --output github-pr-comment
 ```
 
-### Dashboard Setup
+## Usage
 
 ```bash
-cd frontend
-npm install
-npm run dev
+# Diff a PR locally (refs must exist in the local clone)
+securescan diff . --base-ref main --head-ref HEAD
+
+# CI snapshot path (skip git checkouts; consume two pre-scanned JSONs)
+securescan diff . \
+  --base-snapshot before.json \
+  --head-snapshot after.json \
+  --output github-pr-comment
+
+# Full one-shot scan (legacy v0.1.0 mode — still supported)
+securescan scan ./your-project \
+  --type code --type dependency \
+  --output sarif --output-file results.sarif
+
+# Refresh the baseline JSON used to suppress legacy findings
+securescan scan . --output json --output-file baseline.json
 ```
 
-Open http://localhost:3000 — the dashboard connects to the backend API at http://localhost:8000.
+`securescan diff` accepts either ref mode (`--base-ref` / `--head-ref`)
+**or** snapshot mode (`--base-snapshot` / `--head-snapshot`), never
+both. Snapshot mode is the recommended CI path: each side runs
+`securescan scan ... --output json` independently, then a single
+classification step does the diff without re-checking-out the tree.
 
-Windows (PowerShell):
+In CI, AI enrichment is auto-disabled when the `CI=true` environment
+variable is set; pass `--ai` to force it on or `--no-ai` to be explicit.
 
-```powershell
-cd frontend
-npm install
-$env:NEXT_PUBLIC_API_URL="http://127.0.0.1:8000"
-npm run dev
-```
+## Output formats
 
-### Docker
+| Format | Use case |
+|---|---|
+| `github-pr-comment` (default for `diff`) | PR upsert via the `<!-- securescan:diff -->` marker — one comment per PR, updated in place on every push |
+| `sarif` | GitHub Code Scanning / Security tab; emits `partialFingerprints` so re-uploads dedup cleanly |
+| `json` | Downstream tooling, baselines, snapshot-mode diff inputs, debugging |
+| `text` | Human-readable terminal output (default for `diff` on a TTY when no `--output` given) |
 
-```bash
-docker compose up
-```
+## Determinism
+
+Every renderer produces byte-identical output for the same inputs:
+
+- Findings are sorted by a canonical key (severity, scanner, rule id,
+  file path, line number).
+- Each finding gets a stable fingerprint
+  `sha256(scanner | rule_id | file_path | normalized_line_context | cwe)`
+  so trivial whitespace or line shifts don't reclassify it as new.
+- No wall-clock timestamps in any output payload — set
+  `SECURESCAN_FAKE_NOW` in tests or CI replays to pin the only
+  time-derived field that exists.
+- Rule lists in SARIF are deduplicated and ordered.
+
+The PR-comment upsert and the SARIF Security-tab dedup both rely on
+this — non-deterministic output silently breaks the "single comment per
+PR" property.
 
 ## Scanners
 
@@ -127,7 +158,7 @@ docker compose up
 | **Git Hygiene** | Code | Sensitive files in repo, missing `.gitignore` protections |
 | **Trivy** | Dependencies | Known CVEs in package manifests and lockfiles |
 | **Safety** | Dependencies | Python dependency vulnerabilities from safety DB |
-| **License Checker** | Dependencies | Copyleft/unknown license compliance risks |
+| **License Checker** | Dependencies | Copyleft / unknown license compliance risks |
 | **npm Audit** | Dependencies | npm package advisories and transitive vulns |
 | **Checkov** | IaC | Terraform, K8s, Docker, and cloud misconfigurations |
 | **Dockerfile** | IaC | Insecure Docker patterns (`:latest`, root user, `curl \| sh`, secrets in `ENV`) |
@@ -136,26 +167,117 @@ docker compose up
 | **OWASP ZAP** | DAST | Web app vulnerabilities via ZAP active/passive scanning |
 | **Nmap** | Network | Open ports, service detection, risk classification |
 
-## AI Enrichment
+Use `--type code --type dependency` (etc.) to limit a run to a category;
+the default for `securescan diff` is `code` for fast PR feedback.
 
-Set a Groq API key (free tier) to enable AI-powered features:
+## AI enrichment (optional)
+
+Set a Groq API key (free tier) to enable AI-powered remediation
+suggestions, executive summaries, and contextual risk analysis:
 
 ```bash
 export SECURESCAN_GROQ_API_KEY=your-key-here
 ```
 
-Windows PowerShell:
+AI enrichment is **off by default in CI** (auto-disabled when `CI=true`
+is set, regardless of API key) because it is non-deterministic and would
+break the comment-upsert / SARIF-dedup invariants. Use `--no-ai` to be
+explicit, or `--ai` to force enrichment back on in a CI run that has
+opted out of those invariants.
 
-```powershell
-$env:SECURESCAN_GROQ_API_KEY="your-key-here"
+## Dashboard (secondary surface)
+
+The original v0.1.0 dashboard still works unchanged: a FastAPI backend
+in [`backend/securescan/main.py`](./backend/securescan/main.py) and a
+Next.js frontend in [`frontend/`](./frontend). It is the right surface
+when you want to browse historical scans, inspect findings interactively,
+or pick scan targets via a UI rather than a CLI flag. The v0.2.0 wedge
+is the GitHub Action; the dashboard is now positioned as a complementary
+local / internal tool, not the primary entry point.
+
+Quick start:
+
+```bash
+# Backend (FastAPI on :8000)
+cd backend
+python3 -m venv venv && source venv/bin/activate
+pip install -e .
+pip install semgrep bandit safety pip-licenses checkov
+securescan serve --host 127.0.0.1 --port 8000
+
+# Frontend (Next.js on :3000), in a second shell
+cd frontend
+npm install
+npm run dev
+
+# All-in-one
+docker compose up
 ```
 
-Features:
-- Remediation suggestions for critical/high findings
-- Executive summary generation
-- Contextual risk analysis
+Open http://localhost:3000 — it talks to the backend at
+http://localhost:8000.
 
-## API Endpoints
+## Release signing
+
+Every tagged release publishes signed artifacts. The exact verification
+commands are appended to each GitHub Release's notes by
+[`.github/workflows/release.yml`](./.github/workflows/release.yml); the
+templates are reproduced here for `<tag>` (e.g. `v0.2.0`) and
+`<version>` (e.g. `0.2.0`):
+
+### Wheel + sdist (sigstore-python)
+
+```bash
+pip install sigstore
+sigstore verify identity \
+  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/<tag>' \
+  --cert-oidc-issuer https://token.actions.githubusercontent.com \
+  securescan-<version>-py3-none-any.whl
+```
+
+The matching `*.sigstore.json` bundles ship as GitHub Release assets
+(not on PyPI — twine doesn't recognise them).
+
+### Container image (cosign keyless)
+
+```bash
+cosign verify \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/<tag>' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/metbcy/securescan:<tag>
+```
+
+Both identities are pinned to `refs/tags/<tag>` — that is why the
+release workflow is tag-triggered only and does not offer
+`workflow_dispatch` (a manual run would publish under a `refs/heads/...`
+identity and break these verification commands).
+
+### Pinning the GitHub Action
+
+`Metbcy/securescan@v1` is the floating major-version tag — it
+auto-tracks the latest `v1.x.y` stable release and is the recommended
+pin for most users. `Metbcy/securescan@v0.2.0` (or any specific
+`vX.Y.Z`) is the immutable per-release pin — use it when you want
+reproducible CI behaviour and explicit upgrades.
+
+## Non-goals
+
+SecureScan deliberately does **not** try to be:
+
+- An SBOM generator (use Syft / cyclonedx-cli).
+- A dependency-tree visualiser.
+- A drop-in replacement for a full SCA platform (Snyk, Dependabot, etc).
+  SecureScan orchestrates open-source scanners and adds diff-awareness;
+  it does not maintain its own vulnerability database.
+- A vulnerability database in its own right.
+
+The wedge is *"diff-aware PR comments + SARIF + signed releases, on top
+of scanners you already trust"*, not *"reinvent the security toolchain"*.
+
+## Reference
+
+<details>
+<summary>v0.1.0 dashboard / API endpoints (still available)</summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -170,11 +292,14 @@ Features:
 | GET | `/api/scans/compare` | Compare two scans (new, fixed, unchanged) |
 | GET | `/api/dashboard/status` | Scanner availability |
 | GET | `/api/dashboard/stats` | Aggregate statistics |
-| GET | `/api/dashboard/trends` | Risk/findings trend data |
+| GET | `/api/dashboard/trends` | Risk / findings trend data |
 | GET | `/api/browse` | Filesystem directory picker data |
 | POST | `/api/dashboard/install/{scanner}` | Install supported scanners |
 
-## Running Tests
+</details>
+
+<details>
+<summary>Running tests</summary>
 
 ```bash
 cd backend
@@ -182,13 +307,19 @@ source venv/bin/activate
 pytest tests/ -v
 ```
 
-## Tech Stack
+</details>
 
-- **Backend**: Python, FastAPI, SQLite, asyncio
+<details>
+<summary>Tech stack</summary>
+
+- **Backend**: Python, FastAPI, SQLite, asyncio, Typer
 - **Frontend**: Next.js 15, Tailwind CSS, Recharts
-- **AI**: Groq API (Llama 3)
+- **CI / release**: GitHub Actions, sigstore-python, cosign
+- **AI**: Groq API (Llama 3) — optional, off in CI
 - **Scanners**: 14 integrated scanners (code, dependency, IaC, DAST, network, baseline)
+
+</details>
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](./LICENSE).
