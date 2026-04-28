@@ -22,6 +22,19 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
     wall-clock timestamps are included in ``invocations`` so the same
     logical scan re-uploaded to GitHub's Security tab does not generate
     spurious "new alert" diffs.
+
+    Per-result ``partialFingerprints`` are emitted under the
+    ``securescan/v1`` namespace key (a versioned algorithm identifier
+    so a future fingerprint change can use ``securescan/v2`` without
+    reconciliation). This is GitHub Code Scanning's canonical
+    cross-upload dedup field. In addition, results sharing the same
+    fingerprint are collapsed in-pass — some scanners (notably certain
+    Semgrep configurations) emit the same logical finding twice, and
+    that would otherwise surface as duplicate alerts on the Security
+    tab. The representative kept is the one with the lowest
+    ``line_start`` (canonical sort already places it first). Findings
+    whose ``fingerprint`` is empty are passed through unchanged with
+    no ``partialFingerprints`` entry and no dedup.
     """
     findings = sort_findings_canonical(findings)
     rules: dict[str, dict] = {}
@@ -35,7 +48,11 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
         Severity.INFO: "note",
     }
 
-    for finding in findings:
+    deduped: list[Finding] = _dedupe_by_fingerprint(findings)
+
+    for finding in deduped:
+        fp = getattr(finding, "fingerprint", "") or ""
+
         rule_id = finding.rule_id or f"{finding.scanner}/{finding.title.lower().replace(' ', '-')[:50]}"
 
         if rule_id not in rules:
@@ -75,6 +92,9 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
                     location["physicalLocation"]["region"]["endLine"] = finding.line_end
             result["locations"] = [location]
 
+        if fp:
+            result["partialFingerprints"] = {"securescan/v1": fp}
+
         if finding.remediation:
             result["fixes"] = [{
                 "description": {"text": finding.remediation},
@@ -100,6 +120,66 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
             }],
         }],
     }
+
+
+def _dedupe_by_fingerprint(findings: list[Finding]) -> list[Finding]:
+    """Collapse findings sharing a non-empty ``fingerprint`` to a single
+    representative. The representative kept is the one with the lowest
+    concrete ``line_start``; a finding with a concrete line is preferred
+    over one with ``line_start=None`` (precise location is more
+    actionable for the user). First-encountered wins on ties, which
+    preserves the caller's canonical-order tiebreaker and keeps the
+    output deterministic.
+
+    Findings with an empty fingerprint are passed through unchanged
+    (the pre-fingerprint behavior — empty fingerprint means "treat as
+    unique"). Input order among kept findings is preserved so the
+    caller's canonical sort is not perturbed by this step.
+    """
+    by_fp: dict[str, Finding] = {}
+    no_fp: list[Finding] = []
+    order: list[tuple[str, str]] = []  # (kind, key); kind in {"fp", "nofp"}
+
+    for finding in findings:
+        fp = getattr(finding, "fingerprint", "") or ""
+        if not fp:
+            no_fp.append(finding)
+            order.append(("nofp", str(len(no_fp) - 1)))
+            continue
+
+        existing = by_fp.get(fp)
+        if existing is None:
+            by_fp[fp] = finding
+            order.append(("fp", fp))
+            continue
+
+        # Keep the one with the lowest line_start; concrete line numbers
+        # are preferred over ``None`` (a finding with precise line info is
+        # more actionable for the user than one without). First encountered
+        # wins on ties, preserving the caller's canonical order.
+        new_line = finding.line_start
+        old_line = existing.line_start
+        if _line_rank(new_line) < _line_rank(old_line):
+            by_fp[fp] = finding
+
+    out: list[Finding] = []
+    for kind, key in order:
+        if kind == "fp":
+            out.append(by_fp[key])
+        else:
+            out.append(no_fp[int(key)])
+    return out
+
+
+def _line_rank(line: int | None) -> tuple[int, int]:
+    """Sort key for ``line_start`` such that any concrete int is preferred
+    (collates lower) over ``None``. Within concrete ints the natural order
+    applies. Returns a 2-tuple so equal lines compare equal and the
+    caller's first-encountered tiebreaker wins.
+    """
+    if line is None:
+        return (1, 0)
+    return (0, line)
 
 
 def _severity_score(severity: Severity) -> str:
