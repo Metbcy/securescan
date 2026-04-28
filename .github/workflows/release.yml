@@ -1,0 +1,298 @@
+name: release
+
+# Triggered when a strict-SemVer tag (e.g. v0.2.0) is pushed.
+#
+# Pipeline:
+#   1. preflight     — fail fast if pyproject.toml or CHANGELOG.md is out of
+#                      sync with the tag, before spending time on builds.
+#   2. build-wheel   — build the wheel + sdist on a single Linux runner
+#                      (pure-Python; no native code, no per-platform matrix
+#                      needed) and sign each artifact with sigstore-python.
+#   3. build-image   — build the multi-arch container, push to ghcr.io, and
+#                      sign by digest with cosign keyless (Sigstore via OIDC).
+#   4. publish-pypi  — upload the wheel + sdist to PyPI (gated on the
+#                      PYPI_TOKEN secret being configured on the repo).
+#   5. publish-release — extract the matching CHANGELOG.md section, append
+#                        signature-verification instructions, and create the
+#                        GitHub Release with the signed wheel + sdist + sigstore
+#                        bundles attached.
+#
+# Manual reruns: re-run the failed run from the GitHub Actions UI on the
+# original tag-push event. Manual workflow_dispatch is intentionally NOT
+# offered — its OIDC identity is branch-based, not tag-based, which would
+# break the cosign / sigstore verification commands published in the release
+# notes (those identities are pinned to refs/tags/<tag>).
+
+on:
+  push:
+    tags:
+      # Strict SemVer release tags only. Pre-release tags (v0.2.0-rc1) and
+      # arbitrary v* tags are deliberately excluded.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write       # create release, upload assets
+  id-token: write       # cosign + sigstore-python keyless OIDC
+  packages: write       # ghcr.io push
+
+# A second push of the same tag (rare; e.g. force-push after a fixup) cancels
+# the in-flight run rather than racing it. Different tags release concurrently.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 1. Preflight: cheap fail-fast on tag / version / changelog mismatch.
+  # --------------------------------------------------------------------------
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify backend/pyproject.toml version matches tag
+        shell: bash
+        run: |
+          py_version="$(grep -m1 '^version' backend/pyproject.toml | sed -E 's/version *= *"([^"]+)".*/\1/')"
+          if [ "$py_version" != "${{ steps.tag.outputs.version }}" ]; then
+            echo "backend/pyproject.toml version ($py_version) does not match tag (${{ steps.tag.outputs.version }})" >&2
+            exit 1
+          fi
+
+      - name: Verify CHANGELOG.md has an entry for this version
+        shell: bash
+        run: |
+          version="${{ steps.tag.outputs.version }}"
+          if ! grep -qE "^## \[${version}\]" CHANGELOG.md; then
+            echo "CHANGELOG.md is missing a '## [${version}]' section" >&2
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------
+  # 2. Build wheel + sdist on a single Linux runner (pure-Python).
+  # --------------------------------------------------------------------------
+  build-wheel:
+    name: build wheel + sdist
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build wheel + sdist
+        shell: bash
+        run: |
+          cd backend
+          bash scripts/build-dist.sh
+
+      - name: Sign wheel + sdist with sigstore-python (keyless)
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: |
+            ./backend/dist/*.whl
+            ./backend/dist/*.tar.gz
+
+      - name: List signed artifacts
+        shell: bash
+        run: ls -la backend/dist
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            backend/dist/*.whl
+            backend/dist/*.tar.gz
+            backend/dist/*.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # --------------------------------------------------------------------------
+  # 3. Build multi-arch container, push to GHCR, sign by digest with cosign.
+  # --------------------------------------------------------------------------
+  build-image:
+    name: build + sign container image
+    needs: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve image name (lowercase for OCI registries)
+        id: image
+        shell: bash
+        run: |
+          image="ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.image }}:${{ needs.preflight.outputs.tag }}
+            ${{ steps.image.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image by digest with cosign (keyless OIDC)
+        shell: bash
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign sign --yes \
+            "${{ steps.image.outputs.image }}@${{ steps.push.outputs.digest }}"
+
+  # --------------------------------------------------------------------------
+  # 4. Publish to PyPI. Requires the PYPI_TOKEN repo secret.
+  # --------------------------------------------------------------------------
+  publish-pypi:
+    name: publish to PyPI
+    needs: [preflight, build-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Upload to PyPI
+        shell: bash
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          python -m pip install --upgrade pip twine
+          # Sigstore bundles ship in the GitHub Release, not on PyPI; twine
+          # does not recognise *.sigstore.json and would fail the upload.
+          rm -f dist/*.sigstore.json
+          twine check dist/*.whl dist/*.tar.gz
+          twine upload --skip-existing dist/*.whl dist/*.tar.gz
+
+  # --------------------------------------------------------------------------
+  # 5. Create the GitHub Release; attach the signed wheel + sdist + bundles.
+  # --------------------------------------------------------------------------
+  publish-release:
+    name: publish GitHub Release
+    needs: [preflight, build-wheel, build-image, publish-pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: List release assets
+        shell: bash
+        run: ls -la dist
+
+      - name: Extract release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          version="${{ needs.preflight.outputs.version }}"
+          tag="${{ needs.preflight.outputs.tag }}"
+          image="${{ needs.build-image.outputs.image }}"
+          # Print everything between "## [<version>]" and the next "## [" header.
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { capturing = 1; print; next }
+            capturing && /^## \[/    { capturing = 0 }
+            capturing                { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "Release notes for $tag not found in CHANGELOG.md" >&2
+            exit 1
+          fi
+          {
+            echo ""
+            echo "---"
+            echo ""
+            echo "## Verifying signatures"
+            echo ""
+            echo "### Wheel + sdist (sigstore-python)"
+            echo ""
+            echo '```bash'
+            echo "pip install sigstore"
+            echo "sigstore verify identity \\"
+            echo "  --cert-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${tag}' \\"
+            echo "  --cert-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  securescan-${version}-py3-none-any.whl"
+            echo '```'
+            echo ""
+            echo "### Container image (cosign keyless)"
+            echo ""
+            echo '```bash'
+            echo "cosign verify \\"
+            echo "  --certificate-identity 'https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${tag}' \\"
+            echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com \\"
+            echo "  ${image}:${tag}"
+            echo '```'
+          } >> release-notes.md
+          echo "----- release-notes.md -----"
+          cat release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          name: ${{ needs.preflight.outputs.tag }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.sigstore.json
