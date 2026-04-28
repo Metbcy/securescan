@@ -19,10 +19,10 @@ from pathlib import Path
 
 import pytest
 
-from src.diff import ChangeSet, classify, load_findings_json
-from src.fingerprint import populate_fingerprints
-from src.models import Finding, ScanType, Severity
-from src.ordering import sort_findings_canonical
+from securescan.diff import ChangeSet, classify, load_findings_json
+from securescan.fingerprint import populate_fingerprints
+from securescan.models import Finding, ScanType, Severity
+from securescan.ordering import sort_findings_canonical
 
 
 def _make_finding(**overrides) -> Finding:

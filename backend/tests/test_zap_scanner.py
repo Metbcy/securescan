@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.scanners.zap_scanner import ZapScanner, _RISK_MAP
-from src.models import ScanType, Severity
+from securescan.scanners.zap_scanner import ZapScanner, _RISK_MAP
+from securescan.models import ScanType, Severity
 
 
 # ---------------------------------------------------------------------------
@@ -29,7 +29,7 @@ def test_scanner_type():
 
 def test_not_available_when_no_zapv2():
     """is_available returns False when zapv2 cannot be imported."""
-    with patch("src.scanners.zap_scanner._ZAP_AVAILABLE", False):
+    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", False):
         scanner = ZapScanner()
         result = asyncio.run(scanner.is_available())
     assert result is False
@@ -43,7 +43,7 @@ def test_not_available_when_zap_not_running():
     )
 
     scanner = ZapScanner()
-    with patch("src.scanners.zap_scanner._ZAP_AVAILABLE", True), \
+    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
          patch.object(scanner, "_make_zap", return_value=mock_zap):
         result = asyncio.run(scanner.is_available())
     assert result is False
@@ -55,7 +55,7 @@ def test_available_when_zap_running():
     mock_zap.core.version = "2.14.0"
 
     scanner = ZapScanner()
-    with patch("src.scanners.zap_scanner._ZAP_AVAILABLE", True), \
+    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
          patch.object(scanner, "_make_zap", return_value=mock_zap):
         result = asyncio.run(scanner.is_available())
     assert result is True
@@ -175,7 +175,7 @@ async def test_full_scan_calls_spider_and_active_scan():
          "url": "http://t.com/q", "param": "id", "evidence": "1=1", "cweid": "89", "wascid": "19"}
     ]
 
-    with patch("src.scanners.zap_scanner._ZAP_AVAILABLE", True), \
+    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
          patch.object(scanner, "_make_zap", return_value=mock_zap):
         findings = await scanner.scan("/path", "scan-z", target_url="http://t.com")
 

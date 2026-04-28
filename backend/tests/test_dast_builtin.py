@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import httpx
 
-from src.scanners.dast_builtin import BuiltinDastScanner
-from src.models import ScanType, Severity
+from securescan.scanners.dast_builtin import BuiltinDastScanner
+from securescan.models import ScanType, Severity
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ async def test_full_scan_with_mock():
     mock_client.__aexit__ = AsyncMock(return_value=False)
     mock_client.get = AsyncMock(return_value=mock_response)
 
-    with patch("src.scanners.dast_builtin.httpx.AsyncClient", return_value=mock_client):
+    with patch("securescan.scanners.dast_builtin.httpx.AsyncClient", return_value=mock_client):
         findings = await scanner.scan("/path", "scan-99", target_url="http://example.com")
 
     assert len(findings) > 0
@@ -239,7 +239,7 @@ async def test_scan_handles_request_error():
         side_effect=httpx.ConnectError("Connection refused")
     )
 
-    with patch("src.scanners.dast_builtin.httpx.AsyncClient", return_value=mock_client):
+    with patch("securescan.scanners.dast_builtin.httpx.AsyncClient", return_value=mock_client):
         findings = await scanner.scan("/path", "scan-err", target_url="http://unreachable.local")
 
     assert len(findings) == 1

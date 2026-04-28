@@ -19,8 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from src.exporters import findings_to_csv, findings_to_junit, findings_to_sarif
-from src.models import (
+from securescan.exporters import findings_to_csv, findings_to_junit, findings_to_sarif
+from securescan.models import (
     Finding,
     SBOMComponent,
     SBOMDocument,
@@ -29,10 +29,10 @@ from src.models import (
     ScanType,
     Severity,
 )
-from src.ordering import sort_findings_canonical
-from src.reports import ReportGenerator
-from src.sbom import SBOMGenerator
-from src.scoring import build_summary
+from securescan.ordering import sort_findings_canonical
+from securescan.reports import ReportGenerator
+from securescan.sbom import SBOMGenerator
+from securescan.scoring import build_summary
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +396,7 @@ async def test_sbom_generate_components_are_sorted(tmp_path, monkeypatch):
 
 @pytest.fixture
 def html_generator() -> ReportGenerator:
-    template_dir = Path(__file__).resolve().parent.parent / "templates" / "reports"
+    template_dir = Path(__file__).resolve().parent.parent / "securescan" / "templates" / "reports"
     return ReportGenerator(template_dir)
 
 

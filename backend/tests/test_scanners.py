@@ -1,12 +1,12 @@
 """Tests for scanner availability and base functionality."""
 import pytest
 import asyncio
-from src.scanners import ALL_SCANNERS, get_scanners_for_types
-from src.scanners.base import BaseScanner
-from src.scanners.baseline import BaselineScanner
-from src.scanners.dockerfile import DockerfileScanner
-from src.scanners.gitleaks import GitHygieneScanner
-from src.models import ScanType
+from securescan.scanners import ALL_SCANNERS, get_scanners_for_types
+from securescan.scanners.base import BaseScanner
+from securescan.scanners.baseline import BaselineScanner
+from securescan.scanners.dockerfile import DockerfileScanner
+from securescan.scanners.gitleaks import GitHygieneScanner
+from securescan.models import ScanType
 
 
 def test_all_scanners_registered():

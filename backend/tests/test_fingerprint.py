@@ -18,9 +18,9 @@ import os
 
 import aiosqlite
 
-from src.database import init_db, save_findings, get_findings, set_db_path
-from src.fingerprint import fingerprint, normalized_line_context, populate_fingerprints
-from src.models import Finding, ScanType, Severity
+from securescan.database import init_db, save_findings, get_findings, set_db_path
+from securescan.fingerprint import fingerprint, normalized_line_context, populate_fingerprints
+from securescan.models import Finding, ScanType, Severity
 
 
 def _make_finding(**overrides) -> Finding:

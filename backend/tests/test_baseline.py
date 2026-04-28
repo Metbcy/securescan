@@ -1,11 +1,11 @@
-"""Tests for ``backend/src/baseline.py``."""
+"""Tests for ``backend/securescan/baseline.py``."""
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.baseline import filter_against_baseline
+from securescan.baseline import filter_against_baseline
 
 
 @dataclass

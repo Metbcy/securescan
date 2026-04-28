@@ -386,7 +386,7 @@ def serve(
     import uvicorn
 
     console.print(f"[bold]🚀 Starting SecureScan API on {host}:{port}[/bold]")
-    uvicorn.run("src.main:app", host=host, port=port, reload=False)
+    uvicorn.run("securescan.main:app", host=host, port=port, reload=False)
 
 
 @app.command()

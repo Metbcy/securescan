@@ -3,8 +3,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from src.compliance import ComplianceMapper
-from src.models import Finding, ScanType, Severity
+from securescan.compliance import ComplianceMapper
+from securescan.models import Finding, ScanType, Severity
 
 
 def _make_finding(
