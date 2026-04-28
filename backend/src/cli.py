@@ -21,6 +21,7 @@ from .database import (
 )
 from .dedup import deduplicate_findings
 from .exporters import findings_to_sarif, findings_to_csv, findings_to_junit
+from .fingerprint import populate_fingerprints
 from .models import (
     Finding,
     Scan,
@@ -121,7 +122,10 @@ async def _run_scan_async(
         scan.summary = ai_summary
         console.print("  [green]✓ AI enrichment complete[/green]")
 
-    # Save findings AFTER AI enrichment so remediation text is persisted
+    # Save findings AFTER AI enrichment so remediation text is persisted.
+    # Populate fingerprints first so the diff classifier (SS4) and PR-comment
+    # renderer (SS7) get a stable identity for every persisted finding.
+    populate_fingerprints(all_findings)
     await save_findings(all_findings)
 
     scan.status = ScanStatus.COMPLETED
