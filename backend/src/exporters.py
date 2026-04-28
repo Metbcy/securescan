@@ -10,8 +10,10 @@ between re-runs of the same scan are intentionally omitted from SARIF
 """
 import xml.etree.ElementTree as ET
 
+from .diff import ChangeSet
 from .models import Finding, Scan, ScanSummary, Severity  # noqa: F401
 from .ordering import sort_findings_canonical
+from .render_pr_comment import render_pr_comment
 
 
 def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
@@ -243,3 +245,26 @@ def findings_to_junit(findings: list[Finding], scan: Scan) -> str:
             ET.SubElement(tc, "system-out").text = finding.description
 
     return ET.tostring(suite, encoding="unicode", xml_declaration=True)
+
+
+def findings_to_pr_comment(
+    findings: list[Finding],
+    *,
+    repo: str | None = None,
+    sha: str | None = None,
+) -> str:
+    """Render a flat finding list as a GitHub PR-comment Markdown body.
+
+    Convenience wrapper around ``render_pr_comment`` for the common CLI
+    path (``securescan scan --output github-pr-comment``) where the
+    caller has a flat list of findings rather than a pre-classified
+    ``ChangeSet``. All findings are treated as ``new`` -- there's no
+    base scan to diff against.
+
+    The ``securescan diff`` subcommand (SS6) constructs a real
+    ``ChangeSet`` from base/head scans and calls ``render_pr_comment``
+    directly, so the per-severity bucketing and new/fixed/unchanged
+    summary table show real diff data instead of "everything is new".
+    """
+    changeset = ChangeSet(new=sort_findings_canonical(findings))
+    return render_pr_comment(changeset, repo=repo, sha=sha)
