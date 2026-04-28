@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -8,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from .baseline import filter_against_baseline
 from .compliance import ComplianceMapper
 from .config import settings
 from .reports import ReportGenerator
@@ -31,6 +34,7 @@ from .models import (
 )
 from .scanners import ALL_SCANNERS, get_scanners_for_types
 from .scoring import build_summary
+from .threshold import count_at_or_above
 from .ai import AIEnricher
 from .ordering import sort_findings_canonical
 
@@ -54,9 +58,33 @@ SEVERITY_RANK = {
 }
 
 
+def should_run_ai(*, explicit_ai: bool, explicit_no_ai: bool, ci_env: str) -> bool:
+    """Decide whether AI enrichment should run for a given invocation.
+
+    Truth table:
+
+    * ``--ai``       wins        -> True
+    * ``--no-ai``    wins        -> False
+    * ``CI`` env in {"true","1"} -> False  (deterministic by default in CI)
+    * otherwise                  -> True   (legacy default outside CI)
+
+    ``ci_env`` is the raw string value of the ``CI`` environment variable
+    (or empty string when unset). Pure-functional so tests don't need to
+    mutate ``os.environ``.
+    """
+    if explicit_ai:
+        return True
+    if explicit_no_ai:
+        return False
+    if (ci_env or "").lower() in ("true", "1"):
+        return False
+    return True
+
+
 async def _run_scan_async(
     target_path: str,
     scan_types: list[ScanType],
+    enable_ai: bool = True,
 ) -> tuple[Scan, list[Finding]]:
     await init_db()
 
@@ -115,13 +143,14 @@ async def _run_scan_async(
     scan.risk_score = summary.risk_score
 
     # AI enrichment (optional)
-    enricher = AIEnricher()
-    if enricher.is_available:
-        console.print("  [cyan]▶ Running AI enrichment...[/cyan]")
-        await enricher.enrich_findings(all_findings)
-        ai_summary = await enricher.generate_summary(all_findings, summary)
-        scan.summary = ai_summary
-        console.print("  [green]✓ AI enrichment complete[/green]")
+    if enable_ai:
+        enricher = AIEnricher()
+        if enricher.is_available:
+            console.print("  [cyan]▶ Running AI enrichment...[/cyan]")
+            await enricher.enrich_findings(all_findings)
+            ai_summary = await enricher.generate_summary(all_findings, summary)
+            scan.summary = ai_summary
+            console.print("  [green]✓ AI enrichment complete[/green]")
 
     # Save findings AFTER AI enrichment so remediation text is persisted.
     # Populate fingerprints first so the diff classifier (SS4) and PR-comment
@@ -201,12 +230,44 @@ def scan(
     output_file: Optional[str] = typer.Option(
         None, "--output-file", help="Write output to file instead of stdout"
     ),
+    no_ai: bool = typer.Option(
+        False, "--no-ai", help="Skip AI enrichment for fully deterministic runs"
+    ),
+    ai: bool = typer.Option(
+        False, "--ai", help="Force AI enrichment even when CI=true is detected"
+    ),
+    baseline: Optional[Path] = typer.Option(
+        None,
+        "--baseline",
+        help="Path to a baseline JSON file; findings whose fingerprint matches are suppressed",
+    ),
 ):
     """Run a security scan on the target path."""
+    if no_ai and ai:
+        console.print("[red]--ai and --no-ai are mutually exclusive[/red]")
+        raise typer.Exit(code=2)
+
     types = scan_type if scan_type else [ScanType.CODE, ScanType.DEPENDENCY, ScanType.IAC, ScanType.BASELINE]
     console.print(f"\n[bold]🔍 SecureScan — scanning {target_path}[/bold]\n")
 
-    result_scan, findings = asyncio.run(_run_scan_async(target_path, types))
+    ci_env = os.environ.get("CI", "")
+    enable_ai = should_run_ai(explicit_ai=ai, explicit_no_ai=no_ai, ci_env=ci_env)
+    if not enable_ai and (ci_env or "").lower() in ("true", "1") and not no_ai and not ai:
+        print(
+            "CI detected, skipping AI enrichment for determinism (use --ai to override)",
+            file=sys.stderr,
+        )
+
+    result_scan, findings = asyncio.run(_run_scan_async(target_path, types, enable_ai=enable_ai))
+
+    # Baseline suppression (post-scan, pre-render)
+    if baseline is not None:
+        findings, suppressed = filter_against_baseline(findings, baseline)
+        if suppressed:
+            print(
+                f"Suppressed {suppressed} findings via baseline {baseline}",
+                file=sys.stderr,
+            )
 
     # Canonicalize finding order so every output format (table, json,
     # sarif, csv, junit, report-html) is byte-identical for re-runs of
@@ -268,14 +329,22 @@ def scan(
     # Check failure thresholds
     if fail_on_severity:
         severity_threshold = fail_on_severity.lower()
-        threshold_rank = {"critical": 4, "high": 3, "medium": 2, "low": 1}.get(severity_threshold)
-        if threshold_rank is None:
+        threshold_map = {
+            "critical": Severity.CRITICAL,
+            "high": Severity.HIGH,
+            "medium": Severity.MEDIUM,
+            "low": Severity.LOW,
+        }
+        threshold_sev = threshold_map.get(severity_threshold)
+        if threshold_sev is None:
             console.print(f"[red]Invalid severity: {fail_on_severity}. Use critical, high, medium, or low.[/red]")
             raise typer.Exit(code=1)
-        for f in findings:
-            if SEVERITY_RANK.get(f.severity, 0) >= threshold_rank:
-                console.print(f"[bold red]✗ Failing: found {f.severity.value} finding(s) at or above threshold '{severity_threshold}'[/bold red]")
-                raise typer.Exit(code=1)
+        offending = count_at_or_above(findings, threshold_sev)
+        if offending > 0:
+            console.print(
+                f"[bold red]✗ Failing: found {offending} finding(s) at or above threshold '{severity_threshold}'[/bold red]"
+            )
+            raise typer.Exit(code=1)
 
     if fail_on_count is not None and len(findings) > fail_on_count:
         console.print(f"[bold red]✗ Failing: {len(findings)} findings exceed threshold of {fail_on_count}[/bold red]")
