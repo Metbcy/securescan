@@ -4,12 +4,12 @@ from unittest.mock import patch
 
 import pytest
 
-from src.scanners.nmap_scanner import (
+from securescan.scanners.nmap_scanner import (
     NmapScanner,
     _validate_target,
     _port_severity,
 )
-from src.models import ScanType, Severity
+from securescan.models import ScanType, Severity
 
 
 # ---------------------------------------------------------------------------
@@ -32,14 +32,14 @@ def test_scanner_type():
 
 def test_available_when_nmap_found():
     scanner = NmapScanner()
-    with patch("src.scanners.nmap_scanner.shutil.which", return_value="/usr/bin/nmap"):
+    with patch("securescan.scanners.nmap_scanner.shutil.which", return_value="/usr/bin/nmap"):
         result = asyncio.run(scanner.is_available())
     assert result is True
 
 
 def test_not_available_when_nmap_missing():
     scanner = NmapScanner()
-    with patch("src.scanners.nmap_scanner.shutil.which", return_value=None):
+    with patch("securescan.scanners.nmap_scanner.shutil.which", return_value=None):
         result = asyncio.run(scanner.is_available())
     assert result is False
 

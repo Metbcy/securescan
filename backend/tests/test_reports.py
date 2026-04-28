@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from src.models import Finding, Scan, ScanStatus, ScanSummary, ScanType, Severity
-from src.reports import ReportGenerator
-from src.scoring import build_summary
+from securescan.models import Finding, Scan, ScanStatus, ScanSummary, ScanType, Severity
+from securescan.reports import ReportGenerator
+from securescan.scoring import build_summary
 
 
 def _make_scan() -> Scan:
@@ -65,7 +65,7 @@ def _make_findings() -> list[Finding]:
 
 @pytest.fixture
 def generator() -> ReportGenerator:
-    template_dir = Path(__file__).resolve().parent.parent / "templates" / "reports"
+    template_dir = Path(__file__).resolve().parent.parent / "securescan" / "templates" / "reports"
     return ReportGenerator(template_dir)
 
 

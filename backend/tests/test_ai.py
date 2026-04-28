@@ -1,6 +1,6 @@
 """Tests for AI enrichment."""
-from src.ai import AIEnricher
-from src.models import Finding, Severity, ScanType, ScanSummary
+from securescan.ai import AIEnricher
+from securescan.models import Finding, Severity, ScanType, ScanSummary
 
 
 def test_enricher_unavailable_without_key():

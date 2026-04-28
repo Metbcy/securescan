@@ -1,7 +1,7 @@
 """Tests for the CI/AI guard rail logic."""
 from __future__ import annotations
 
-from src.cli import should_run_ai
+from securescan.cli import should_run_ai
 
 
 def test_ai_skipped_when_CI_env_set():

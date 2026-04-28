@@ -17,8 +17,8 @@ import copy
 import json
 from datetime import datetime
 
-from src.exporters import findings_to_sarif
-from src.models import Finding, Scan, ScanStatus, ScanType, Severity
+from securescan.exporters import findings_to_sarif
+from securescan.models import Finding, Scan, ScanStatus, ScanType, Severity
 
 
 # ---------------------------------------------------------------------------

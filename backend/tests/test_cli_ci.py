@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover - typer ships testing helpers, but be safe
     HAS_RUNNER = False
 
-from src.cli import app
+from securescan.cli import app
 
 
 pytestmark = pytest.mark.skipif(not HAS_RUNNER, reason="typer.testing.CliRunner unavailable")

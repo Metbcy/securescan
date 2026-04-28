@@ -20,9 +20,9 @@ import re
 
 import pytest
 
-from src.diff import ChangeSet
-from src.models import Finding, ScanType, Severity
-from src.render_pr_comment import MARKER, render_pr_comment
+from securescan.diff import ChangeSet
+from securescan.models import Finding, ScanType, Severity
+from securescan.render_pr_comment import MARKER, render_pr_comment
 
 
 def _make_finding(**overrides) -> Finding:

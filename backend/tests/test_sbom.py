@@ -4,8 +4,8 @@ import json
 import pytest
 from pathlib import Path
 
-from src.sbom import SBOMGenerator
-from src.models import SBOMDocument
+from securescan.sbom import SBOMGenerator
+from securescan.models import SBOMDocument
 
 
 @pytest.fixture

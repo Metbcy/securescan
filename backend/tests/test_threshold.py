@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.models import Severity
-from src.threshold import count_at_or_above
+from securescan.models import Severity
+from securescan.threshold import count_at_or_above
 
 
 @dataclass

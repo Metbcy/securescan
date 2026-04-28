@@ -1,6 +1,6 @@
 """Tests for risk scoring."""
-from src.scoring import calculate_risk_score, build_summary
-from src.models import Finding, Severity, ScanType
+from securescan.scoring import calculate_risk_score, build_summary
+from securescan.models import Finding, Severity, ScanType
 
 
 def _make_finding(severity: Severity) -> Finding:
