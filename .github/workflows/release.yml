@@ -188,25 +188,45 @@ jobs:
             "${{ steps.image.outputs.image }}@${{ steps.push.outputs.digest }}"
 
   # --------------------------------------------------------------------------
-  # 4. Publish to PyPI. Requires the PYPI_TOKEN repo secret.
+  # 4. Publish to PyPI. Conditional: skipped when the PYPI_TOKEN repo secret
+  #    is not set, so the release-yml runs cleanly even before the maintainer
+  #    has rotated/configured a PyPI API token. Every release that needs PyPI
+  #    distribution must set the secret first; the wheel + sdist + sigstore
+  #    bundles still ship via the GitHub Release regardless, so users can
+  #    download + verify + `pip install ./securescan-*.whl` directly.
   # --------------------------------------------------------------------------
   publish-pypi:
     name: publish to PyPI
     needs: [preflight, build-wheel]
     runs-on: ubuntu-latest
     steps:
+      - name: Check for PYPI_TOKEN secret
+        id: check_token
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          if [ -n "$PYPI_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::PYPI_TOKEN secret not set on this repo; skipping PyPI upload. Set it under Settings > Secrets to enable."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download dist artifacts
+        if: steps.check_token.outputs.configured == 'true'
         uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist
 
       - name: Set up Python
+        if: steps.check_token.outputs.configured == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Upload to PyPI
+        if: steps.check_token.outputs.configured == 'true'
         shell: bash
         env:
           TWINE_USERNAME: __token__
