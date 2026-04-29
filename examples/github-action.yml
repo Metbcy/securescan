@@ -2,6 +2,11 @@
 # Diff-aware security scan: posts a single upserted PR comment of NEW
 # findings introduced by the PR, and uploads SARIF to the Security tab.
 #
+# Note: this Action runs `securescan` CLI directly. It does NOT call the
+# FastAPI server, so SECURESCAN_API_KEY is not required for the Action
+# path. The API key only matters when running the dashboard backend in
+# production. See: https://github.com/Metbcy/securescan#production-deployment
+#
 # Place a `.securescan.yml` at your repo root to configure scan behavior;
 # the action picks it up automatically. See:
 #   https://github.com/Metbcy/securescan#configuration

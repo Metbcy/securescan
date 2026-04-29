@@ -9,6 +9,13 @@
 [![PyPI](https://img.shields.io/pypi/v/securescan.svg)](https://pypi.org/project/securescan/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+> **v0.5.0 highlights**: API key auth (opt-in via env), JSON logging
+> with request-ID correlation, `/ready` probe distinct from `/health`,
+> dashboard surfaces `[SUPPRESSED:reason]` badges and severity-override
+> annotations from `.securescan.yml`, and the `/scan` page disables
+> categories with no scanners installed instead of silently producing
+> 0-finding scans.
+
 ## Why?
 
 The most actionable security question on a PR is *"what changed in this
@@ -283,6 +290,79 @@ permissions:
 | Suggestion blocks | No | Yes (when enabled) | Yes (inline only) |
 
 `summary` remains the v0.2.0/v0.3.0 default. `inline` is opt-in. `both` works for teams that want a summary on the conversation tab AND inline anchors on the files-changed tab.
+
+## Production deployment
+
+For local development the dashboard runs unauthenticated against an
+unsecured API. Production deployments need three things from
+v0.5.0:
+
+### 1. API key auth
+
+Set `SECURESCAN_API_KEY` to a strong random string before starting
+the FastAPI server:
+
+```bash
+export SECURESCAN_API_KEY="$(openssl rand -hex 32)"
+uvicorn securescan.main:app --host 0.0.0.0 --port 8000
+```
+
+When the env var is set, every `/api/*` endpoint requires the header
+`X-API-Key: <key>` (or `Authorization: Bearer <key>` for tooling that
+prefers Bearer auth). `/health` and `/ready` remain public for
+Kubernetes / load-balancer probes.
+
+When `SECURESCAN_API_KEY` is unset, the server logs a clear warning
+at startup (`SECURESCAN_API_KEY not set; API is unauthenticated
+(dev mode).`) and serves all routes without auth — the v0.4.0
+behavior preserved for zero-config local dev.
+
+For the dashboard frontend, set
+`NEXT_PUBLIC_SECURESCAN_API_KEY` at build/deploy time so all client
+requests carry the header automatically.
+
+### 2. Structured logging
+
+JSON logs by default in containers (the bundled Dockerfile sets
+`SECURESCAN_IN_CONTAINER=1`). Override with:
+
+```bash
+export SECURESCAN_LOG_FORMAT=json    # or "text"
+export SECURESCAN_LOG_LEVEL=INFO     # DEBUG | INFO | WARNING | ERROR
+```
+
+Each request emits one structured log entry with `request_id`,
+`method`, `path`, `status`, and `latency_ms` so log aggregators
+correlate per-request lifecycles. Clients can pin a request_id by
+sending `X-Request-ID: <uuid>`; otherwise the server generates one
+and echoes it back via the same header.
+
+### 3. Health and readiness probes
+
+| Endpoint | Purpose | When to hit |
+|---|---|---|
+| `GET /health` | Liveness — process up. Always 200 unless the process is crashing. | Kubernetes `livenessProbe`, simple uptime checks. |
+| `GET /ready` | Readiness — DB openable, scanner registry loaded. Returns 200 with checks JSON when ready, 503 with details when not. | Kubernetes `readinessProbe`, ALB target-group health checks, rolling-update gates. |
+
+Example Kubernetes deployment fragment:
+
+```yaml
+livenessProbe:
+  httpGet: { path: /health, port: 8000 }
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  httpGet: { path: /ready, port: 8000 }
+  initialDelaySeconds: 2
+  periodSeconds: 5
+```
+
+### 4. Reverse proxy / TLS
+
+The bundled uvicorn entrypoint serves plain HTTP. Production
+deployments should sit behind a TLS-terminating proxy (nginx,
+Traefik, AWS ALB, Caddy, etc.) and forward `X-Request-ID` headers
+through so client correlation works end-to-end.
 
 ## Subcommands
 
