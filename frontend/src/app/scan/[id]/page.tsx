@@ -112,6 +112,30 @@ export default function ScanDetailPage() {
                 <span>{new Date(scan.started_at).toLocaleString()}</span>
               )}
             </div>
+            {scan.scanners_run && scan.scanners_run.length > 0 && (
+              <div className="mt-2 text-xs text-[#a1a1aa]">
+                <span className="text-[#71717a]">Scanners run:</span>{" "}
+                <span className="font-mono text-[#d4d4d8]">{scan.scanners_run.join(", ")}</span>
+              </div>
+            )}
+            {scan.scanners_skipped && scan.scanners_skipped.length > 0 && (
+              <details className="mt-2 text-xs">
+                <summary className="cursor-pointer text-amber-400 hover:text-amber-300 select-none">
+                  Skipped ({scan.scanners_skipped.length})
+                </summary>
+                <ul className="mt-2 space-y-1 pl-4 text-[#a1a1aa]">
+                  {scan.scanners_skipped.map((s) => (
+                    <li key={s.name} className="font-mono">
+                      <span className="text-[#d4d4d8]">{s.name}</span>
+                      <span className="text-[#71717a]"> — {s.reason}.</span>
+                      {s.install_hint && (
+                        <span className="text-[#a1a1aa]"> {s.install_hint}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         </div>
       </div>

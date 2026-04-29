@@ -49,6 +49,19 @@ class Finding(BaseModel):
     fingerprint: str = ""  # populated by populate_fingerprints() before save
 
 
+class ScannerSkip(BaseModel):
+    """A scanner that was skipped during a scan run.
+
+    Surfacing the install_hint here (instead of forcing the UI to re-fetch
+    /api/dashboard/status) lets the scan-detail page render an actionable
+    "Skipped (N)" section without an extra round-trip. Sorted alphabetically
+    by name at persistence time for deterministic output.
+    """
+    name: str
+    reason: str
+    install_hint: Optional[str] = None
+
+
 class Scan(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     target_path: str
@@ -62,6 +75,8 @@ class Scan(BaseModel):
     error: Optional[str] = None
     target_url: Optional[str] = None
     target_host: Optional[str] = None
+    scanners_run: list[str] = Field(default_factory=list)
+    scanners_skipped: list[ScannerSkip] = Field(default_factory=list)
 
 
 class ScanRequest(BaseModel):

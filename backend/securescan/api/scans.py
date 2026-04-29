@@ -22,6 +22,7 @@ from ..fingerprint import populate_fingerprints
 from ..models import (
     Finding,
     Scan,
+    ScannerSkip,
     ScanRequest,
     ScanStatus,
     ScanSummary,
@@ -73,11 +74,19 @@ async def _run_scan(scan_id: str) -> None:
         all_findings: list[Finding] = []
         scanners_run: list[str] = []
 
-        # Filter to available scanners
+        # Filter to available scanners. Record skipped ones so the dashboard
+        # can show which scanners did NOT run (PG2: closes UX gap #2 where
+        # users saw "0 findings" with no signal that nothing actually ran).
         available_scanners = []
+        scanners_skipped: list[ScannerSkip] = []
         for scanner in scanners:
-            available = await scanner.is_available()
-            if not available:
+            if not await scanner.is_available():
+                install_hint = getattr(scanner, "install_hint", None)
+                scanners_skipped.append(ScannerSkip(
+                    name=scanner.name,
+                    reason="not installed" if install_hint else "unavailable",
+                    install_hint=install_hint,
+                ))
                 continue
             available_scanners.append(scanner)
 
@@ -139,6 +148,8 @@ async def _run_scan(scan_id: str) -> None:
 
         scan.findings_count = summary.total_findings
         scan.risk_score = summary.risk_score
+        scan.scanners_run = sorted(scanners_run)
+        scan.scanners_skipped = sorted(scanners_skipped, key=lambda s: s.name)
         scan.status = ScanStatus.COMPLETED
         scan.completed_at = datetime.now()
         await save_scan(scan)
@@ -155,6 +166,10 @@ async def _run_scan(scan_id: str) -> None:
             latest_scan.status = ScanStatus.FAILED
             latest_scan.error = str(e)
             latest_scan.completed_at = datetime.now()
+            # Preserve partial-run scanners_run/skipped on failure so the UI
+            # still shows what was attempted vs. unavailable.
+            latest_scan.scanners_run = sorted(scanners_run)
+            latest_scan.scanners_skipped = sorted(scanners_skipped, key=lambda s: s.name)
             await save_scan(latest_scan)
     finally:
         _RUNNING_SCAN_TASKS.pop(scan_id, None)

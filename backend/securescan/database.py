@@ -10,6 +10,7 @@ from .models import (
     SBOMComponent,
     SBOMDocument,
     Scan,
+    ScannerSkip,
     ScanStatus,
     ScanSummary,
     ScanType,
@@ -91,6 +92,15 @@ async def init_db() -> None:
             except Exception:
                 pass  # Column already exists
 
+        # Migration: add scanners_run + scanners_skipped JSON columns to scans
+        # (PG2). Idempotent ALTER TABLE matches the v0.3 fingerprint pattern --
+        # forward-only, default '[]' so old rows decode as empty lists.
+        for col in ["scanners_run", "scanners_skipped"]:
+            try:
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {col} TEXT DEFAULT '[]'")
+            except Exception:
+                pass  # Column already exists
+
         # SBOM tables
         await db.execute("""
             CREATE TABLE IF NOT EXISTS sbom_documents (
@@ -127,8 +137,9 @@ async def save_scan(scan: Scan) -> None:
         await db.execute(
             """INSERT OR REPLACE INTO scans
                (id, target_path, scan_types, status, started_at, completed_at,
-                findings_count, risk_score, summary, error, target_url, target_host)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                findings_count, risk_score, summary, error, target_url, target_host,
+                scanners_run, scanners_skipped)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 scan.id,
                 scan.target_path,
@@ -142,6 +153,8 @@ async def save_scan(scan: Scan) -> None:
                 scan.error,
                 scan.target_url,
                 scan.target_host,
+                json.dumps(list(scan.scanners_run)),
+                json.dumps([s.model_dump() for s in scan.scanners_skipped]),
             ),
         )
         await db.commit()
@@ -187,6 +200,15 @@ async def save_findings(findings: list[Finding]) -> None:
 
 
 def _row_to_scan(row: aiosqlite.Row) -> Scan:
+    keys = row.keys()
+    scanners_run: list[str] = []
+    scanners_skipped: list[ScannerSkip] = []
+    if "scanners_run" in keys and row["scanners_run"]:
+        scanners_run = json.loads(row["scanners_run"])
+    if "scanners_skipped" in keys and row["scanners_skipped"]:
+        scanners_skipped = [
+            ScannerSkip(**entry) for entry in json.loads(row["scanners_skipped"])
+        ]
     return Scan(
         id=row["id"],
         target_path=row["target_path"],
@@ -198,8 +220,10 @@ def _row_to_scan(row: aiosqlite.Row) -> Scan:
         risk_score=row["risk_score"],
         summary=row["summary"],
         error=row["error"],
-        target_url=row["target_url"] if "target_url" in row.keys() else None,
-        target_host=row["target_host"] if "target_host" in row.keys() else None,
+        target_url=row["target_url"] if "target_url" in keys else None,
+        target_host=row["target_host"] if "target_host" in keys else None,
+        scanners_run=scanners_run,
+        scanners_skipped=scanners_skipped,
     )
 
 
