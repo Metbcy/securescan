@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from ..logging_config import configure_logging
+from .versioning import DeprecationHeaderMiddleware
 
 configure_logging()
 
@@ -71,6 +72,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(DeprecationHeaderMiddleware)
 
 
 @app.get("/")
