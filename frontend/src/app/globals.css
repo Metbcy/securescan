@@ -1,23 +1,135 @@
 @import "tailwindcss";
 
+/*
+ * SecureScan v0.6.0 design tokens.
+ * See DESIGN.md — OKLCH color tokens, severity ramp on a single hue,
+ * Geist as primary type face, system stack as fallback.
+ *
+ * Theming convention (next-themes): attribute="data-theme" on <html>.
+ * `:root` carries the LIGHT theme; `[data-theme="dark"]` overrides for dark
+ * (which is the product default).
+ */
+
+:root {
+  /* Light theme — neutrals tinted toward brand hue 155 (moss/pine). */
+  --bg:            oklch(0.985 0.003 155);
+  --surface:       oklch(1 0 0);
+  --surface-2:     oklch(0.97 0.004 155);
+  --border:        oklch(0.91 0.006 155);
+  --border-strong: oklch(0.85 0.008 155);
+  --muted:         oklch(0.48 0.012 155);
+  --text:          oklch(0.22 0.008 155);
+  --text-strong:   oklch(0.15 0.008 155);
+
+  --accent:        oklch(0.55 0.14 155);
+  --accent-fg:     oklch(0.985 0.003 155);
+  --accent-soft:   oklch(0.94 0.04 155);
+
+  --ring:          oklch(0.55 0.14 155 / 0.55);
+
+  /* Severity ramp — same swatches in both themes (page contrast carries them). */
+  --sev-critical:  oklch(0.58 0.18 25);
+  --sev-high:      oklch(0.66 0.16 45);
+  --sev-medium:    oklch(0.74 0.14 75);
+  --sev-low:       oklch(0.70 0.06 200);
+  --sev-info:      oklch(0.65 0.02 240);
+
+  --sev-critical-bg: oklch(0.58 0.18 25 / 0.12);
+  --sev-high-bg:     oklch(0.66 0.16 45 / 0.12);
+  --sev-medium-bg:   oklch(0.74 0.14 75 / 0.12);
+  --sev-low-bg:      oklch(0.70 0.06 200 / 0.12);
+  --sev-info-bg:     oklch(0.65 0.02 240 / 0.12);
+}
+
+[data-theme="dark"] {
+  /* Dark theme (default) — warm-tinted graphite, not blue-on-black. */
+  --bg:            oklch(0.18 0.006 155);
+  --surface:       oklch(0.22 0.006 155);
+  --surface-2:     oklch(0.26 0.007 155);
+  --border:        oklch(0.32 0.008 155);
+  --border-strong: oklch(0.42 0.01 155);
+  --muted:         oklch(0.62 0.012 155);
+  --text:          oklch(0.92 0.008 155);
+  --text-strong:   oklch(0.97 0.005 155);
+
+  --accent:        oklch(0.72 0.16 155);
+  --accent-fg:     oklch(0.18 0.006 155);
+  --accent-soft:   oklch(0.32 0.06 155);
+
+  --ring:          oklch(0.72 0.16 155 / 0.6);
+
+  /* Severity ramp is shared across themes by design. */
+  --sev-critical:  oklch(0.58 0.18 25);
+  --sev-high:      oklch(0.66 0.16 45);
+  --sev-medium:    oklch(0.74 0.14 75);
+  --sev-low:       oklch(0.70 0.06 200);
+  --sev-info:      oklch(0.65 0.02 240);
+
+  --sev-critical-bg: oklch(0.58 0.18 25 / 0.12);
+  --sev-high-bg:     oklch(0.66 0.16 45 / 0.12);
+  --sev-medium-bg:   oklch(0.74 0.14 75 / 0.12);
+  --sev-low-bg:      oklch(0.70 0.06 200 / 0.12);
+  --sev-info-bg:     oklch(0.65 0.02 240 / 0.12);
+}
+
+/*
+ * Tailwind v4 token wiring. Anything declared here becomes available as a
+ * utility (e.g. bg-background, text-foreground, border-border, text-sev-critical).
+ */
 @theme inline {
-  --color-background: #0a0a0a;
-  --color-foreground: #ededed;
-  --color-card: #141414;
-  --color-border: #262626;
-  --color-muted: #a1a1aa;
-  --font-sans: var(--font-inter);
+  --color-background:        var(--bg);
+  --color-foreground:        var(--text);
+  --color-foreground-strong: var(--text-strong);
+  --color-card:              var(--surface);
+  --color-surface:           var(--surface);
+  --color-surface-2:         var(--surface-2);
+  --color-border:            var(--border);
+  --color-border-strong:     var(--border-strong);
+  --color-muted:             var(--muted);
+
+  --color-accent:            var(--accent);
+  --color-accent-foreground: var(--accent-fg);
+  --color-accent-soft:       var(--accent-soft);
+
+  --color-ring:              var(--ring);
+
+  --color-sev-critical:      var(--sev-critical);
+  --color-sev-high:          var(--sev-high);
+  --color-sev-medium:        var(--sev-medium);
+  --color-sev-low:           var(--sev-low);
+  --color-sev-info:          var(--sev-info);
+
+  --color-sev-critical-bg:   var(--sev-critical-bg);
+  --color-sev-high-bg:       var(--sev-high-bg);
+  --color-sev-medium-bg:     var(--sev-medium-bg);
+  --color-sev-low-bg:        var(--sev-low-bg);
+  --color-sev-info-bg:       var(--sev-info-bg);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "JetBrains Mono",
+               "SF Mono", Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+               BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+/* Refined scrollbar — tracks the new neutral tokens, not hardcoded hex. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #262626 transparent;
+  scrollbar-color: var(--border) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -30,10 +142,32 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #262626;
+  background: var(--border);
   border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #404040;
+  background: var(--border-strong);
+}
+
+/* Focus ring — single source of truth, drop the default browser ring. */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Honor user motion preferences — replace non-essential motion with cross-fade. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
