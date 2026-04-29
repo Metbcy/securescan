@@ -4,70 +4,121 @@ import { useEffect, useState } from "react";
 
 interface RiskScoreProps {
   score: number;
+  size?: "lg" | "sm";
+  label?: string;
 }
 
-function getColor(score: number): string {
-  if (score <= 30) return "#22c55e";
-  if (score <= 60) return "#eab308";
-  if (score <= 80) return "#f97316";
-  return "#ef4444";
+function severityToken(score: number): {
+  cssVar: string;
+  textClass: string;
+  bgClass: string;
+} {
+  if (score < 30)
+    return {
+      cssVar: "var(--accent)",
+      textClass: "text-accent",
+      bgClass: "bg-accent",
+    };
+  if (score < 60)
+    return {
+      cssVar: "var(--sev-medium)",
+      textClass: "text-sev-medium",
+      bgClass: "bg-sev-medium",
+    };
+  if (score < 80)
+    return {
+      cssVar: "var(--sev-high)",
+      textClass: "text-sev-high",
+      bgClass: "bg-sev-high",
+    };
+  return {
+    cssVar: "var(--sev-critical)",
+    textClass: "text-sev-critical",
+    bgClass: "bg-sev-critical",
+  };
 }
 
-export function RiskScore({ score }: RiskScoreProps) {
-  const [animatedScore, setAnimatedScore] = useState(0);
-  const radius = 70;
+export function RiskScore({
+  score,
+  size = "lg",
+  label = "Risk score",
+}: RiskScoreProps) {
+  const tone = severityToken(score);
+  const radius = 42;
   const circumference = 2 * Math.PI * radius;
+  const [animatedScore, setAnimatedScore] = useState(0);
   const progress = (animatedScore / 100) * circumference;
-  const color = getColor(score);
 
   useEffect(() => {
-    const duration = 800;
-    const start = performance.now();
-    const from = 0;
-
-    function animate(now: number) {
-      const elapsed = now - start;
-      const t = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setAnimatedScore(Math.round(from + (score - from) * eased));
-      if (t < 1) requestAnimationFrame(animate);
+    if (size !== "lg") {
+      setAnimatedScore(score);
+      return;
     }
+    const duration = 600;
+    const start = performance.now();
+    let raf = 0;
+    function animate(now: number) {
+      const t = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimatedScore(Math.round(score * eased));
+      if (t < 1) raf = requestAnimationFrame(animate);
+    }
+    raf = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(raf);
+  }, [score, size]);
 
-    requestAnimationFrame(animate);
-  }, [score]);
+  if (size === "sm") {
+    return (
+      <span className="inline-flex items-center gap-1.5 tabular-nums">
+        <span
+          className={`w-4 h-4 rounded-full ${tone.bgClass}`}
+          aria-hidden
+        />
+        <span className={`text-sm font-medium ${tone.textClass}`}>{score}</span>
+      </span>
+    );
+  }
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="relative w-44 h-44">
-        <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className="relative w-24 h-24"
+        role="img"
+        aria-label={`${label}: ${score} of 100`}
+      >
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 96 96">
           <circle
-            cx="80"
-            cy="80"
+            cx="48"
+            cy="48"
             r={radius}
             fill="none"
-            stroke="#262626"
-            strokeWidth="8"
+            stroke="var(--border)"
+            strokeWidth="6"
           />
           <circle
-            cx="80"
-            cy="80"
+            cx="48"
+            cy="48"
             r={radius}
             fill="none"
-            stroke={color}
-            strokeWidth="8"
+            stroke={tone.cssVar}
+            strokeWidth="6"
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={circumference - progress}
-            className="transition-all duration-700 ease-out"
+            className="transition-[stroke-dashoffset] duration-300 ease-out"
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-4xl font-bold tabular-nums" style={{ color }}>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span
+            className={`text-2xl font-semibold tabular-nums ${tone.textClass}`}
+          >
             {animatedScore}
           </span>
         </div>
       </div>
-      <span className="text-sm text-[#a1a1aa] font-medium">Risk Score</span>
+      <span className="text-xs font-medium uppercase tracking-wider text-muted">
+        {label}
+      </span>
     </div>
   );
 }
