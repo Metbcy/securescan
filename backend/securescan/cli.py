@@ -453,6 +453,19 @@ def scan(
             "integration (TS10)."
         ),
     ),
+    baseline_host_probes: bool = typer.Option(
+        False,
+        "--baseline-host-probes",
+        help=(
+            "Force the baseline scanner to run host-wide probes "
+            "(/etc/ssh/sshd_config, /etc/passwd, kernel sysctls, "
+            "firewall, etc.) regardless of target_path. Default: "
+            "off -- baseline honors target_path and only goes "
+            "host-wide when target is `/` or empty. Use this when "
+            "you want host-scope findings alongside a project "
+            "directory scan."
+        ),
+    ),
 ):
     """Run a security scan on the target path."""
     if no_ai and ai:
@@ -514,6 +527,11 @@ def scan(
     scanner_kwargs: dict = {}
     if resolved_config.semgrep_rules:
         scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
+    if baseline_host_probes:
+        # Plumbed through ``_run_scan_async`` -> every scanner's
+        # ``scan(**kwargs)``; only the BaselineScanner reads it,
+        # the rest swallow it via their accept-all signature.
+        scanner_kwargs["baseline_host_probes"] = True
 
     result_scan, findings = asyncio.run(
         _run_scan_async(
@@ -1112,6 +1130,15 @@ def diff(
             "diff-time application is owned by TS10."
         ),
     ),
+    baseline_host_probes: bool = typer.Option(
+        False,
+        "--baseline-host-probes",
+        help=(
+            "Force the baseline scanner to run host-wide probes on "
+            "BOTH sides of the diff regardless of target_path. "
+            "Default: off (baseline honors target_path)."
+        ),
+    ),
 ):
     """Diff two scan snapshots; emit only NEW findings (and counts of fixed/unchanged).
 
@@ -1213,6 +1240,11 @@ def diff(
     scanner_kwargs: dict = {}
     if resolved_config.semgrep_rules:
         scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
+    if baseline_host_probes:
+        # Forced HOST-mode baseline scope on both sides of the diff.
+        # Only BaselineScanner reads this key; other scanners swallow
+        # the kwarg via their accept-all signatures.
+        scanner_kwargs["baseline_host_probes"] = True
 
     resolved_head_sha: str | None = None
     resolved_base_sha: str | None = None
@@ -1728,6 +1760,16 @@ def compare(
             "compare-time application is owned by TS10."
         ),
     ),
+    baseline_host_probes: bool = typer.Option(
+        False,
+        "--baseline-host-probes",
+        help=(
+            "Force the baseline scanner to run host-wide probes on "
+            "the FRESH scan regardless of target_path. The baseline "
+            "JSON is consumed as-is and not re-scanned. Default: "
+            "off (baseline honors target_path)."
+        ),
+    ),
 ):
     """Compare current scan against a baseline; report what's NEW and what
     DISAPPEARED (drift).
@@ -1819,6 +1861,11 @@ def compare(
     scanner_kwargs: dict = {}
     if resolved_config.semgrep_rules:
         scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
+    if baseline_host_probes:
+        # Forced HOST-mode baseline scope on the fresh scan. The
+        # baseline JSON itself is frozen and not re-scanned, so this
+        # only affects today's findings.
+        scanner_kwargs["baseline_host_probes"] = True
 
     try:
         baseline_findings = load_findings_json(baseline_path)

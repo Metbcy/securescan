@@ -1,4 +1,34 @@
-"""Security baseline configuration scanner."""
+"""Security baseline configuration scanner.
+
+The scanner has two operating modes, selected per-call from
+``scan(target_path, ...)``:
+
+* HOST mode -- probe absolute paths on the running host:
+  ``/etc/ssh/sshd_config``, ``/etc/passwd``, ``/etc/shadow``,
+  ``~/.ssh``, kernel sysctls, firewall, listening ports, etc.
+  This is the v0.4 behavior.
+
+* TARGET mode -- probe only the host-config-style files inside
+  ``target_path``: ``<target>/etc/ssh/sshd_config``,
+  ``<target>/etc/passwd``, ``<target>/etc/shadow``. Host-scope
+  checks (firewall, kernel sysctls, ``~/.ssh`` perms, listening
+  ports, package updates, world-writable scans) are skipped --
+  they describe the runtime host, not the directory the user
+  asked us to scan.
+
+Mode selection (see :meth:`BaselineScanner.scan`):
+
+* ``target_path`` is ``"/"``, ``""``, or ``None``  -> HOST mode.
+* ``baseline_host_probes=True`` kwarg               -> HOST mode
+  (escape hatch for power users who want host scope alongside a
+  directory scan).
+* Otherwise                                         -> TARGET mode.
+
+Every produced :class:`Finding` is stamped with
+``metadata["baseline_scope"] = "host" | "target"`` so downstream
+renderers (CLI table, dashboard, SARIF) can label findings with
+the scope that produced them.
+"""
 import asyncio
 import os
 import re
@@ -31,29 +61,123 @@ class BaselineScanner(BaseScanner):
         return "Built-in scanner — always available"
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
+        # Mode selection. ``target_path`` semantics:
+        #   "/" / "" / None              -> HOST (v0.4 behavior)
+        #   real directory               -> TARGET (probe target/etc/...)
+        #   ``baseline_host_probes=True`` -> HOST regardless (escape hatch)
+        baseline_host_probes = bool(kwargs.get("baseline_host_probes", False))
+        is_host_target = target_path in (None, "", "/")
+        host_mode = baseline_host_probes or is_host_target
+
+        if host_mode:
+            findings = await self._scan_host(scan_id)
+            scope = "host"
+        else:
+            findings = self._scan_target(scan_id, target_path)
+            scope = "target"
+
+        for f in findings:
+            # Stamp the scope on every finding so downstream renderers
+            # (dashboard, CLI table, SARIF) can label which mode produced
+            # it. Don't clobber if the helper already set something.
+            f.metadata["baseline_scope"] = scope
+
+        return findings
+
+    async def _scan_host(self, scan_id: str) -> list[Finding]:
+        """Run the full host-wide v0.4 probe set."""
         findings: list[Finding] = []
-        findings.extend(self._check_ssh_config(scan_id))
-        findings.extend(self._check_file_permissions(scan_id))
+        findings.extend(self._check_ssh_config_at(scan_id, "/etc/ssh/sshd_config"))
+        findings.extend(self._check_host_file_permissions(scan_id))
         findings.extend(await self._check_firewall(scan_id))
         findings.extend(self._check_password_policy(scan_id))
         findings.extend(self._check_kernel_security(scan_id))
         findings.extend(self._check_env_secrets(scan_id))
         findings.extend(self._check_sudoers(scan_id))
         findings.extend(self._check_cron_security(scan_id))
-        findings.extend(self._check_user_privileges(scan_id))
+        findings.extend(self._check_passwd_uid_zero_at(scan_id, "/etc/passwd"))
+        findings.extend(self._check_shadow_no_password_at(scan_id, "/etc/shadow"))
         findings.extend(await self._check_listening_ports(scan_id))
         findings.extend(await self._check_package_updates(scan_id))
         findings.extend(await self._check_world_writable_files(scan_id))
         return findings
 
-    def _check_ssh_config(self, scan_id: str) -> list[Finding]:
-        """Check SSH server configuration."""
+    def _scan_target(self, scan_id: str, target_path: str) -> list[Finding]:
+        """Run only the path-portable probes against ``target_path``.
+
+        Host-scope checks (firewall, sysctls, ``~/.ssh``, listening
+        ports, etc.) are intentionally skipped -- they describe the
+        runtime host, not the directory under ``target_path``.
+
+        If none of the probed files exist under ``target_path``, emit
+        a single info finding pointing the user at the host-mode
+        escape hatches (``/`` target or ``--baseline-host-probes``)
+        instead of returning silently with zero findings (which would
+        be indistinguishable from a clean scan).
+        """
+        sshd_path = os.path.join(target_path, "etc", "ssh", "sshd_config")
+        passwd_path = os.path.join(target_path, "etc", "passwd")
+        shadow_path = os.path.join(target_path, "etc", "shadow")
+
+        sshd_exists = os.path.isfile(sshd_path)
+        passwd_exists = os.path.isfile(passwd_path)
+        shadow_exists = os.path.isfile(shadow_path)
+
+        if not (sshd_exists or passwd_exists or shadow_exists):
+            return [self._no_etc_files_finding(scan_id, target_path)]
+
         findings: list[Finding] = []
-        config_path = "/etc/ssh/sshd_config"
+        if sshd_exists:
+            findings.extend(self._check_ssh_config_at(scan_id, sshd_path))
+        if passwd_exists:
+            findings.extend(self._check_file_perm_at(
+                scan_id, passwd_path, 0o644, "644", Severity.HIGH,
+            ))
+            findings.extend(self._check_passwd_uid_zero_at(scan_id, passwd_path))
+        if shadow_exists:
+            findings.extend(self._check_file_perm_at(
+                scan_id, shadow_path, 0o640, "640", Severity.CRITICAL,
+            ))
+            findings.extend(self._check_shadow_no_password_at(scan_id, shadow_path))
+        return findings
+
+    def _no_etc_files_finding(self, scan_id: str, target_path: str) -> Finding:
+        return Finding(
+            scan_id=scan_id,
+            scanner=self.name,
+            scan_type=self.scan_type,
+            severity=Severity.INFO,
+            title="Baseline scope: no host-config files under target",
+            description=(
+                f"Baseline scope: target directory has no host-config "
+                f"files; pass `/` or use --baseline-host-probes for host "
+                f"scope. Looked under {target_path!r} for "
+                f"etc/ssh/sshd_config, etc/passwd, etc/shadow."
+            ),
+            file_path=target_path,
+            rule_id="BASELINE-SCOPE-001",
+            remediation=(
+                "Re-run with `/` as the target for host-wide probes, or "
+                "pass --baseline-host-probes to keep host probes alongside "
+                "this directory scan."
+            ),
+        )
+
+    def _check_ssh_config_at(self, scan_id: str, config_path: str) -> list[Finding]:
+        """Check SSH server configuration at ``config_path``.
+
+        Path-parameterized so the same logic serves HOST mode (with
+        ``/etc/ssh/sshd_config``) and TARGET mode (with
+        ``<target>/etc/ssh/sshd_config``). The remediation strings
+        keep the canonical host path because that's what users will
+        edit on the live system; the ``file_path`` field carries the
+        actual probed location so editors can jump to it.
+        """
+        findings: list[Finding] = []
         try:
             with open(config_path, "r") as f:
                 content = f.read()
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError, IsADirectoryError):
             return findings
 
         # Check PermitRootLogin
@@ -103,39 +227,71 @@ class BaselineScanner(BaseScanner):
 
         return findings
 
-    def _check_file_permissions(self, scan_id: str) -> list[Finding]:
-        """Check sensitive file permissions."""
+    def _check_file_perm_at(
+        self,
+        scan_id: str,
+        path: str,
+        max_perm: int,
+        expected_str: str,
+        severity: Severity,
+    ) -> list[Finding]:
+        """Check that ``path``'s mode is no more permissive than ``max_perm``.
+
+        Returns at most one finding -- the file either exists with bad
+        perms (one finding), exists with good perms (no finding), or
+        doesn't exist / isn't readable (no finding, treated the same
+        as the v0.4 behavior).
+        """
+        findings: list[Finding] = []
+        try:
+            st = os.stat(path)
+        except (FileNotFoundError, PermissionError, OSError):
+            return findings
+
+        actual_perm = stat.S_IMODE(st.st_mode)
+        if actual_perm & ~max_perm:
+            actual_str = oct(actual_perm)[2:]
+            findings.append(Finding(
+                scan_id=scan_id,
+                scanner=self.name,
+                scan_type=self.scan_type,
+                severity=severity,
+                title=f"Insecure permissions on {path}",
+                description=f"Permissions are {actual_str} but should be {expected_str} or more restrictive.",
+                file_path=path,
+                rule_id="BASELINE-PERM-001",
+                remediation=f"Run: sudo chmod {expected_str} {path}",
+            ))
+        return findings
+
+    def _check_host_file_permissions(self, scan_id: str) -> list[Finding]:
+        """HOST-mode permission checks.
+
+        Probes ``/etc/passwd``, ``/etc/shadow``, and the user's
+        ``~/.ssh`` directory + ``authorized_keys``. The ``~/.ssh``
+        checks are deliberately host-scope only -- in TARGET mode the
+        user is scanning a project directory, and the running user's
+        home directory has nothing to do with that project.
+        """
         findings: list[Finding] = []
         home = os.path.expanduser("~")
 
-        checks = [
-            ("/etc/passwd", 0o644, "644", Severity.HIGH),
-            ("/etc/shadow", 0o640, "640", Severity.CRITICAL),
-            (os.path.join(home, ".ssh"), 0o700, "700", Severity.HIGH),
-            (os.path.join(home, ".ssh", "authorized_keys"), 0o600, "600", Severity.HIGH),
-        ]
-
-        for path, max_perm, expected_str, severity in checks:
-            try:
-                st = os.stat(path)
-                actual_perm = stat.S_IMODE(st.st_mode)
-                # Check if permissions are MORE permissive than allowed
-                if actual_perm & ~max_perm:
-                    actual_str = oct(actual_perm)[2:]
-                    findings.append(Finding(
-                        scan_id=scan_id,
-                        scanner=self.name,
-                        scan_type=self.scan_type,
-                        severity=severity,
-                        title=f"Insecure permissions on {path}",
-                        description=f"Permissions are {actual_str} but should be {expected_str} or more restrictive.",
-                        file_path=path,
-                        rule_id="BASELINE-PERM-001",
-                        remediation=f"Run: sudo chmod {expected_str} {path}",
-                    ))
-            except (FileNotFoundError, PermissionError):
-                continue
-
+        findings.extend(self._check_file_perm_at(
+            scan_id, "/etc/passwd", 0o644, "644", Severity.HIGH,
+        ))
+        findings.extend(self._check_file_perm_at(
+            scan_id, "/etc/shadow", 0o640, "640", Severity.CRITICAL,
+        ))
+        findings.extend(self._check_file_perm_at(
+            scan_id, os.path.join(home, ".ssh"), 0o700, "700", Severity.HIGH,
+        ))
+        findings.extend(self._check_file_perm_at(
+            scan_id,
+            os.path.join(home, ".ssh", "authorized_keys"),
+            0o600,
+            "600",
+            Severity.HIGH,
+        ))
         return findings
 
     async def _check_firewall(self, scan_id: str) -> list[Finding]:
@@ -401,13 +557,15 @@ class BaselineScanner(BaseScanner):
 
         return findings
 
-    def _check_user_privileges(self, scan_id: str) -> list[Finding]:
-        """Check /etc/passwd for users with UID 0 (should only be root) and users with no password."""
-        findings: list[Finding] = []
+    def _check_passwd_uid_zero_at(self, scan_id: str, passwd_path: str) -> list[Finding]:
+        """Detect non-root users with UID 0 in ``passwd_path``.
 
-        # Check for multiple UID 0 users
+        Path-parameterized so the same logic works for ``/etc/passwd``
+        in HOST mode and ``<target>/etc/passwd`` in TARGET mode.
+        """
+        findings: list[Finding] = []
         try:
-            with open("/etc/passwd", "r") as f:
+            with open(passwd_path, "r") as f:
                 for line_num, line in enumerate(f, 1):
                     parts = line.strip().split(':')
                     if len(parts) >= 4:
@@ -424,17 +582,24 @@ class BaselineScanner(BaseScanner):
                                 severity=Severity.CRITICAL,
                                 title=f"Non-root user '{username}' has UID 0",
                                 description=f"User '{username}' in /etc/passwd has UID 0 (root privileges). Only the root account should have UID 0.",
-                                file_path="/etc/passwd",
+                                file_path=passwd_path,
                                 line_start=line_num,
                                 rule_id="BASELINE-USER-001",
                                 remediation=f"Review and remove or change the UID of user '{username}'. Use: sudo usermod -u <new_uid> {username}",
                             ))
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError, IsADirectoryError):
             pass
+        return findings
 
-        # Check for users with no password in /etc/shadow
+    def _check_shadow_no_password_at(self, scan_id: str, shadow_path: str) -> list[Finding]:
+        """Detect users with no password set in ``shadow_path``.
+
+        Path-parameterized so the same logic works for ``/etc/shadow``
+        in HOST mode and ``<target>/etc/shadow`` in TARGET mode.
+        """
+        findings: list[Finding] = []
         try:
-            with open("/etc/shadow", "r") as f:
+            with open(shadow_path, "r") as f:
                 for line_num, line in enumerate(f, 1):
                     parts = line.strip().split(':')
                     if len(parts) >= 2:
@@ -453,14 +618,13 @@ class BaselineScanner(BaseScanner):
                                     severity=Severity.MEDIUM,
                                     title=f"User '{username}' has no password set",
                                     description=f"User '{username}' in /etc/shadow has no password set (!!). This account should be locked or have a password.",
-                                    file_path="/etc/shadow",
+                                    file_path=shadow_path,
                                     line_start=line_num,
                                     rule_id="BASELINE-USER-002",
                                     remediation=f"Lock the account: sudo passwd -l {username}, or set a password: sudo passwd {username}",
                                 ))
-        except (FileNotFoundError, PermissionError):
+        except (FileNotFoundError, PermissionError, IsADirectoryError):
             pass
-
         return findings
 
     async def _check_listening_ports(self, scan_id: str) -> list[Finding]:
