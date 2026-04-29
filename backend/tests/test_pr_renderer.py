@@ -351,3 +351,54 @@ def test_each_top_section_includes_count_in_heading(title):
     # Heading shows section-specific count, not total.
     expected_count = 2 if title == "New findings" else 1
     assert f"### {title} ({expected_count})" in out
+
+
+# --- compare mode (TS7 v0.3.0) -------------------------------------------
+
+
+def test_render_pr_comment_compare_mode_swaps_marker():
+    """``mode="compare"`` emits the compare marker, not the diff marker.
+
+    Different upsert lanes: ``securescan diff`` and ``securescan
+    compare`` can both post comments on the same PR, and the GitHub
+    Action's grep-for-marker upsert mechanism needs distinct anchors
+    so it doesn't overwrite one with the other.
+    """
+    from securescan.render_pr_comment import MARKER_COMPARE
+
+    cs = ChangeSet(new=[_make_finding(rule_id="N1")])
+    out = render_pr_comment(cs, mode="compare")
+    assert out.startswith(MARKER_COMPARE)
+    assert MARKER not in out
+
+
+def test_render_pr_comment_compare_mode_swaps_section_headings():
+    """Section labels read "New since baseline" / "Disappeared from
+    baseline" in compare mode, not "New findings" / "Fixed findings".
+    """
+    cs = ChangeSet(
+        new=[_make_finding(rule_id="N1")],
+        fixed=[_make_finding(rule_id="F1")],
+    )
+    out = render_pr_comment(cs, mode="compare")
+    assert "New since baseline" in out
+    assert "Disappeared from baseline" in out
+    # Diff-mode wording must NOT leak into compare output.
+    assert "### New findings" not in out
+    assert "### Fixed findings" not in out
+
+
+def test_render_pr_comment_diff_mode_default_unchanged():
+    """Backward compat: callers passing no ``mode=`` argument get the
+    pre-TS7 diff behaviour byte-for-byte.
+    """
+    cs = ChangeSet(
+        new=[_make_finding(rule_id="N1")],
+        fixed=[_make_finding(rule_id="F1")],
+    )
+    default_out = render_pr_comment(cs)
+    explicit_out = render_pr_comment(cs, mode="diff")
+    assert default_out == explicit_out
+    assert default_out.startswith(MARKER)
+    assert "New findings" in default_out
+    assert "Fixed findings" in default_out

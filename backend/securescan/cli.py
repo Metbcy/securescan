@@ -513,6 +513,64 @@ def _render_diff_text(cs: ChangeSet) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _render_compare_text(cs: ChangeSet) -> str:
+    """Render a ``ChangeSet`` as plain-text for ``securescan compare``.
+
+    Counterpart of ``_render_diff_text`` with compare-mode wording:
+    ``DISAPPEARED`` instead of ``fixed``, ``still present`` instead of
+    ``unchanged``. Same minimal single-screen format, no Markdown, no
+    ANSI, no emojis.
+    """
+    lines: list[str] = [
+        f"SecureScan compare: {len(cs.new)} new since baseline, "
+        f"{len(cs.fixed)} disappeared, {len(cs.unchanged)} still present"
+    ]
+    if not cs.new and not cs.fixed:
+        lines.append("")
+        lines.append("No drift since baseline.")
+        return "\n".join(lines) + "\n"
+
+    severity_order = (
+        Severity.CRITICAL,
+        Severity.HIGH,
+        Severity.MEDIUM,
+        Severity.LOW,
+        Severity.INFO,
+    )
+
+    if cs.new:
+        lines.append("")
+        lines.append("New since baseline:")
+        for sev in severity_order:
+            for f in cs.new:
+                if f.severity != sev:
+                    continue
+                loc = ""
+                if f.file_path:
+                    loc = f" ({f.file_path}"
+                    if f.line_start:
+                        loc += f":{f.line_start}"
+                    loc += ")"
+                lines.append(f"  [{sev.value.upper()}] {f.title}{loc}")
+
+    if cs.fixed:
+        lines.append("")
+        lines.append("Disappeared from baseline (drift?):")
+        for sev in severity_order:
+            for f in cs.fixed:
+                if f.severity != sev:
+                    continue
+                loc = ""
+                if f.file_path:
+                    loc = f" ({f.file_path}"
+                    if f.line_start:
+                        loc += f":{f.line_start}"
+                    loc += ")"
+                lines.append(f"  [{sev.value.upper()}] {f.title}{loc}")
+
+    return "\n".join(lines) + "\n"
+
+
 def _render_diff_sarif(
     cs: ChangeSet,
     *,
@@ -1002,6 +1060,155 @@ def config_validate(
 
     if report.has_errors:
         raise typer.Exit(code=1)
+@app.command()
+def compare(
+    target_path: str = typer.Argument(".", help="Path to scan."),
+    baseline_path: Path = typer.Argument(
+        ...,
+        help=(
+            "Path to a baseline findings JSON (from `securescan baseline` "
+            "or `securescan scan --output json`)."
+        ),
+    ),
+    scan_types: list[str] = typer.Option(
+        ["code"],
+        "--type",
+        help="Scan types to run (repeatable).",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Output format: github-pr-comment | sarif | json | text. "
+            "Defaults to text on TTY, github-pr-comment when piped."
+        ),
+    ),
+    output_file: Optional[Path] = typer.Option(
+        None,
+        "--output-file",
+        help="Write rendered output to a file instead of stdout.",
+    ),
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        envvar="GITHUB_REPOSITORY",
+        help="owner/repo for github-pr-comment links.",
+    ),
+    sha: Optional[str] = typer.Option(
+        None,
+        "--sha",
+        envvar="GITHUB_SHA",
+        help="Commit sha for github-pr-comment links.",
+    ),
+    no_ai: bool = typer.Option(False, "--no-ai"),
+    ai: bool = typer.Option(False, "--ai"),
+):
+    """Compare current scan against a baseline; report what's NEW and what
+    DISAPPEARED (drift).
+
+    Like ``diff``, but instead of two refs you provide a saved baseline
+    JSON file. New findings = present now, absent from baseline.
+    Disappeared findings = present in baseline, absent now (probably
+    fixed; could be silently suppressed via .securescan.yml or inline
+    ignores). Both are worth flagging.
+
+    PR-comment output uses the ``<!-- securescan:compare -->`` marker
+    so it lives in its own upsert lane and doesn't collide with the
+    ``securescan diff`` comment on the same PR.
+
+    SARIF output emits NEW findings only. SARIF describes findings IN
+    a scan, not their absence, so DISAPPEARED findings don't have a
+    natural SARIF representation. Use json or github-pr-comment output
+    if you need to surface drift.
+
+    AI enrichment is off by default in compare mode (same rationale as
+    ``diff``: PR-comment bodies must be byte-identical across re-runs
+    to enable upsert). Pass ``--ai`` to opt back in.
+    """
+    if no_ai and ai:
+        typer.echo("compare: --ai and --no-ai are mutually exclusive", err=True)
+        raise typer.Exit(code=2)
+
+    if not Path(baseline_path).exists():
+        typer.echo(
+            f"compare: baseline file not found: {baseline_path}\n"
+            "compare: hint: generate one with `securescan baseline` or "
+            "`securescan scan --output json --output-file baseline.json`",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    output_format = _resolve_default_output(output)
+    if output_format not in {"github-pr-comment", "sarif", "json", "text"}:
+        typer.echo(
+            f"compare: unknown --output {output_format!r}. "
+            "Choose github-pr-comment | sarif | json | text.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    parsed_types: list[ScanType] = []
+    for raw_type in scan_types:
+        try:
+            parsed_types.append(ScanType(raw_type))
+        except ValueError:
+            typer.echo(
+                f"compare: unknown --type {raw_type!r}. "
+                f"Valid: {', '.join(t.value for t in ScanType)}",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+    enable_ai = diff_should_run_ai(explicit_ai=ai, explicit_no_ai=no_ai)
+
+    try:
+        baseline_findings = load_findings_json(baseline_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        typer.echo(f"compare: failed to load baseline: {exc}", err=True)
+        raise typer.Exit(code=2)
+
+    fresh_findings = asyncio.run(
+        _run_scan_for_diff(target_path, parsed_types, enable_ai=enable_ai)
+    )
+
+    populate_fingerprints(baseline_findings)
+    populate_fingerprints(fresh_findings)
+
+    cs = classify(baseline_findings, fresh_findings)
+
+    if output_format == "github-pr-comment":
+        body = render_pr_comment(cs, repo=repo, sha=sha, mode="compare")
+    elif output_format == "sarif":
+        body = json.dumps(
+            _render_diff_sarif(
+                cs,
+                target_path=target_path,
+                scan_types=parsed_types,
+                base_ref=None,
+                head_ref=None,
+            ),
+            indent=2,
+            default=str,
+        )
+    elif output_format == "json":
+        body = json.dumps(
+            {
+                "new": [f.model_dump(mode="json") for f in cs.new],
+                "disappeared": [f.model_dump(mode="json") for f in cs.fixed],
+                "unchanged_count": len(cs.unchanged),
+            },
+            indent=2,
+            default=str,
+        )
+    else:
+        body = _render_compare_text(cs)
+
+    if output_file is not None:
+        Path(output_file).write_text(body)
+    else:
+        typer.echo(body, nl=False)
+
+    raise typer.Exit(code=0)
 
 
 if __name__ == "__main__":
