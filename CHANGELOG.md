@@ -9,6 +9,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.6.0] - 2026-04-29
+
+This release pairs an end-to-end frontend redesign with two backend
+durability features. The dashboard moves off neon traffic-light colors
+and ad-hoc card grids onto an OKLCH design system with a single-hue
+severity ramp, dense data-table layouts, a new app shell (sidebar +
+sticky topbar + ⌘K command palette), and a brand-new `/diff` page for
+PR-style scan comparison. On the API side, all routes are now mounted
+under `/api/v1/...` (legacy `/api/...` paths still work, with
+`Deprecation` / `Sunset` response headers), and `POST /scans` is
+protected by an in-memory per-key token-bucket rate limiter.
+
+### Added
+
+- `/api/v1` versioning prefix; legacy `/api/*` paths return
+  `Deprecation`, `Link`, and `Sunset` (Dec 31 2026) response headers
+  (FEAT2).
+- In-memory rate limiting on `POST /api/scans` and
+  `POST /api/v1/scans`; per-API-key token-bucket, configurable via
+  `SECURESCAN_RATE_LIMIT_PER_MIN` / `_BURST` / `_ENABLED`, 429
+  responses with `Retry-After` and `X-RateLimit-*` headers (FEAT3).
+- New `/diff` dashboard page — PR-style scan-vs-scan diff with
+  base/head pickers, summary chips (new / resolved / unchanged + risk
+  delta), and tabbed findings (FEAT1).
+- Command palette (⌘K) for navigation, recent scans, and quick
+  actions (DSH2).
+- Theme toggle and `next-themes` integration; dark default with light
+  theme support (DSH1).
+
+### Changed
+
+- Frontend redesigned end-to-end. New OKLCH design tokens, single-hue
+  severity ramp (replaces neon traffic-light coloring), Geist
+  Sans/Mono typography, Restrained color strategy per the new
+  `DESIGN.md` (DSH1).
+- New 220px sidebar + 56px sticky topbar with breadcrumb-style page
+  label and live API health indicator (DSH2).
+- Overview page replaces 3-card hero metric grid with `PageHeader` +
+  `StatLine`; latest-scan two-column section, recent-scans compact
+  table, tokenized compliance cards (DSH3).
+- New Scan page is now a two-column wizard with sticky preview panel,
+  per-scanner row layout, quick presets, recently-scanned chips, and
+  severity-threshold option (DSH4).
+- Scan Detail page rewritten: `PageHeader`, `StatLine` (risk score /
+  finding counts / scanners / duration), sticky filter bar with
+  severity chips, compact findings table with severity-tinted left
+  edges, expand-row interactions, scanner-chip strip showing ran /
+  skipped scanners with skip reasons (DSH5).
+- History page replaces 24-card grid with sortable, filterable,
+  paginated data table; status icons, mono target paths, scanner
+  chip strip with overflow, kebab action menu, URL-persisted sort /
+  page-size (DSH6).
+- Scanners page categorizes scanners into Code analysis /
+  Dependencies / Containers & IaC / Secrets / Network / Web / Other;
+  sticky status legend + search; bulk "Install all available";
+  tokenized install hints (DSH7).
+- SBOM and Compare pages redesigned with `PageHeader` + segmented
+  format toggle (CycloneDX / SPDX) + scan picker cards + tokenized
+  diff coloring (DSH8).
+- Frontend dependencies updated: `geist`, `next-themes`, `cmdk`.
+
+### Removed
+
+- `StatCard` component (replaced by `StatLine`).
+- `ScanCard` component (replaced by `HistoryTable`).
+- Hardcoded hex colors throughout the dashboard (replaced by OKLCH
+  design tokens).
+
+### Documentation
+
+- New `PRODUCT.md` captures product brief, users, brand tone,
+  anti-references, design references, strategic principles, and
+  register declaration.
+- New `DESIGN.md` captures the canonical design system: OKLCH tokens,
+  severity ramp, typography, spacing, layout, component vocabulary,
+  page-level bans, and validation checklist.
+- README updated with v0.6.0 highlights.
+
+### Migration
+
+Existing v0.5.0 callers (CLIs, GitHub Actions, third-party scripts)
+continue working against `/api/*` and will see a `Deprecation: true`
+response header indicating the new `/api/v1/*` path. No code changes
+required; migrate at your pace before Dec 31, 2026.
+
 ## [0.5.0] - 2026-04-28
 
 <!-- PG8 finalizes the date and version bump. -->
@@ -301,7 +386,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Metbcy/securescan/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Metbcy/securescan/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Metbcy/securescan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Metbcy/securescan/releases/tag/v0.3.0

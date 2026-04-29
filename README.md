@@ -9,12 +9,17 @@
 [![PyPI](https://img.shields.io/pypi/v/securescan.svg)](https://pypi.org/project/securescan/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
-> **v0.5.0 highlights**: API key auth (opt-in via env), JSON logging
-> with request-ID correlation, `/ready` probe distinct from `/health`,
-> dashboard surfaces `[SUPPRESSED:reason]` badges and severity-override
-> annotations from `.securescan.yml`, and the `/scan` page disables
-> categories with no scanners installed instead of silently producing
-> 0-finding scans.
+> **What's new in v0.6.0**
+>
+> - **Refined dashboard.** End-to-end UI redesign — OKLCH tokens,
+>   single-hue severity ramp, Geist typography, dense data-table
+>   layouts. New `/diff` page for PR-style scan comparison and a ⌘K
+>   command palette.
+> - **API versioning.** All routes are now mounted under
+>   `/api/v1/...`. The legacy `/api/...` paths still work for
+>   back-compat (with a `Deprecation` header).
+> - **Rate limiting.** Configurable per-key token bucket on
+>   `POST /scans` (default 60/min, burst 10).
 
 ## Why?
 
