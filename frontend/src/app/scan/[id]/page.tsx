@@ -1,200 +1,667 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle, XCircle } from "lucide-react";
+/*
+ * Scan Detail page (DSH5).
+ *
+ * Owner: DSH5. The header / stat-line / scanner-chip-strip / findings table
+ * compose the most-visited surface in SecureScan.
+ *
+ * Composes DSH3's <PageHeader />, <StatLine />, and <SeverityPillStrip />
+ * primitives. Everything below the header is DSH5-owned.
+ */
+
+import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { fetchScan, fetchFindings, fetchScanSummary } from "@/lib/api";
-import type { Scan, Finding, ScanSummary } from "@/lib/api";
-import { RiskScore } from "@/components/risk-score";
-import { SeverityChart } from "@/components/severity-chart";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Download,
+  GitCompareArrows,
+  Loader2,
+  RefreshCw,
+  StopCircle,
+  XCircle,
+} from "lucide-react";
+import {
+  cancelScan,
+  fetchFindings,
+  fetchScan,
+  fetchScanSummary,
+  startScan,
+} from "@/lib/api";
+import type { Finding, Scan, ScanSummary } from "@/lib/api";
 import { FindingsTable } from "@/components/findings-table";
+import { ScannerChipStrip } from "@/components/scanner-chip-strip";
+import { PageHeader, StatLine, type StatLineItem } from "@/components/page-header";
+import { SeverityPillStrip } from "@/components/severity-pill-strip";
 
-const STATUS_ICON: Record<string, React.ElementType> = {
-  completed: CheckCircle,
-  running: Clock,
-  failed: XCircle,
-  pending: Clock,
-  cancelled: AlertTriangle,
+/* ---------- helpers ---------- */
+
+type ScanStatus = Scan["status"];
+type Severity = "critical" | "high" | "medium" | "low" | "info";
+
+const STATUS_TONE: Record<ScanStatus, { dot: string; text: string; label: string }> = {
+  completed: { dot: "bg-accent", text: "text-accent", label: "completed" },
+  running: { dot: "bg-sev-medium", text: "text-sev-medium", label: "running" },
+  pending: { dot: "bg-sev-medium", text: "text-sev-medium", label: "pending" },
+  failed: { dot: "bg-sev-critical", text: "text-sev-critical", label: "failed" },
+  cancelled: { dot: "bg-muted", text: "text-muted", label: "cancelled" },
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  completed: "text-green-400",
-  running: "text-blue-400",
-  failed: "text-red-400",
-  pending: "text-zinc-400",
-  cancelled: "text-amber-400",
-};
+function truncateMiddle(value: string, max = 56): string {
+  if (value.length <= max) return value;
+  const half = Math.floor((max - 1) / 2);
+  return `${value.slice(0, half)}…${value.slice(value.length - half)}`;
+}
+
+function shortId(id: string): string {
+  return id.length >= 8 ? id.slice(0, 8) : id;
+}
+
+function formatRelative(iso?: string): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const seconds = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (seconds < 5) return "just now";
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.round(days / 365);
+  return `${years}y ago`;
+}
+
+function formatDuration(scan: Scan): string {
+  const start = scan.started_at ? new Date(scan.started_at).getTime() : null;
+  const end = scan.completed_at ? new Date(scan.completed_at).getTime() : null;
+  if (start == null) return "—";
+  const ref = end ?? Date.now();
+  const ms = Math.max(0, ref - start);
+  if (ms < 1000) return `${ms}ms`;
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+}
+
+function riskScoreTone(score: number): { text: string; band: string } {
+  if (score <= 30) return { text: "text-accent", band: "Low" };
+  if (score <= 60) return { text: "text-sev-medium", band: "Medium" };
+  if (score <= 80) return { text: "text-sev-high", band: "High" };
+  return { text: "text-sev-critical", band: "Critical" };
+}
+
+function deriveSummaryFromFindings(findings: Finding[]): ScanSummary {
+  const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+  for (const f of findings) {
+    const s = (f.severity?.toLowerCase() ?? "info") as Severity;
+    if (s in counts) counts[s] += 1;
+  }
+  return {
+    total_findings: findings.length,
+    critical: counts.critical,
+    high: counts.high,
+    medium: counts.medium,
+    low: counts.low,
+    info: counts.info,
+    risk_score: 0,
+    scanners_run: [],
+  };
+}
+
+/* ---------- DSH5-local helpers ---------- */
+
+/* ---------- buttons ---------- */
+
+function ActionButton({
+  children,
+  onClick,
+  href,
+  variant = "secondary",
+  disabled,
+  title,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  href?: string;
+  variant?: "primary" | "secondary" | "destructive";
+  disabled?: boolean;
+  title?: string;
+}) {
+  const base =
+    "inline-flex items-center gap-1.5 px-3 h-8 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const v =
+    variant === "primary"
+      ? "bg-accent text-accent-foreground border-accent hover:bg-accent/90"
+      : variant === "destructive"
+      ? "border-sev-critical/40 text-sev-critical hover:bg-sev-critical-bg bg-transparent"
+      : "border-border bg-surface-2 text-foreground hover:border-border-strong";
+  const cn = `${base} ${v}`;
+  if (href) {
+    return (
+      <a href={href} className={cn} title={title}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={cn} title={title}>
+      {children}
+    </button>
+  );
+}
+
+/* ---------- skeleton ---------- */
+
+function ScanDetailSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-2">
+          <div className="h-3 w-24 bg-surface-2 rounded" />
+          <div className="h-7 w-72 bg-surface-2 rounded" />
+          <div className="h-3 w-48 bg-surface-2 rounded" />
+        </div>
+        <div className="flex gap-2">
+          <div className="h-8 w-24 bg-surface-2 rounded-md" />
+          <div className="h-8 w-24 bg-surface-2 rounded-md" />
+        </div>
+      </div>
+      <div className="rounded-md border border-border bg-card px-5 py-4">
+        <div className="flex flex-wrap gap-x-8 gap-y-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <div className="h-3 w-16 bg-surface-2 rounded" />
+              <div className="h-6 w-24 bg-surface-2 rounded" />
+              <div className="h-3 w-32 bg-surface-2 rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="h-10 rounded-md border border-border bg-card" />
+      <div className="rounded-md border border-border bg-card divide-y divide-border">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="h-11 px-3 flex items-center gap-3">
+            <div className="h-4 w-16 bg-surface-2 rounded" />
+            <div className="h-4 w-32 bg-surface-2 rounded" />
+            <div className="h-4 flex-1 bg-surface-2 rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- page ---------- */
 
 export default function ScanDetailPage() {
   const params = useParams();
-  const id = params.id as string;
+  const router = useRouter();
+  const id = params?.id as string | undefined;
+
   const [scan, setScan] = useState<Scan | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    async function load() {
+  // Used to force the relative-time labels to refresh while running.
+  const [, setTick] = useState(0);
+
+  /* Initial + polling load. */
+  const load = useCallback(
+    async (silent = false) => {
+      if (!id) return;
       try {
+        if (!silent) setLoading(true);
         const scanData = await fetchScan(id);
         setScan(scanData);
 
         if (scanData.status === "completed") {
-          const [fin, sum] = await Promise.all([
-            fetchFindings(id),
-            fetchScanSummary(id),
-          ]);
+          const [fin, sum] = await Promise.all([fetchFindings(id), fetchScanSummary(id)]);
           setFindings(fin);
           setSummary(sum);
+        } else if (scanData.status === "running" || scanData.status === "pending") {
+          // Best-effort partial findings while running.
+          try {
+            const fin = await fetchFindings(id);
+            setFindings(fin);
+            setSummary(deriveSummaryFromFindings(fin));
+          } catch {
+            // Server may not return findings until complete; ignore.
+          }
+        } else {
+          setFindings([]);
+          setSummary(null);
         }
+        setError(null);
       } catch {
-        setError("Failed to load scan details");
+        if (!silent) setError("Failed to load scan details");
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    }
-    load();
-  }, [id]);
+    },
+    [id],
+  );
 
-  if (loading) {
-    return (
-      <div className="space-y-6">
-        <div className="h-8 w-48 bg-[#141414] rounded animate-pulse" />
-        <div className="h-32 bg-[#141414] border border-[#262626] rounded-xl animate-pulse" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="h-64 bg-[#141414] border border-[#262626] rounded-xl animate-pulse" />
-          <div className="h-64 bg-[#141414] border border-[#262626] rounded-xl animate-pulse" />
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    void load(false);
+  }, [load]);
+
+  // Poll every 2s while running, plus a 1s tick to refresh duration/relative labels.
+  useEffect(() => {
+    if (!scan) return;
+    const isLive = scan.status === "running" || scan.status === "pending";
+    if (!isLive) return;
+
+    const livePoll = setInterval(() => {
+      void load(true);
+    }, 2000);
+    const labelTick = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => {
+      clearInterval(livePoll);
+      clearInterval(labelTick);
+    };
+  }, [scan, load]);
+
+  const handleCancel = useCallback(async () => {
+    if (!id) return;
+    setCancelling(true);
+    try {
+      await cancelScan(id);
+      await load(true);
+    } catch {
+      setError("Failed to cancel scan");
+    } finally {
+      setCancelling(false);
+    }
+  }, [id, load]);
+
+  const handleRetry = useCallback(async () => {
+    if (!scan) return;
+    setRetrying(true);
+    try {
+      const next = await startScan(
+        scan.target_path,
+        scan.scan_types ?? [],
+        scan.target_url,
+        scan.target_host,
+      );
+      router.push(`/scan/${next.id}`);
+    } catch {
+      setError("Failed to start a new scan");
+      setRetrying(false);
+    }
+  }, [scan, router]);
+
+  /* ---------- render ---------- */
+
+  if (loading && !scan) return <ScanDetailSkeleton />;
 
   if (error || !scan) {
     return (
       <div className="space-y-6">
-        <Link href="/history" className="inline-flex items-center gap-1.5 text-sm text-[#a1a1aa] hover:text-white transition-colors">
-          <ArrowLeft size={16} /> Back to History
+        <Link
+          href="/history"
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-foreground"
+        >
+          <ArrowLeft size={16} strokeWidth={1.5} /> Back to History
         </Link>
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-6 text-center">
-          <AlertTriangle size={32} className="mx-auto mb-3 text-red-400" />
-          <p className="text-red-400 font-medium">{error || "Scan not found"}</p>
+        <div
+          role="alert"
+          className="rounded-md border border-sev-critical/30 bg-sev-critical-bg p-5"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={20} strokeWidth={1.5} className="text-sev-critical shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-sev-critical">
+                {error || "Scan not found"}
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                The scan {id ? <span className="font-mono">{shortId(id)}</span> : "you requested"}{" "}
+                couldn&apos;t be loaded.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  const StatusIcon = STATUS_ICON[scan.status] ?? Clock;
+  const tone = STATUS_TONE[scan.status] ?? STATUS_TONE.pending;
+  const startedRel = formatRelative(scan.started_at);
+  const duration = formatDuration(scan);
+
+  // Header actions vary by status.
+  const actions: React.ReactNode = (() => {
+    if (scan.status === "running" || scan.status === "pending") {
+      return (
+        <ActionButton variant="destructive" onClick={handleCancel} disabled={cancelling}>
+          {cancelling ? (
+            <>
+              <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+              Cancelling…
+            </>
+          ) : (
+            <>
+              <StopCircle size={14} strokeWidth={1.5} />
+              Cancel
+            </>
+          )}
+        </ActionButton>
+      );
+    }
+    if (scan.status === "failed") {
+      return (
+        <ActionButton variant="secondary" onClick={handleRetry} disabled={retrying}>
+          {retrying ? (
+            <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} strokeWidth={1.5} />
+          )}
+          Retry
+        </ActionButton>
+      );
+    }
+    if (scan.status === "completed") {
+      return (
+        <>
+          <ActionButton variant="secondary" onClick={handleRetry} disabled={retrying}>
+            {retrying ? (
+              <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} strokeWidth={1.5} />
+            )}
+            Re-scan
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            href={`/api/v1/scans/${scan.id}/report?format=sarif`}
+            title="Download SARIF report"
+          >
+            <Download size={14} strokeWidth={1.5} />
+            Download SARIF
+          </ActionButton>
+          <ActionButton
+            variant="secondary"
+            href={`/diff?base=${encodeURIComponent(scan.id)}`}
+            title="Compare against another scan"
+          >
+            <GitCompareArrows size={14} strokeWidth={1.5} />
+            Compare
+          </ActionButton>
+        </>
+      );
+    }
+    if (scan.status === "cancelled") {
+      return (
+        <ActionButton variant="secondary" onClick={handleRetry} disabled={retrying}>
+          {retrying ? (
+            <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} strokeWidth={1.5} />
+          )}
+          Re-scan
+        </ActionButton>
+      );
+    }
+    return null;
+  })();
+
+  // Scanners that are queued/running but not yet in scanners_run.
+  const ran = scan.scanners_run ?? [];
+  const skipped = scan.scanners_skipped ?? [];
+  const runningScanners =
+    scan.status === "running"
+      ? (scan.scan_types ?? []).filter(
+          (s) => !ran.includes(s) && !skipped.some((sk) => sk.name === s),
+        )
+      : [];
+
+  const showStatLine = scan.status === "completed";
+  const isFailed = scan.status === "failed";
+
+  const findingsTotal = summary?.total_findings ?? findings.length;
+  const usableSummary: ScanSummary | null =
+    summary ?? (findings.length > 0 ? deriveSummaryFromFindings(findings) : null);
 
   return (
     <div className="space-y-6">
-      <Link href="/history" className="inline-flex items-center gap-1.5 text-sm text-[#a1a1aa] hover:text-white transition-colors">
-        <ArrowLeft size={16} /> Back to History
+      <Link
+        href="/history"
+        className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground"
+      >
+        <ArrowLeft size={14} strokeWidth={1.5} /> Back to History
       </Link>
 
-      {/* Scan metadata */}
-      <div className="rounded-xl border border-[#262626] bg-[#141414] p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight mb-1">{scan.target_path}</h1>
-            <div className="flex flex-wrap items-center gap-3 text-sm text-[#a1a1aa]">
-              <span className={`inline-flex items-center gap-1 ${STATUS_COLOR[scan.status]}`}>
-                <StatusIcon size={14} />
-                {scan.status}
-              </span>
-              <span>{scan.findings_count} findings</span>
-              {scan.scan_types && (
-                <span>{scan.scan_types.join(", ")}</span>
+      <PageHeader
+        eyebrow={<>Scan <span className="text-foreground">{shortId(scan.id)}</span></>}
+        title={`Scan · ${truncateMiddle(scan.target_path, 64)}`}
+        meta={
+          <span
+            className="flex flex-wrap items-center gap-x-3 gap-y-1"
+            title={scan.target_path}
+          >
+            <span className={`inline-flex items-center gap-1.5 ${tone.text}`}>
+              <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+              {tone.label}
+              {scan.status === "running" && (
+                <Loader2 size={12} strokeWidth={1.5} className="animate-spin" />
               )}
-              {scan.started_at && (
-                <span>{new Date(scan.started_at).toLocaleString()}</span>
+            </span>
+            {scan.started_at && (
+              <>
+                <span aria-hidden>·</span>
+                <span>
+                  started{" "}
+                  <span className="text-foreground" title={new Date(scan.started_at).toLocaleString()}>
+                    {startedRel}
+                  </span>
+                </span>
+              </>
+            )}
+            {(scan.status === "completed" || scan.status === "running") && (
+              <>
+                <span aria-hidden>·</span>
+                <span>
+                  duration <span className="text-foreground tabular-nums">{duration}</span>
+                </span>
+              </>
+            )}
+          </span>
+        }
+        actions={actions}
+      />
+
+      {/* Failed-scan alert — replaces stat line + findings entirely. */}
+      {isFailed && (
+        <div
+          role="alert"
+          className="rounded-md border border-sev-critical/30 bg-sev-critical-bg px-5 py-4"
+        >
+          <div className="flex items-start gap-3">
+            <XCircle size={18} strokeWidth={1.5} className="text-sev-critical shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-sev-critical">Scan failed</p>
+              {scan.error && (
+                <pre className="mt-2 text-xs font-mono text-foreground whitespace-pre-wrap break-words max-w-[80ch]">
+                  {scan.error}
+                </pre>
               )}
             </div>
-            {scan.scanners_run && scan.scanners_run.length > 0 && (
-              <div className="mt-2 text-xs text-[#a1a1aa]">
-                <span className="text-[#71717a]">Scanners run:</span>{" "}
-                <span className="font-mono text-[#d4d4d8]">{scan.scanners_run.join(", ")}</span>
-              </div>
-            )}
-            {scan.scanners_skipped && scan.scanners_skipped.length > 0 && (
-              <details className="mt-2 text-xs">
-                <summary className="cursor-pointer text-amber-400 hover:text-amber-300 select-none">
-                  Skipped ({scan.scanners_skipped.length})
-                </summary>
-                <ul className="mt-2 space-y-1 pl-4 text-[#a1a1aa]">
-                  {scan.scanners_skipped.map((s) => (
-                    <li key={s.name} className="font-mono">
-                      <span className="text-[#d4d4d8]">{s.name}</span>
-                      <span className="text-[#71717a]"> — {s.reason}.</span>
-                      {s.install_hint && (
-                        <span className="text-[#a1a1aa]"> {s.install_hint}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
+            <ActionButton variant="secondary" onClick={handleRetry} disabled={retrying}>
+              {retrying ? (
+                <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+              ) : (
+                <RefreshCw size={14} strokeWidth={1.5} />
+              )}
+              Retry
+            </ActionButton>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* AI Summary */}
-      {scan.summary && (
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-5">
-          <h2 className="text-sm font-medium text-blue-400 mb-2">AI Summary</h2>
-          <p className="text-sm text-[#a1a1aa] leading-relaxed whitespace-pre-wrap">
+      {/* Cancelled note — concise; user can rescan from header. */}
+      {scan.status === "cancelled" && scan.error && (
+        <div className="rounded-md border border-border bg-card px-5 py-3 text-sm text-muted">
+          <span className="text-foreground font-medium">Cancelled.</span>{" "}
+          <span className="font-mono">{scan.error}</span>
+        </div>
+      )}
+
+      {/* Stat line (completed only). */}
+      {showStatLine && usableSummary && (
+        <>
+          <StatLine
+            items={
+              [
+                {
+                  label: "Risk score",
+                  value: summary ? (
+                    <span
+                      className={`tabular-nums ${riskScoreTone(summary.risk_score).text}`}
+                    >
+                      {summary.risk_score}
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  ),
+                  trail: summary ? riskScoreTone(summary.risk_score).band : null,
+                },
+                {
+                  label: "Findings",
+                  value: <span className="tabular-nums">{findingsTotal}</span>,
+                  trail:
+                    findingsTotal > 0 ? (
+                      <SeverityPillStrip counts={usableSummary} size="xs" />
+                    ) : (
+                      "none"
+                    ),
+                },
+                {
+                  label: "Scanners",
+                  value: (
+                    <span className="tabular-nums">{ran.length}</span>
+                  ),
+                  trail: (
+                    <span>
+                      ran
+                      {skipped.length > 0 && (
+                        <>
+                          {" · "}
+                          <span className="tabular-nums">{skipped.length}</span> skipped
+                        </>
+                      )}
+                    </span>
+                  ),
+                },
+                {
+                  label: "Duration",
+                  value: <span className="tabular-nums">{duration}</span>,
+                  trail: scan.completed_at ? (
+                    <span title={new Date(scan.completed_at).toLocaleString()}>
+                      finished {formatRelative(scan.completed_at)}
+                    </span>
+                  ) : null,
+                },
+              ] satisfies StatLineItem[]
+            }
+          />
+          {/* Scanner chip strip lives directly under the stat line per DSH5 spec. */}
+          {(ran.length > 0 || skipped.length > 0) && (
+            <div className="-mt-2">
+              <ScannerChipStrip ran={ran} skipped={skipped} />
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Running surface — partial scanner chips + spinner, no stat line yet. */}
+      {(scan.status === "running" || scan.status === "pending") && !isFailed && (
+        <>
+          <StatLine
+            items={
+              [
+                {
+                  label: "Status",
+                  value: (
+                    <span className="inline-flex items-center gap-2 text-sev-medium">
+                      <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
+                      {scan.status === "pending" ? "Queued" : "Running"}
+                    </span>
+                  ),
+                  trail: duration,
+                },
+                {
+                  label: "Scanners",
+                  value: (
+                    <span>
+                      <span className="tabular-nums">{ran.length}</span>
+                      {scan.scan_types && scan.scan_types.length > 0 && (
+                        <span className="text-muted">/{scan.scan_types.length}</span>
+                      )}
+                    </span>
+                  ),
+                  trail: "done",
+                },
+                ...(findings.length > 0
+                  ? [
+                      {
+                        label: "Partial findings",
+                        value: <span className="tabular-nums">{findings.length}</span>,
+                        trail: (
+                          <SeverityPillStrip
+                            counts={deriveSummaryFromFindings(findings)}
+                            size="xs"
+                          />
+                        ),
+                      },
+                    ]
+                  : []),
+              ] satisfies StatLineItem[]
+            }
+          />
+          <div className="-mt-2">
+            <ScannerChipStrip ran={ran} skipped={skipped} running={runningScanners} />
+          </div>
+        </>
+      )}
+
+      {/* AI Summary (rendered with restrained accent, not blue marketing). */}
+      {scan.status === "completed" && scan.summary && (
+        <section className="rounded-md border border-border bg-card px-5 py-4">
+          <h2 className="text-[0.6875rem] uppercase tracking-wider text-muted mb-1.5">
+            Summary
+          </h2>
+          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap max-w-[80ch]">
             {scan.summary}
           </p>
-        </div>
+        </section>
       )}
 
-      {/* Risk Score + Chart */}
-      {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-[#262626] bg-[#141414] p-6 flex items-center justify-center">
-            <RiskScore score={summary.risk_score} />
-          </div>
-          <div className="rounded-xl border border-[#262626] bg-[#141414] p-6">
-            <h2 className="text-sm font-medium text-[#a1a1aa] mb-4">Findings by Severity</h2>
-            <SeverityChart
-              critical={summary.critical}
-              high={summary.high}
-              medium={summary.medium}
-              low={summary.low}
-              info={summary.info}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Findings table */}
-      {findings.length > 0 && (
-        <div>
-          <h2 className="text-lg font-semibold mb-3">All Findings</h2>
-          <FindingsTable findings={findings} />
-        </div>
-      )}
-
-      {/* Error info */}
-      {(scan.status === "failed" || scan.status === "cancelled") && scan.error && (
-        <div className={`rounded-xl p-5 ${
-          scan.status === "failed"
-            ? "border border-red-500/20 bg-red-500/10"
-            : "border border-amber-500/20 bg-amber-500/10"
-        }`}>
-          <h2 className={`text-sm font-medium mb-2 ${
-            scan.status === "failed" ? "text-red-400" : "text-amber-300"
-          }`}>
-            {scan.status === "failed" ? "Error" : "Cancelled"}
-          </h2>
-          <p className={`text-sm font-mono ${
-            scan.status === "failed" ? "text-red-300" : "text-amber-200"
-          }`}>
-            {scan.error}
-          </p>
-        </div>
+      {/* Findings — hidden on failed; shown on completed and on running (partial). */}
+      {!isFailed && (scan.status === "completed" || findings.length > 0) && (
+        <section aria-label="Findings" className="space-y-3">
+          <h2 className="text-lg font-semibold text-foreground-strong">Findings</h2>
+          <FindingsTable
+            findings={findings}
+            scannersRanCount={ran.length}
+            stickyTop="top-14"
+          />
+        </section>
       )}
     </div>
   );
