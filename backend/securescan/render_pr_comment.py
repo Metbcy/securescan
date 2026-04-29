@@ -13,6 +13,12 @@ output, every time, with no exceptions — even on the empty-changeset
 path. That invariant is enforced by ``render_pr_comment`` and pinned by
 ``test_marker_is_first_line``.
 
+Two render modes share the renderer: ``"diff"`` (default, backward
+compat) for ``securescan diff`` PR comments, and ``"compare"`` for
+``securescan compare`` baseline-drift comments. Compare uses a
+separate marker (``MARKER_COMPARE = "<!-- securescan:compare -->"``)
+so the two upsert lanes don't collide on the same PR.
+
 The renderer is intentionally I/O-free and depends only on the
 ``ChangeSet`` dataclass from ``diff.py``: no datetime, no logging, no
 filesystem, no env vars. The exporters.py wrapper
@@ -28,7 +34,7 @@ v0.2.0 decision — see plan.md).
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .models import Severity
 from .ordering import sort_findings_canonical
@@ -39,6 +45,9 @@ if TYPE_CHECKING:
 
 
 MARKER = "<!-- securescan:diff -->"
+MARKER_COMPARE = "<!-- securescan:compare -->"
+
+RenderMode = Literal["diff", "compare"]
 
 _SEVERITY_ORDER: tuple[Severity, ...] = (
     Severity.CRITICAL,
@@ -226,6 +235,7 @@ def render_pr_comment(
     *,
     repo: str | None = None,
     sha: str | None = None,
+    mode: RenderMode = "diff",
 ) -> str:
     """Render a ``ChangeSet`` as a Markdown PR comment body.
 
@@ -236,37 +246,65 @@ def render_pr_comment(
     only one of the two also falls back to plain text — there's no
     sensible link without both.
 
+    ``mode`` selects diff vs compare semantics. ``"diff"`` (default,
+    backward compatible) labels the sections "New findings" / "Fixed
+    findings" and uses ``MARKER`` (``<!-- securescan:diff -->``).
+    ``"compare"`` labels them "New since baseline" / "Disappeared from
+    baseline (drift?)" and uses ``MARKER_COMPARE``
+    (``<!-- securescan:compare -->``) so PR-comment upserts don't
+    collide with the diff lane. The parameter is purely additive:
+    pre-existing callers pass nothing and get diff behavior.
+
     Empty-changeset short-circuit: when ``changeset`` has no new and no
     fixed findings the body is just the marker plus a single line
-    ``_No new or fixed findings._``. The marker is ALWAYS the first
-    line so the GitHub Action's upsert grep can find it
-    unconditionally.
+    (``_No new or fixed findings._`` for diff, ``_No drift since
+    baseline._`` for compare). The marker is ALWAYS the first line so
+    the GitHub Action's upsert grep can find it unconditionally.
 
-    Pure function. Same ``ChangeSet`` plus same ``repo``/``sha`` →
+    Pure function. Same ``ChangeSet`` plus same ``repo``/``sha``/``mode`` →
     byte-identical output, every time.
     """
     new_findings = list(changeset.new)
     fixed_findings = list(changeset.fixed)
     unchanged_count = len(changeset.unchanged)
 
+    if mode == "compare":
+        marker = MARKER_COMPARE
+        heading = "## SecureScan: baseline drift"
+        new_label = "New since baseline"
+        fixed_label = "Disappeared from baseline (drift?)"
+        empty_message = "_No drift since baseline._"
+        new_section_title = "New since baseline"
+        fixed_section_title = "Disappeared from baseline (drift?)"
+        unchanged_label = "Still present"
+    else:
+        marker = MARKER
+        heading = "## SecureScan: dependency & code change review"
+        new_label = "New findings"
+        fixed_label = "Fixed findings"
+        empty_message = "_No new or fixed findings._"
+        new_section_title = "New findings"
+        fixed_section_title = "Fixed findings"
+        unchanged_label = "Unchanged findings"
+
     if not new_findings and not fixed_findings:
-        return f"{MARKER}\n_No new or fixed findings._\n"
+        return f"{marker}\n{empty_message}\n"
 
     lines: list[str] = [
-        MARKER,
-        "## SecureScan: dependency & code change review",
+        marker,
+        heading,
         "",
         "| Change | Count |",
         "|---|---:|",
-        f"| New findings | {len(new_findings)} |",
-        f"| Fixed findings | {len(fixed_findings)} |",
-        f"| Unchanged findings | {unchanged_count} |",
+        f"| {new_label} | {len(new_findings)} |",
+        f"| {fixed_label} | {len(fixed_findings)} |",
+        f"| {unchanged_label} | {unchanged_count} |",
         "",
     ]
 
     lines.extend(
         _render_section(
-            "New findings",
+            new_section_title,
             new_findings,
             repo=repo,
             sha=sha,
@@ -275,7 +313,7 @@ def render_pr_comment(
     )
     lines.extend(
         _render_section(
-            "Fixed findings",
+            fixed_section_title,
             fixed_findings,
             repo=repo,
             sha=sha,
