@@ -1,15 +1,3 @@
-"use client";
-
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-} from "recharts";
-
 interface SeverityChartProps {
   critical: number;
   high: number;
@@ -18,56 +6,94 @@ interface SeverityChartProps {
   info: number;
 }
 
-const COLORS: Record<string, string> = {
-  Critical: "#ef4444",
-  High: "#f97316",
-  Medium: "#eab308",
-  Low: "#3b82f6",
-  Info: "#6b7280",
+type Key = keyof SeverityChartProps;
+
+const ORDER: Key[] = ["critical", "high", "medium", "low", "info"];
+
+const SEG_BG: Record<Key, string> = {
+  critical: "bg-sev-critical",
+  high: "bg-sev-high",
+  medium: "bg-sev-medium",
+  low: "bg-sev-low",
+  info: "bg-sev-info",
 };
 
-export function SeverityChart({ critical, high, medium, low, info }: SeverityChartProps) {
-  const data = [
-    { name: "Critical", count: critical },
-    { name: "High", count: high },
-    { name: "Medium", count: medium },
-    { name: "Low", count: low },
-    { name: "Info", count: info },
-  ];
+const PILL_BG: Record<Key, string> = {
+  critical: "bg-sev-critical-bg text-sev-critical",
+  high: "bg-sev-high-bg text-sev-high",
+  medium: "bg-sev-medium-bg text-sev-medium",
+  low: "bg-sev-low-bg text-sev-low",
+  info: "bg-sev-info-bg text-sev-info",
+};
+
+const DOT_BG: Record<Key, string> = {
+  critical: "bg-sev-critical",
+  high: "bg-sev-high",
+  medium: "bg-sev-medium",
+  low: "bg-sev-low",
+  info: "bg-sev-info",
+};
+
+const LABELS: Record<Key, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  info: "Info",
+};
+
+export function SeverityChart(props: SeverityChartProps) {
+  const total = ORDER.reduce((sum, k) => sum + props[k], 0);
 
   return (
-    <div className="w-full h-64">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-          <XAxis
-            dataKey="name"
-            tick={{ fill: "#a1a1aa", fontSize: 12 }}
-            axisLine={{ stroke: "#262626" }}
-            tickLine={false}
-          />
-          <YAxis
-            tick={{ fill: "#a1a1aa", fontSize: 12 }}
-            axisLine={false}
-            tickLine={false}
-            allowDecimals={false}
-          />
-          <Tooltip
-            contentStyle={{
-              background: "#1a1a1a",
-              border: "1px solid #262626",
-              borderRadius: "8px",
-              color: "#ededed",
-              fontSize: 13,
-            }}
-            cursor={{ fill: "rgba(255,255,255,0.04)" }}
-          />
-          <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-            {data.map((entry) => (
-              <Cell key={entry.name} fill={COLORS[entry.name]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="space-y-3">
+      <h3 className="text-sm font-medium text-muted">Findings by severity</h3>
+
+      {total === 0 ? (
+        <p className="text-sm text-muted">No findings.</p>
+      ) : (
+        <>
+          <div
+            className="flex h-2 w-full overflow-hidden rounded-full bg-surface-2"
+            role="img"
+            aria-label={`${total} findings by severity`}
+          >
+            {ORDER.map((k) => {
+              const v = props[k];
+              if (v === 0) return null;
+              const pct = (v / total) * 100;
+              return (
+                <div
+                  key={k}
+                  className={`${SEG_BG[k]} h-full`}
+                  style={{ width: `${pct}%` }}
+                  title={`${LABELS[k]}: ${v}`}
+                />
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {ORDER.map((k) => {
+              const v = props[k];
+              if (v === 0) return null;
+              return (
+                <span
+                  key={k}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium tabular-nums ${PILL_BG[k]}`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${DOT_BG[k]}`}
+                    aria-hidden
+                  />
+                  {v}
+                  <span className="font-normal opacity-80">{LABELS[k]}</span>
+                </span>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
