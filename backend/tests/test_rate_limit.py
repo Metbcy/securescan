@@ -99,6 +99,11 @@ def test_rate_limit_allows_within_burst(monkeypatch, temp_db, scan_dir):
     monkeypatch.setenv("SECURESCAN_RATE_LIMIT_ENABLED", "true")
     monkeypatch.setenv("SECURESCAN_RATE_LIMIT_PER_MIN", "60")
     monkeypatch.setenv("SECURESCAN_RATE_LIMIT_BURST", "10")
+    # Match the X-API-Key header so v0.8.0 auth (which now strictly
+    # validates any provided key, even in otherwise-dev-mode setups)
+    # lets the request through. The rate limiter still buckets by the
+    # raw header value, so this preserves the test's intent.
+    monkeypatch.setenv("SECURESCAN_API_KEY", "burst-test-key")
 
     client = TestClient(app, raise_server_exceptions=False)
     headers = {"X-API-Key": "burst-test-key"}

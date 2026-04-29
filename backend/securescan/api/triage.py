@@ -19,9 +19,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..auth import require_scope
 from ..database import (
     add_finding_comment,
     delete_finding_comment,
@@ -56,7 +57,7 @@ class AddCommentBody(BaseModel):
     author: Optional[str] = None
 
 
-@router.patch("/{fingerprint}/state", response_model=FindingState)
+@router.patch("/{fingerprint}/state", response_model=FindingState, dependencies=[Depends(require_scope("write"))])
 async def patch_state(fingerprint: str, body: PatchStateBody) -> FindingState:
     """Create or replace the triage verdict for `fingerprint`.
 
@@ -74,7 +75,7 @@ async def patch_state(fingerprint: str, body: PatchStateBody) -> FindingState:
     return state
 
 
-@router.get("/{fingerprint}/comments", response_model=list[FindingComment])
+@router.get("/{fingerprint}/comments", response_model=list[FindingComment], dependencies=[Depends(require_scope("read"))])
 async def list_comments(fingerprint: str) -> list[FindingComment]:
     """List comments on `fingerprint`, oldest first.
 
@@ -88,6 +89,7 @@ async def list_comments(fingerprint: str) -> list[FindingComment]:
     "/{fingerprint}/comments",
     response_model=FindingComment,
     status_code=201,
+    dependencies=[Depends(require_scope("write"))],
 )
 async def add_comment(fingerprint: str, body: AddCommentBody) -> FindingComment:
     """Append a comment to `fingerprint`. Server-assigned id + created_at."""
@@ -100,7 +102,7 @@ async def add_comment(fingerprint: str, body: AddCommentBody) -> FindingComment:
     return comment
 
 
-@router.delete("/{fingerprint}/comments/{comment_id}", status_code=204)
+@router.delete("/{fingerprint}/comments/{comment_id}", status_code=204, dependencies=[Depends(require_scope("write"))])
 async def delete_comment(fingerprint: str, comment_id: str) -> None:
     """Remove a single comment by id.
 

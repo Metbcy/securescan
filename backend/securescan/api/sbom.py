@@ -3,8 +3,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..auth import require_scope
 from ..database import get_all_sboms, get_sbom, get_sboms_for_scan, save_sbom
 from ..models import SBOMDocument
 from ..sbom import SBOMGenerator
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sbom", tags=["sbom"])
 
 
-@router.post("/generate")
+@router.post("/generate", dependencies=[Depends(require_scope("write"))])
 async def generate_sbom(
     target_path: str = Query(..., description="Path to the project directory"),
     format: str = Query("cyclonedx", description="Export format: cyclonedx or spdx"),
@@ -47,13 +48,13 @@ async def generate_sbom(
     }
 
 
-@router.get("/history")
+@router.get("/history", dependencies=[Depends(require_scope("read"))])
 async def list_sboms():
     """List all previously generated SBOMs with metadata and component counts."""
     return await get_all_sboms()
 
 
-@router.get("/{sbom_id}")
+@router.get("/{sbom_id}", dependencies=[Depends(require_scope("read"))])
 async def get_sbom_document(sbom_id: str):
     """Retrieve a stored SBOM document by ID."""
     doc = await get_sbom(sbom_id)
@@ -62,7 +63,7 @@ async def get_sbom_document(sbom_id: str):
     return doc
 
 
-@router.get("/{sbom_id}/export")
+@router.get("/{sbom_id}/export", dependencies=[Depends(require_scope("read"))])
 async def export_sbom(
     sbom_id: str,
     format: str = Query("cyclonedx", description="Export format: cyclonedx or spdx"),
@@ -82,7 +83,7 @@ async def export_sbom(
         return generator.export_spdx(doc)
 
 
-@router.get("/scan/{scan_id}")
+@router.get("/scan/{scan_id}", dependencies=[Depends(require_scope("read"))])
 async def get_sboms_for_scan_endpoint(scan_id: str):
     """Get all SBOM documents linked to a specific scan."""
     docs = await get_sboms_for_scan(scan_id)

@@ -154,6 +154,46 @@ class FindingWithState(Finding):
     state: Optional[FindingState] = None
 
 
+class ApiKeyScope(str, Enum):
+    """Scopes attached to an issued API key.
+
+    Scopes are independent (no implicit hierarchy): a key with only
+    `write` cannot read. The `require_scope` dependency tests for set
+    intersection so a route that accepts `read` will also accept any
+    other scope listed alongside it on the route - the route author
+    controls the policy, not the scope enum.
+    """
+    READ = "read"
+    WRITE = "write"
+    ADMIN = "admin"
+
+
+class ApiKeyView(BaseModel):
+    """List / get response for an API key. Never includes the secret.
+
+    `prefix` is the first 16 chars of the full key (`ssk_<id>_<1ch>`),
+    safe to display in admin UIs so a user can recognise their own keys
+    without ever seeing the secret again after creation.
+    """
+    id: str
+    name: str
+    prefix: str
+    scopes: list[ApiKeyScope]
+    created_at: datetime
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+
+class ApiKeyCreated(ApiKeyView):
+    """Creation response. Includes the full plaintext key EXACTLY ONCE.
+
+    Subsequent GETs return ApiKeyView (no `key`). The DB only ever
+    stores the salted hash, so a lost key cannot be recovered - it
+    must be revoked and re-issued.
+    """
+    key: str
+
+
 class SBOMComponent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     sbom_id: str

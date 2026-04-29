@@ -7,9 +7,10 @@ import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
+from ..auth import require_scope
 from ..database import (
     delete_scan_cascade,
     get_findings,
@@ -287,7 +288,7 @@ async def _run_scan(scan_id: str) -> None:
         _RUNNING_SCAN_TASKS.pop(scan_id, None)
 
 
-@router.post("", response_model=Scan)
+@router.post("", response_model=Scan, dependencies=[Depends(require_scope("write"))])
 async def create_scan(request: ScanRequest):
     """Start a new scan."""
     try:
@@ -308,13 +309,13 @@ async def create_scan(request: ScanRequest):
     return scan
 
 
-@router.get("", response_model=list[Scan])
+@router.get("", response_model=list[Scan], dependencies=[Depends(require_scope("read"))])
 async def list_scans():
     """List all scans."""
     return await get_scans()
 
 
-@router.delete("/{scan_id}", status_code=204)
+@router.delete("/{scan_id}", status_code=204, dependencies=[Depends(require_scope("write"))])
 async def delete_scan(scan_id: str) -> Response:
     """Delete a scan, its findings, and any per-scan rows that reference it.
 
@@ -342,7 +343,7 @@ async def delete_scan(scan_id: str) -> Response:
     return Response(status_code=204)
 
 
-@router.post("/{scan_id}/cancel", response_model=Scan)
+@router.post("/{scan_id}/cancel", response_model=Scan, dependencies=[Depends(require_scope("write"))])
 async def cancel_scan(scan_id: str):
     """Cancel an active scan."""
     scan = await get_scan(scan_id)
@@ -367,7 +368,7 @@ async def cancel_scan(scan_id: str):
     return scan
 
 
-@router.get("/compare")
+@router.get("/compare", dependencies=[Depends(require_scope("read"))])
 async def compare_scans(
     scan_a: str = Query(..., description="Baseline scan ID"),
     scan_b: str = Query(..., description="Latest scan ID"),
@@ -411,7 +412,7 @@ async def compare_scans(
     }
 
 
-@router.get("/{scan_id}/report")
+@router.get("/{scan_id}/report", dependencies=[Depends(require_scope("read"))])
 async def generate_report(
     scan_id: str,
     format: str = Query("html", description="Report format: html or pdf"),
@@ -446,7 +447,7 @@ async def generate_report(
         return HTMLResponse(content=html)
 
 
-@router.get("/{scan_id}", response_model=Scan)
+@router.get("/{scan_id}", response_model=Scan, dependencies=[Depends(require_scope("read"))])
 async def read_scan(scan_id: str):
     """Get scan details."""
     scan = await get_scan(scan_id)
@@ -476,7 +477,7 @@ _STATUS_TO_TERMINAL_EVENT = {
 _SSE_KEEPALIVE_SECONDS = 15.0
 
 
-@router.get("/{scan_id}/events")
+@router.get("/{scan_id}/events", dependencies=[Depends(require_scope("read"))])
 async def stream_scan_events(scan_id: str) -> StreamingResponse:
     """Server-Sent Events stream of lifecycle events for a single scan.
 
@@ -540,7 +541,7 @@ async def stream_scan_events(scan_id: str) -> StreamingResponse:
     )
 
 
-@router.get("/{scan_id}/findings", response_model=list[FindingWithState])
+@router.get("/{scan_id}/findings", response_model=list[FindingWithState], dependencies=[Depends(require_scope("read"))])
 async def list_findings(
     scan_id: str,
     severity: Optional[str] = None,
@@ -564,7 +565,7 @@ async def list_findings(
     )
 
 
-@router.get("/{scan_id}/summary", response_model=ScanSummary)
+@router.get("/{scan_id}/summary", response_model=ScanSummary, dependencies=[Depends(require_scope("read"))])
 async def read_scan_summary(scan_id: str):
     """Get summary statistics for a scan."""
     summary = await get_scan_summary(scan_id)

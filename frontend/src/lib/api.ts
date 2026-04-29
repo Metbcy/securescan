@@ -543,3 +543,184 @@ export async function exportSBOM(sbomId: string, format: string = "cyclonedx"): 
   if (!res.ok) throw new Error("Failed to export SBOM");
   return res.json();
 }
+
+// --- API keys (admin) ---------------------------------------------------
+//
+// Endpoints (all behind require_scope("admin")):
+//   POST   /keys           {name, scopes}        → 201 ApiKeyCreated
+//   GET    /keys                                 → ApiKeyView[]
+//   GET    /keys/me                              → ApiKeyView (caller's own)
+//   DELETE /keys/{key_id}                        → 204
+//
+// While BE-AUTH-KEYS is in flight we mirror the v0.7.0 triage pattern: when
+// the backend responds 404 Not Found (router not yet mounted), the helpers
+// fall through to a browser-local mock store keyed by KEYS_LS_KEY. Once the
+// real endpoint ships, the live response wins and the mock is ignored. Any
+// other non-success status is surfaced as an error.
+
+export type ApiKeyScope = "read" | "write" | "admin";
+
+export interface ApiKeyView {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: ApiKeyScope[];
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface ApiKeyCreated extends ApiKeyView {
+  // FULL key — only returned on create. Treat as a one-shot secret.
+  key: string;
+}
+
+const KEYS_LS_KEY = "securescan.v0.8.api-keys";
+
+function mockKeysAvailable(): boolean {
+  return lsAvailable();
+}
+
+function readMockKeys(): ApiKeyView[] {
+  return lsReadJSON<ApiKeyView[]>(KEYS_LS_KEY) ?? [];
+}
+
+function writeMockKeys(keys: ApiKeyView[]): void {
+  lsWriteJSON(KEYS_LS_KEY, keys);
+}
+
+function randomPrefix(): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let body = "";
+  for (let i = 0; i < 10; i += 1) {
+    body += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  let tail = "";
+  for (let i = 0; i < 2; i += 1) {
+    tail += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `ssk_${body}_${tail}`;
+}
+
+function randomKeyId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `k_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function randomKeyBody(): string {
+  // ~32 chars of entropy after the prefix to look like a real secret in the
+  // mock-only flow; the real backend returns a server-generated value.
+  const alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < 32; i += 1) {
+    out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return out;
+}
+
+export async function listApiKeys(): Promise<ApiKeyView[]> {
+  const res = await apiFetch(`${API_BASE}/keys`, { cache: "no-store" });
+  if (res.ok) return (await res.json()) as ApiKeyView[];
+  if (res.status === 404 && mockKeysAvailable()) return readMockKeys();
+  throw new Error(`Failed to load API keys (${res.status})`);
+}
+
+export async function createApiKey(body: {
+  name: string;
+  scopes: ApiKeyScope[];
+}): Promise<ApiKeyCreated> {
+  const res = await apiFetch(`${API_BASE}/keys`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return (await res.json()) as ApiKeyCreated;
+  if (res.status === 404 && mockKeysAvailable()) {
+    const prefix = randomPrefix();
+    const created: ApiKeyCreated = {
+      id: randomKeyId(),
+      name: body.name,
+      prefix,
+      scopes: body.scopes,
+      created_at: new Date().toISOString(),
+      last_used_at: null,
+      revoked_at: null,
+      key: `${prefix}.${randomKeyBody()}`,
+    };
+    const list = readMockKeys();
+    // Persist only the view; the full key is one-shot and never stored.
+    const view: ApiKeyView = {
+      id: created.id,
+      name: created.name,
+      prefix: created.prefix,
+      scopes: created.scopes,
+      created_at: created.created_at,
+      last_used_at: created.last_used_at,
+      revoked_at: created.revoked_at,
+    };
+    list.unshift(view);
+    writeMockKeys(list);
+    return created;
+  }
+  if (res.status === 400 || res.status === 422) {
+    let detail = "Invalid key request.";
+    try {
+      const data = (await res.json()) as { detail?: string };
+      if (data?.detail) detail = data.detail;
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+  throw new Error(`Failed to create API key (${res.status})`);
+}
+
+export async function getApiKeyMe(): Promise<ApiKeyView | null> {
+  let res: Response;
+  try {
+    res = await apiFetch(`${API_BASE}/keys/me`, { cache: "no-store" });
+  } catch {
+    return null;
+  }
+  if (res.ok) return (await res.json()) as ApiKeyView;
+  if (res.status === 404 || res.status === 401 || res.status === 403) return null;
+  throw new Error(`Failed to load current API key (${res.status})`);
+}
+
+export async function revokeApiKey(keyId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/keys/${encodeURIComponent(keyId)}`, {
+    method: "DELETE",
+  });
+  if (res.ok || res.status === 204) return;
+  if (res.status === 404 && mockKeysAvailable()) {
+    const list = readMockKeys();
+    const idx = list.findIndex((k) => k.id === keyId);
+    if (idx === -1) throw new Error("Key not found.");
+    if (list[idx].revoked_at) return;
+    // Guard the mock against revoking the last admin key, mirroring the
+    // backend's 409 contract so the UI message is exercisable.
+    const isAdmin = list[idx].scopes.includes("admin");
+    if (isAdmin) {
+      const otherActiveAdmins = list.filter(
+        (k, i) => i !== idx && !k.revoked_at && k.scopes.includes("admin"),
+      );
+      if (otherActiveAdmins.length === 0) {
+        throw new Error(
+          "Cannot revoke the last admin key while AUTH_REQUIRED is set.",
+        );
+      }
+    }
+    list[idx] = { ...list[idx], revoked_at: new Date().toISOString() };
+    writeMockKeys(list);
+    return;
+  }
+  if (res.status === 409) {
+    throw new Error(
+      "Cannot revoke the last admin key while AUTH_REQUIRED is set.",
+    );
+  }
+  if (res.status === 404) throw new Error("Key not found.");
+  throw new Error(`Failed to revoke API key (${res.status})`);
+}

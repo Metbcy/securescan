@@ -1,8 +1,9 @@
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
+from ..auth import require_scope
 from ..database import get_scans, get_findings
 from ..scanners import ALL_SCANNERS
 
@@ -26,7 +27,7 @@ SKIP_DIRS = {"node_modules", "venv", "__pycache__", ".next", "dist", "build"}
 MAX_ENTRIES = 100
 
 
-@browse_router.get("/browse")
+@browse_router.get("/browse", dependencies=[Depends(require_scope("read"))])
 async def browse_directory(path: str | None = Query(default=None)):
     """List directory entries for the directory picker UI."""
     target = Path(path) if path else Path.home()
@@ -97,7 +98,7 @@ INSTALLABLE_SCANNERS = {
 }
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_scope("read"))])
 async def scanner_status():
     """Return availability status for all registered scanners."""
     statuses = []
@@ -117,7 +118,7 @@ async def scanner_status():
     return {"scanners": statuses}
 
 
-@router.post("/install/{scanner_name}")
+@router.post("/install/{scanner_name}", dependencies=[Depends(require_scope("admin"))])
 async def install_scanner(scanner_name: str):
     """Install a scanner via pip or a custom script."""
     if scanner_name not in INSTALLABLE_SCANNERS:
@@ -160,7 +161,7 @@ async def install_scanner(scanner_name: str):
         return {"success": False, "message": f"Error installing {scanner_name}: {str(e)}"}
 
 
-@router.get("/stats")
+@router.get("/stats", dependencies=[Depends(require_scope("read"))])
 async def aggregate_stats():
     """Return aggregate statistics across all scans."""
     scans = await get_scans()
@@ -180,7 +181,7 @@ async def aggregate_stats():
     }
 
 
-@router.get("/trends")
+@router.get("/trends", dependencies=[Depends(require_scope("read"))])
 async def trends(days: int = Query(30, ge=1, le=365)):
     """Return time-series trend data from scan history."""
     scans = await get_scans()

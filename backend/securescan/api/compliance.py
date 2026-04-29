@@ -1,8 +1,9 @@
 """Compliance framework API endpoints."""
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..auth import require_scope
 from ..compliance import ComplianceMapper
 from ..config import settings
 from ..database import get_findings, get_scan
@@ -17,14 +18,14 @@ def _get_mapper() -> ComplianceMapper:
     return ComplianceMapper(data_dir)
 
 
-@router.get("/frameworks")
+@router.get("/frameworks", dependencies=[Depends(require_scope("read"))])
 async def list_frameworks():
     """List available compliance frameworks and their control counts."""
     mapper = _get_mapper()
     return {"frameworks": mapper.list_frameworks()}
 
 
-@router.get("/coverage")
+@router.get("/coverage", dependencies=[Depends(require_scope("read"))])
 async def compliance_coverage(scan_id: str = Query(..., description="Scan ID")):
     """Get per-framework compliance coverage for a scan."""
     scan = await get_scan(scan_id)

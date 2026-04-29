@@ -15,9 +15,15 @@ from .api.dashboard import router as dashboard_router, browse_router
 from .api.compliance import router as compliance_router
 from .api.sbom import router as sbom_router
 from .api.triage import router as triage_router
+from .api.keys import router as keys_router
 from .api.versioning import alias_router_at_v1
-from .auth import is_dev_mode, require_api_key
-from .database import init_db
+from .auth import (
+    assert_auth_credentials_configured,
+    get_configured_key,
+    is_dev_mode,
+    require_api_key,
+)
+from .database import count_admin_keys_active, init_db
 from .middleware.rate_limit import RateLimitMiddleware
 
 _auth = [Depends(require_api_key)]
@@ -36,6 +42,7 @@ for _r in (
     compliance_router,
     sbom_router,
     triage_router,
+    keys_router,
 ):
     app.include_router(_r, dependencies=_auth)
     # Parallel /api/v1/* mount — the preferred path going forward. Same
@@ -53,6 +60,13 @@ if is_dev_mode():
 @app.on_event("startup")
 async def startup():
     await init_db()
+    # Safety check (BE-AUTH-KEYS): if AUTH_REQUIRED=1 but no creds
+    # exist, kill the process with exit 2 instead of booting an
+    # unreachable API. Idempotent across reloads -- once the operator
+    # creates a key (or sets the env var) the next start succeeds.
+    env_key = get_configured_key()
+    admin_db_count = await count_admin_keys_active()
+    assert_auth_credentials_configured(env_key, admin_db_count)
 
 
 @app.get("/ready", tags=["health"])

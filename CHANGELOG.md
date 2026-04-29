@@ -9,6 +9,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.8.0] - 2026-04-29
+
+A production-readiness release: API authentication is no longer a
+single shared env-var key. Operators can now issue, scope, and revoke
+**hashed API keys** through the dashboard or the API, and the
+existing endpoints are gated behind explicit read / write / admin
+scopes. The legacy `SECURESCAN_API_KEY` env var still works as a
+break-glass / dev-mode fallback.
+
+### Added
+
+- **DB-backed API keys with scopes.** New `api_keys` table stores
+  salted-sha256 hashes — plaintext keys are returned exactly once at
+  creation. Key format: `ssk_<10-char id>_<32-char secret>` (~250
+  bits of entropy). Three scopes: `read`, `write`, `admin`. Default
+  new-key scopes are `["read", "write"]`; `admin` must be explicitly
+  granted.
+  - `POST /api/v1/keys` (admin) — `{name, scopes}` → 201
+    `ApiKeyCreated` (the only response that includes the full secret)
+  - `GET /api/v1/keys` (admin) → `ApiKeyView[]` (no secret)
+  - `GET /api/v1/keys/me` (any authenticated DB key) → caller's own
+    key info
+  - `DELETE /api/v1/keys/{id}` (admin) → 204; 409 if revoking the
+    target would leave the system with zero admin credentials and
+    `SECURESCAN_AUTH_REQUIRED=1` is set (lockout protection)
+- **Per-route scope enforcement.** Every `/api/*` route now declares
+  a required scope via `Depends(require_scope(...))`. A new
+  regression-guard test (`test_all_routes_have_explicit_scope`)
+  enumerates `app.routes` and fails if any non-public route is
+  missing a scope — preventing future scope-coverage holes.
+- **`SECURESCAN_AUTH_REQUIRED=1` startup safety.** When set with no
+  configured credentials, the backend logs CRITICAL and exits with
+  code 2. Catches misconfigured deploys before they accept their
+  first request unauthenticated.
+- **Lockout protection.** Revoking the last admin DB key when
+  `AUTH_REQUIRED=1` and no env-var key is set returns 409 with a
+  human-readable message. Operators can still delete admin keys
+  freely when an env-var fallback exists.
+- **`/settings/keys` dashboard page.** Lists keys (name, prefix,
+  scopes, created, last used, status), with a "New key" modal that
+  enforces the one-shot secret reveal contract: the close button
+  is disabled for 1 second after the secret appears, and an Esc /
+  outside-click triggers a "discard without saving the key?" confirm
+  dialog. Sidebar now has a Settings group.
+
+### Changed
+
+- `auth.py` was rewritten to support both the legacy env-var path
+  and DB keys. **Bug fix:** an explicit-but-bogus key now always
+  fails with 401 — even when no DB keys remain unrevoked. The
+  previous logic would fall back to dev mode in that scenario,
+  letting a revoked key keep working until at least one other key
+  was created. Caught during integration; regression test in
+  `test_revoked_db_key_rejected_when_no_env_var`.
+- The `Principal` resolved by `require_api_key` is stashed on
+  `request.state.principal`, so per-route scope checks don't
+  re-trigger DB writes (`last_used_at` touch).
+
+### Tests
+
+- 738 → 790 (+52): 30 for the keys API + auth flow, 11 for scopes
+  including the route-coverage regression guard, plus the revoked-
+  key-no-env-var fix and a rate-limit test update.
+
+### Backward compatibility
+
+- `SECURESCAN_API_KEY` env var still works exactly as before; treated
+  as a synthetic principal with all scopes.
+- Dev mode (no env, no DB keys) is unchanged: every request passes
+  through and scope checks fail-open.
+
 ## [0.7.0] - 2026-04-29
 
 A workflow + observability release: the dashboard now lets you
@@ -519,7 +590,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Metbcy/securescan/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Metbcy/securescan/releases/tag/v0.7.0
 [0.6.1]: https://github.com/Metbcy/securescan/releases/tag/v0.6.1
 [0.6.0]: https://github.com/Metbcy/securescan/releases/tag/v0.6.0

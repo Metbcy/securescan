@@ -163,6 +163,28 @@ async def init_db() -> None:
             )
         """)
 
+        # Hashed API keys with scopes (BE-AUTH-KEYS).
+        # `key_hash` is "<salt-hex>$<sha256-hex>"; `prefix` is the
+        # display-safe first 16 chars of the full key. `scopes` is a JSON
+        # array of strings (e.g. '["read","admin"]'). `revoked_at` NULL
+        # means active; the index makes the auth-path "any active key?"
+        # check O(log n).
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                prefix TEXT NOT NULL,
+                scopes TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                revoked_at TEXT
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)"
+        )
+
         await db.commit()
     finally:
         await db.close()
@@ -665,5 +687,164 @@ async def get_sboms_for_scan(scan_id: str) -> list[SBOMDocument]:
                 created_at=datetime.fromisoformat(doc_row["created_at"]),
             ))
         return results
+    finally:
+        await db.close()
+
+
+# --- Hashed API keys (BE-AUTH-KEYS) --------------------------------------
+#
+# Keyed on a 10-char base64url id; the full plaintext key is never stored
+# (only the salted SHA-256 hash via `api_keys._hash_key`). All callers
+# must funnel through these functions so the `scopes` JSON encoding and
+# `revoked_at` semantics stay in one place.
+#
+# `OperationalError` fallbacks on the read paths let dev-mode tests (and
+# the auth path on a freshly-cloned repo) survive the brief window
+# between process start and `init_db()` when the table doesn't exist
+# yet -- treating the DB as "no keys" is the right default there.
+
+
+async def insert_api_key(
+    id: str,
+    name: str,
+    key_hash: str,
+    prefix: str,
+    scopes: list[str],
+    created_at: datetime,
+) -> None:
+    """Insert a new api_keys row. Raises ``aiosqlite.IntegrityError`` on
+    primary-key collision so the caller can retry with a fresh id."""
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO api_keys
+               (id, name, key_hash, prefix, scopes, created_at,
+                last_used_at, revoked_at)
+               VALUES (?, ?, ?, ?, ?, ?, NULL, NULL)""",
+            (id, name, key_hash, prefix, json.dumps(scopes), created_at.isoformat()),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_api_key_by_id(id: str) -> Optional[dict]:
+    """Return the row dict for ``id`` or None when not found."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM api_keys WHERE id = ?", (id,))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+    except aiosqlite.OperationalError:
+        return None
+    finally:
+        await db.close()
+
+
+async def list_api_keys(include_revoked: bool = True) -> list[dict]:
+    """Return all api_keys rows ordered newest-first.
+
+    `include_revoked=False` is provided for admin UIs that want to hide
+    historical entries. The default (True) preserves the audit trail
+    so a UI can show "revoked on ..." badges.
+    """
+    db = await _get_db()
+    try:
+        if include_revoked:
+            cursor = await db.execute(
+                "SELECT * FROM api_keys ORDER BY created_at DESC"
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM api_keys WHERE revoked_at IS NULL "
+                "ORDER BY created_at DESC"
+            )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    except aiosqlite.OperationalError:
+        return []
+    finally:
+        await db.close()
+
+
+async def revoke_api_key(id: str) -> bool:
+    """Set `revoked_at` on the row. Returns True iff a row was modified
+    (so a second call on the same id returns False - the API layer
+    treats that as idempotent and replies 204)."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE api_keys SET revoked_at = ? "
+            "WHERE id = ? AND revoked_at IS NULL",
+            (datetime.utcnow().isoformat(), id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def touch_api_key_last_used(id: str, when: datetime) -> None:
+    """Update `last_used_at` on a successful auth.
+
+    Called from the auth hot path on every authenticated request, so
+    keep it cheap: a single indexed UPDATE on the primary key.
+    """
+    db = await _get_db()
+    try:
+        await db.execute(
+            "UPDATE api_keys SET last_used_at = ? WHERE id = ?",
+            (when.isoformat(), id),
+        )
+        await db.commit()
+    except aiosqlite.OperationalError:
+        # Table missing - treat as no-op so a misconfigured environment
+        # doesn't surface as a 500 to the caller.
+        return
+    finally:
+        await db.close()
+
+
+async def count_admin_keys_active() -> int:
+    """Count unrevoked rows whose scopes JSON contains "admin".
+
+    LIKE '%"admin"%' is safe here because scope tokens are validated
+    against `ApiKeyScope` before persistence, so the literal string
+    `"admin"` (with quotes) cannot occur as a substring of any other
+    scope. Used for both startup safety and lockout protection on
+    DELETE.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM api_keys "
+            "WHERE revoked_at IS NULL AND scopes LIKE '%\"admin\"%'"
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+    except aiosqlite.OperationalError:
+        return 0
+    finally:
+        await db.close()
+
+
+async def has_unrevoked_api_key() -> bool:
+    """Return True if at least one non-revoked api_keys row exists.
+
+    Called on every authenticated request to decide whether DB-keyed
+    auth is in play. Indexed via `idx_api_keys_revoked` so even a busy
+    deployment with thousands of historical keys answers in O(log n).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT 1 FROM api_keys WHERE revoked_at IS NULL LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        return row is not None
+    except aiosqlite.OperationalError:
+        return False
     finally:
         await db.close()

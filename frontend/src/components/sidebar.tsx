@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   GitCompare,
   History,
+  KeyRound,
   LayoutDashboard,
   Menu,
   Package,
@@ -17,10 +18,19 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const APP_VERSION = "0.7.0";
+const APP_VERSION = "0.8.0";
 const RECENTS_STORAGE_KEY = "securescan:recent-scans";
 
-const navItems = [
+type NavGroup = "main" | "settings";
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  group?: NavGroup;
+}
+
+const navItems: NavItem[] = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "New Scan", href: "/scan", icon: ScanSearch },
   { label: "Compare", href: "/compare", icon: ArrowLeftRight },
@@ -28,6 +38,7 @@ const navItems = [
   { label: "History", href: "/history", icon: History },
   { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Scanners", href: "/scanners", icon: Settings },
+  { label: "API keys", href: "/settings/keys", icon: KeyRound, group: "settings" },
 ];
 
 interface RecentScan {
@@ -149,10 +160,24 @@ export function Sidebar() {
         {/* Nav */}
         <nav className="flex-1 px-3 md:px-2 lg:px-3 py-4 overflow-y-auto">
           <ul className="space-y-0.5">
-            {navItems.map((item) => {
+            {navItems.map((item, idx) => {
               const active = isActive(item.href);
+              const prev = idx > 0 ? navItems[idx - 1] : null;
+              const startsSettings =
+                item.group === "settings" && prev?.group !== "settings";
               return (
                 <li key={item.href}>
+                  {startsSettings && (
+                    <>
+                      <div
+                        aria-hidden
+                        className="mt-4 mb-2 border-t border-border md:mx-1 lg:mx-0"
+                      />
+                      <p className="px-3 mb-1.5 text-[0.6875rem] uppercase tracking-wider text-muted md:hidden lg:block">
+                        Settings
+                      </p>
+                    </>
+                  )}
                   <Link
                     href={item.href}
                     onClick={() => setOpen(false)}
