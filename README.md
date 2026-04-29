@@ -121,6 +121,123 @@ classification step does the diff without re-checking-out the tree.
 In CI, AI enrichment is auto-disabled when the `CI=true` environment
 variable is set; pass `--ai` to force it on or `--no-ai` to be explicit.
 
+## Configuration
+
+SecureScan reads `.securescan.yml` from the project root (it walks up
+from `securescan diff`'s target directory until it finds one or hits a
+`.git/` boundary). The config is fully optional; without it, v0.2.0
+behavior is preserved.
+
+```yaml
+# .securescan.yml — full schema reference. Every key is optional.
+
+# Default scan types when --type is not passed on the CLI.
+scan_types:
+  - code
+  - dependency
+
+# Per-rule severity overrides. Keys are scanner rule IDs as they appear
+# in `rule_id` on the JSON output. Useful when a rule fires too high or
+# too low for your codebase. The original severity is preserved on
+# `metadata.original_severity` so the audit trail is intact.
+severity_overrides:
+  python.lang.security.audit.dangerous-system-call: medium
+  python.lang.security.audit.eval-detected: low
+
+# Globally ignored rules. Findings with these rule_ids are filtered out
+# of CI output (PR comments, SARIF) but still visible locally with
+# --show-suppressed.
+ignored_rules:
+  - python.lang.security.audit.dynamic-django-attribute
+  - B106  # bandit: hardcoded password (we use a vault)
+
+# Custom Semgrep rule packs. Paths are relative to this config file's
+# directory. When non-empty, replaces `semgrep --config auto`.
+semgrep_rules:
+  - .securescan/rules/secrets.yml
+  - .securescan/rules/unsafe-deserialization.yml
+
+# Default fail-on-severity threshold (overridden by CLI --fail-on-severity).
+fail_on_severity: high
+
+# AI enrichment. true forces on, false forces off; omitted lets CLI / CI
+# default decide (off in CI, on locally).
+ai: false
+```
+
+Validate the file with `securescan config validate` to catch typos and
+missing rule-pack paths before they bite at scan time.
+
+## Suppressing findings
+
+When a finding is wrong for your codebase — a known false positive, a
+deliberate use of a flagged pattern, an issue you've accepted — there
+are three ways to suppress it. Precedence is **inline > config > baseline**.
+
+### 1. Inline ignore comments (closest to the code)
+
+Add a comment on the line a finding fires for, or the line above:
+
+```python
+data = eval(payload)  # securescan: ignore python.lang.security.audit.eval-detected
+
+# securescan: ignore-next-line python.lang.security.audit.eval-detected
+result = eval(other_payload)
+```
+
+Recognized comment styles: `#`, `//`, `--`. Multiple rule IDs are
+comma-separated. `*` is a wildcard.
+
+### 2. Config-driven `ignored_rules` (repo-wide)
+
+`.securescan.yml`:
+
+```yaml
+ignored_rules:
+  - python.lang.security.audit.eval-detected
+```
+
+### 3. Baseline (legacy findings)
+
+When you adopt SecureScan on an existing codebase, run
+`securescan baseline` once to checkpoint everything that's there now.
+Subsequent scans pass `--baseline .securescan/baseline.json` (or set
+the path in CI); only NEW findings appear in PR comments.
+
+```bash
+securescan baseline > /dev/null   # writes to .securescan/baseline.json
+securescan diff . --base-ref main --head-ref HEAD --baseline .securescan/baseline.json
+```
+
+Refresh the baseline whenever findings get fixed (so they show up in
+`securescan compare` as drift):
+
+```bash
+securescan baseline   # overwrites .securescan/baseline.json
+securescan compare .securescan/baseline.json   # what disappeared since the last baseline?
+```
+
+### Audit: what was suppressed?
+
+By default, suppressed findings are hidden from CI output. Locally,
+`securescan diff` (and `scan` and `compare`) on a TTY show them with a
+`[SUPPRESSED:<reason>]` prefix so you can see what's hidden during
+review. Force visibility everywhere with `--show-suppressed`. Disable
+suppression entirely (kill switch) with `--no-suppress`.
+
+## Subcommands
+
+| Command | What it does |
+|---|---|
+| `securescan scan <path>` | Full scan of a directory. Outputs findings in any format. |
+| `securescan diff <path> --base-ref <sha> --head-ref <sha>` | Diff-aware scan: only NEW findings introduced since the base ref. |
+| `securescan compare <path> <baseline.json>` | Compare current scan against a saved baseline; report drift (what disappeared). |
+| `securescan baseline [-o <path>]` | Write a canonical baseline JSON of current findings (deterministic; checkable into git). |
+| `securescan config validate [<path>]` | Lint `.securescan.yml` for typos, bad severities, missing rule-pack paths. |
+| `securescan history` | List past saved scans. |
+| `securescan status` | List which scanners are installed and reachable. |
+| `securescan serve` | Run the FastAPI dashboard backend. |
+
 ## Output formats
 
 | Format | Use case |
