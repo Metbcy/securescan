@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.4.0] - YYYY-MM-DD
+
+<!-- IR9 finalizes the date and version bump. -->
+
+This release adds **inline PR review comments**: when `pr-mode: inline`
+is set on the `Metbcy/securescan@v1` Action, each finding becomes a
+GitHub review comment anchored to the affected line — letting
+reviewers resolve findings individually instead of treating the
+summary block as a single yes/no toggle.
+
+### Added
+
+- `pr-mode: inline | summary | both` action input. Default `summary`
+  preserves v0.2.0/v0.3.0 behavior; `inline` switches to GitHub Reviews
+  API; `both` posts both surfaces.
+- `review-event: COMMENT | REQUEST_CHANGES | APPROVE` action input.
+  Default `COMMENT` so the action does not silently block merges via
+  branch protection.
+- `inline-suggestions: true | false` action input. When true (default),
+  inline comments include suggestion blocks for mechanical fixes
+  (e.g., `# securescan: ignore RULE-ID` one-click commit).
+- `securescan diff --output github-review` and
+  `securescan compare --output github-review` CLI flags. Emit the
+  GitHub Reviews API JSON payload (commit_id, event, body, comments).
+  Useful both for the action's `post-review.sh` and for local
+  inspection.
+- `--repo`, `--sha`, `--base-sha`, `--review-event`, `--no-suggestions`
+  CLI flags on `diff` and `compare` for the github-review output path.
+  All `GITHUB_*` env vars are honored as fallbacks.
+- `<!-- securescan:fp:<12-char-prefix> -->` fingerprint marker
+  embedded in each inline comment body so re-runs can PATCH existing
+  comments by fingerprint instead of posting duplicates.
+- `<!-- securescan:diff-review -->` and
+  `<!-- securescan:compare-review -->` body markers on the review's
+  overall body, distinct from the existing `securescan:diff` /
+  `securescan:compare` markers used by `pr-mode: summary`.
+- Suggestion blocks for two mechanical fixes:
+  - **Inline ignore**: a `\`\`\`suggestion` block adding the
+    `# securescan: ignore RULE-ID` comment one line above the finding
+    (one-click commit).
+  - **Severity pin**: a YAML reference for `.securescan.yml`'s
+    `severity_overrides:` map (copy-paste only — the file lives outside
+    the comment's anchor scope).
+- Resolved-finding marking: when a finding disappears from a re-run,
+  its inline comment is PATCHed to prepend
+  `**Resolved in <commit-sha-prefix>** — finding no longer present`
+  with the original body strikethrough'd. Manual reviewer resolution
+  is preserved (we do NOT call GraphQL `resolveReviewThread`).
+
+### Changed
+
+- `securescan` CLI requires `--repo`, `--sha`, and `--base-sha` (or the
+  `GITHUB_REPOSITORY` / `GITHUB_SHA` env fallbacks) when
+  `--output github-review` is selected. Other output formats are
+  unchanged.
+- The action's `entrypoint.sh` dispatches to the appropriate poster
+  based on `pr-mode`. Backward-compatible: omitting the input behaves
+  exactly as v0.3.0.
+
+### Documentation
+
+- README "Inline PR review comments" section with action snippet,
+  permissions, local-dev workflow, and a comparison table against
+  the existing `pr-mode: summary`.
+- `examples/github-action.yml` shows both default and inline variants.
+
 ## [0.3.0] - 2026-04-28
 
 <!-- TS12 finalizes the date and version bump. -->
@@ -167,7 +233,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Metbcy/securescan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Metbcy/securescan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Metbcy/securescan/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Metbcy/securescan/releases/tag/v0.1.0

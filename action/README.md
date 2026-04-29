@@ -78,7 +78,12 @@ them around longer than the run.
 
 `pr-mode` selects where SecureScan posts the diff. The default `summary`
 preserves v0.2.0/v0.3.0 single-comment behaviour for every existing
-caller; opt into the new modes by setting the input explicitly.
+caller; opt into the new modes by setting the input explicitly. See the
+root README's
+[Inline PR review comments](../README.md#inline-pr-review-comments)
+section for the user-facing walkthrough (what reviewers see, how
+suggestion blocks render, how re-runs upsert) — this section is the
+action-specific reference.
 
 - **`summary`** (default) -- one PR comment summarising every new
   finding, upserted on each push via the `<!-- securescan:diff -->`

@@ -41,3 +41,14 @@ jobs:
           # baseline: .securescan/baseline.json    # optional: suppress legacy findings
           # comment-on-pr: true                    # default
           # upload-sarif: true                     # default
+
+# Optional: inline review comments instead of (or alongside) a single
+# summary PR comment. See: https://github.com/Metbcy/securescan#inline-pr-review-comments
+#
+# Replace the `with:` block above (or add a separate workflow file) with:
+#
+# - uses: Metbcy/securescan@v1
+#   with:
+#     pr-mode: inline
+#     review-event: COMMENT
+#     inline-suggestions: true
