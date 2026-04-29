@@ -225,6 +225,65 @@ By default, suppressed findings are hidden from CI output. Locally,
 review. Force visibility everywhere with `--show-suppressed`. Disable
 suppression entirely (kill switch) with `--no-suppress`.
 
+## Inline PR review comments
+
+When `pr-mode: inline` is set on the `Metbcy/securescan@v1` action, SecureScan posts findings as a single GitHub Review with one inline comment anchored on each affected line — instead of a single summary comment in the PR thread.
+
+Reviewers can resolve each finding individually; replies preserve threads across re-runs because each comment is keyed by a stable per-finding fingerprint.
+
+```yaml
+# .github/workflows/security.yml
+- uses: Metbcy/securescan@v1
+  with:
+    pr-mode: inline           # was: summary (default; backward-compatible)
+    review-event: COMMENT     # COMMENT | REQUEST_CHANGES | APPROVE
+    inline-suggestions: true  # one-click `# securescan: ignore RULE` suggestion
+```
+
+### How it works
+
+1. **Diff resolution**: SecureScan reads `git diff <base>..<head>` to compute each finding's *position* — GitHub's offset-into-the-PR-diff coordinate, not the source line number.
+2. **Findings outside the diff fall back to the review body** so they're not silently dropped.
+3. **Suggestion blocks** (when `inline-suggestions: true`):
+   - For findings the reviewer can suppress, SecureScan offers a one-click `\`\`\`suggestion` block adding `# securescan: ignore <rule_id>` above the line.
+   - For findings whose severity is wrong for this codebase, SecureScan shows a copy-paste `severity_overrides:` snippet for `.securescan.yml`.
+4. **Idempotent re-runs**: each comment carries a hidden `<!-- securescan:fp:<prefix> -->` marker. On re-runs, SecureScan PATCHes existing comments instead of posting duplicates — reviewer reply threads survive.
+5. **Resolved findings are marked**, not deleted: when a finding disappears from a re-run, its comment is patched to `**Resolved in <sha7>** — ...` with the original body strikethrough'd. Manual resolution by the reviewer is honored (we don't auto-resolve threads).
+
+### Local development
+
+To inspect what would be posted without running CI:
+
+```bash
+securescan diff . --base-ref main --head-ref HEAD \
+  --output github-review --repo Metbcy/securescan \
+  --output-file review.json
+cat review.json | jq .
+```
+
+The CLI requires `--repo`, `--sha`, and `--base-sha` (auto-resolved from `--base-ref`/`--head-ref` in a git working tree). It does NOT post to GitHub on its own — that's the Action's job.
+
+### Permissions
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write   # covers BOTH summary comment AND inline review submission
+  security-events: write # for SARIF upload (unrelated; only if you also enable SARIF)
+```
+
+### Compared to `pr-mode: summary`
+
+| | summary (default) | inline | both |
+|---|---|---|---|
+| Comment count | 1 (upserted) | 1 review with N inline comments | summary + inline |
+| Reviewer can resolve per-finding | No | Yes | Yes (inline) |
+| Findings on touched code only | All | Only lines in PR's diff | summary covers all |
+| Findings outside touched code | In the comment | Review body fallback | covered both ways |
+| Suggestion blocks | No | Yes (when enabled) | Yes (inline only) |
+
+`summary` remains the v0.2.0/v0.3.0 default. `inline` is opt-in. `both` works for teams that want a summary on the conversation tab AND inline anchors on the files-changed tab.
+
 ## Subcommands
 
 | Command | What it does |
