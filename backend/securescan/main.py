@@ -10,8 +10,14 @@ from .api.sbom import router as sbom_router
 from .api.versioning import alias_router_at_v1
 from .auth import is_dev_mode, require_api_key
 from .database import init_db
+from .middleware.rate_limit import RateLimitMiddleware
 
 _auth = [Depends(require_api_key)]
+
+# Rate limit first in the chain (added last so starlette's LIFO order
+# runs it before the deprecation-header middleware mounted in api).
+if not any(mw.cls is RateLimitMiddleware for mw in app.user_middleware):
+    app.add_middleware(RateLimitMiddleware)
 
 # Legacy /api/* mount — kept indefinitely for v0.5.0 CLIs and Actions.
 # Responses on these paths get a Deprecation header (see api.versioning).

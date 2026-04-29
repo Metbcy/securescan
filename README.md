@@ -364,6 +364,39 @@ deployments should sit behind a TLS-terminating proxy (nginx,
 Traefik, AWS ALB, Caddy, etc.) and forward `X-Request-ID` headers
 through so client correlation works end-to-end.
 
+### 5. Rate limiting
+
+`POST /api/scans` (and the forward-compatible `POST /api/v1/scans`
+mount) is rate-limited with an in-memory token bucket so a single
+client can't flood the orchestrator with expensive scan jobs. Read
+endpoints (list scans, get findings, dashboard, sbom) are not
+rate-limited — they are cheap and benefit from being responsive
+during incident triage.
+
+Defaults: **60 requests / minute** with a **burst of 10**, per API
+key (or per client IP when `SECURESCAN_API_KEY` is unset). Override
+with environment variables:
+
+```bash
+export SECURESCAN_RATE_LIMIT_PER_MIN=60     # sustained rate
+export SECURESCAN_RATE_LIMIT_BURST=10       # burst capacity
+export SECURESCAN_RATE_LIMIT_ENABLED=true   # set to false to disable
+```
+
+Every rate-limited response carries `X-RateLimit-Limit`,
+`X-RateLimit-Remaining`, and `X-RateLimit-Reset` (unix-ts) so
+clients can back off cleanly. When the bucket is empty the server
+returns HTTP `429` with a `Retry-After` header and a structured
+JSON body:
+
+```json
+{ "detail": "Rate limit exceeded", "retry_after": 7, "limit_per_min": 60 }
+```
+
+The bucket store is bounded (max 10K live keys, 1h idle TTL with
+LRU eviction) so a key-rotation or DoS pattern can't grow memory
+without limit.
+
 ## Subcommands
 
 | Command | What it does |
