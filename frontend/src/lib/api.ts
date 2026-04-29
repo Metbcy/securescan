@@ -1,5 +1,18 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const API_KEY = process.env.NEXT_PUBLIC_SECURESCAN_API_KEY;
+
+function withApiKey(init: RequestInit = {}): RequestInit {
+  if (!API_KEY) return init;
+  const headers = new Headers(init.headers ?? {});
+  if (!headers.has("X-API-Key")) headers.set("X-API-Key", API_KEY);
+  return { ...init, headers };
+}
+
+export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, withApiKey(init));
+}
+
 export interface Finding {
   id: string;
   scan_id: string;
@@ -62,19 +75,19 @@ export interface ScannerStatus {
 }
 
 export async function installScanner(name: string): Promise<{ success: boolean; message: string }> {
-  const res = await fetch(`${API_BASE}/api/dashboard/install/${name}`, { method: "POST" });
+  const res = await apiFetch(`${API_BASE}/api/dashboard/install/${name}`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to install scanner");
   return res.json();
 }
 
 export async function fetchScans(): Promise<Scan[]> {
-  const res = await fetch(`${API_BASE}/api/scans`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/scans`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch scans");
   return res.json();
 }
 
 export async function fetchScan(id: string): Promise<Scan> {
-  const res = await fetch(`${API_BASE}/api/scans/${id}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/scans/${id}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch scan");
   return res.json();
 }
@@ -82,25 +95,25 @@ export async function fetchScan(id: string): Promise<Scan> {
 export async function fetchFindings(scanId: string, severity?: string): Promise<Finding[]> {
   const params = new URLSearchParams();
   if (severity) params.set("severity", severity);
-  const res = await fetch(`${API_BASE}/api/scans/${scanId}/findings?${params}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/scans/${scanId}/findings?${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch findings");
   return res.json();
 }
 
 export async function fetchScanSummary(scanId: string): Promise<ScanSummary> {
-  const res = await fetch(`${API_BASE}/api/scans/${scanId}/summary`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/scans/${scanId}/summary`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch summary");
   return res.json();
 }
 
 export async function fetchDashboardStats(): Promise<DashboardStats> {
-  const res = await fetch(`${API_BASE}/api/dashboard/stats`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/dashboard/stats`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch stats");
   return res.json();
 }
 
 export async function fetchScannerStatus(): Promise<ScannerStatus[]> {
-  const res = await fetch(`${API_BASE}/api/dashboard/status`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/dashboard/status`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch status");
   const data = await res.json();
   return data.scanners ?? data;
@@ -112,7 +125,7 @@ export async function startScan(
   targetUrl?: string,
   targetHost?: string,
 ): Promise<Scan> {
-  const res = await fetch(`${API_BASE}/api/scans`, {
+  const res = await apiFetch(`${API_BASE}/api/scans`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -127,7 +140,7 @@ export async function startScan(
 }
 
 export async function cancelScan(scanId: string): Promise<Scan> {
-  const res = await fetch(`${API_BASE}/api/scans/${scanId}/cancel`, { method: "POST" });
+  const res = await apiFetch(`${API_BASE}/api/scans/${scanId}/cancel`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to cancel scan");
   return res.json();
 }
@@ -148,7 +161,7 @@ export interface BrowseResult {
 
 export async function browsePath(path?: string): Promise<BrowseResult> {
   const params = path ? `?path=${encodeURIComponent(path)}` : "";
-  const res = await fetch(`${API_BASE}/api/browse${params}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/browse${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to browse path");
   return res.json();
 }
@@ -170,7 +183,7 @@ export interface CompareResult {
 }
 
 export async function compareScans(scanAId: string, scanBId: string): Promise<CompareResult> {
-  const res = await fetch(
+  const res = await apiFetch(
     `${API_BASE}/api/scans/compare?scan_a=${encodeURIComponent(scanAId)}&scan_b=${encodeURIComponent(scanBId)}`,
     { cache: "no-store" }
   );
@@ -191,7 +204,7 @@ export interface TrendPoint {
 }
 
 export async function fetchTrends(days: number = 30): Promise<TrendPoint[]> {
-  const res = await fetch(`${API_BASE}/api/dashboard/trends?days=${days}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/dashboard/trends?days=${days}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch trends");
   const data = await res.json();
   return data.data;
@@ -218,14 +231,14 @@ export interface ComplianceCoverage {
 }
 
 export async function fetchComplianceFrameworks(): Promise<ComplianceFramework[]> {
-  const res = await fetch(`${API_BASE}/api/compliance/frameworks`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/compliance/frameworks`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch compliance frameworks");
   const data = await res.json();
   return data.frameworks;
 }
 
 export async function fetchComplianceCoverage(scanId: string): Promise<ComplianceCoverage[]> {
-  const res = await fetch(`${API_BASE}/api/compliance/coverage?scan_id=${encodeURIComponent(scanId)}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/compliance/coverage?scan_id=${encodeURIComponent(scanId)}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch compliance coverage");
   const data = await res.json();
   return data.coverage;
@@ -267,7 +280,7 @@ export interface SBOMHistoryEntry {
 }
 
 export async function fetchSBOMHistory(): Promise<SBOMHistoryEntry[]> {
-  const res = await fetch(`${API_BASE}/api/sbom/history`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/sbom/history`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch SBOM history");
   return res.json();
 }
@@ -279,19 +292,19 @@ export async function generateSBOM(
 ): Promise<{ sbom_id: string; format: string; component_count: number; document: Record<string, unknown> }> {
   const params = new URLSearchParams({ target_path: targetPath, format });
   if (scanId) params.set("scan_id", scanId);
-  const res = await fetch(`${API_BASE}/api/sbom/generate?${params}`, { method: "POST" });
+  const res = await apiFetch(`${API_BASE}/api/sbom/generate?${params}`, { method: "POST" });
   if (!res.ok) throw new Error("Failed to generate SBOM");
   return res.json();
 }
 
 export async function fetchSBOM(sbomId: string): Promise<SBOMDocument> {
-  const res = await fetch(`${API_BASE}/api/sbom/${sbomId}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/sbom/${sbomId}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch SBOM");
   return res.json();
 }
 
 export async function exportSBOM(sbomId: string, format: string = "cyclonedx"): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}/api/sbom/${sbomId}/export?format=${format}`, { cache: "no-store" });
+  const res = await apiFetch(`${API_BASE}/api/sbom/${sbomId}/export?format=${format}`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to export SBOM");
   return res.json();
 }
