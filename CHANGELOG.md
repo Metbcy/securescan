@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
-## [0.5.0] - YYYY-MM-DD
+## [0.5.0] - 2026-04-28
 
 <!-- PG8 finalizes the date and version bump. -->
 
