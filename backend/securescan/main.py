@@ -7,16 +7,25 @@ from .api.scans import router as scans_router
 from .api.dashboard import router as dashboard_router, browse_router
 from .api.compliance import router as compliance_router
 from .api.sbom import router as sbom_router
+from .api.versioning import alias_router_at_v1
 from .auth import is_dev_mode, require_api_key
 from .database import init_db
 
 _auth = [Depends(require_api_key)]
 
-app.include_router(scans_router, dependencies=_auth)
-app.include_router(dashboard_router, dependencies=_auth)
-app.include_router(browse_router, dependencies=_auth)
-app.include_router(compliance_router, dependencies=_auth)
-app.include_router(sbom_router, dependencies=_auth)
+# Legacy /api/* mount — kept indefinitely for v0.5.0 CLIs and Actions.
+# Responses on these paths get a Deprecation header (see api.versioning).
+for _r in (
+    scans_router,
+    dashboard_router,
+    browse_router,
+    compliance_router,
+    sbom_router,
+):
+    app.include_router(_r, dependencies=_auth)
+    # Parallel /api/v1/* mount — the preferred path going forward. Same
+    # handlers, same models, single source of truth.
+    alias_router_at_v1(app, _r, dependencies=_auth)
 
 
 _logger = logging.getLogger(__name__)
