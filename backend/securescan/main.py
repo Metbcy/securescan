@@ -9,8 +9,12 @@ from .api.compliance import router as compliance_router
 from .api.sbom import router as sbom_router
 from .auth import is_dev_mode, require_api_key
 from .database import init_db
+from .middleware.rate_limit import RateLimitMiddleware
 
 _auth = [Depends(require_api_key)]
+
+if not any(mw.cls is RateLimitMiddleware for mw in app.user_middleware):
+    app.add_middleware(RateLimitMiddleware)
 
 app.include_router(scans_router, dependencies=_auth)
 app.include_router(dashboard_router, dependencies=_auth)
