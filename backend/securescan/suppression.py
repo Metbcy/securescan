@@ -58,8 +58,10 @@ the scan is worse than one that occasionally misses a directive.
 """
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # Recognised comment prefixes.  We deliberately keep this small and
@@ -254,3 +256,217 @@ class IgnoreMap:
             if mark.target_line == line
             and ("*" in mark.rule_ids or rule_id in mark.rule_ids)
         ]
+
+
+
+# ---------------------------------------------------------------------------
+# TS3: SuppressionContext - precedence resolver across all three mechanisms
+# ---------------------------------------------------------------------------
+#
+# Three suppression inputs feed into every scan / diff / compare path:
+#
+#   1. Inline ignore comments      (parsed by IgnoreMap, above)
+#   2. Config file ``ignored_rules`` (loaded by securescan.config_file)
+#   3. Baseline fingerprints       (a JSON snapshot of historical findings)
+#
+# Wiring each consumer to all three independently invites bugs (which one
+# wins? what gets stamped on the audit trail?). SuppressionContext is the
+# single arbiter: callers build one, ask ``resolve(finding)`` for the
+# precedence reason, or ``apply(findings)`` to partition + stamp in one
+# pass.
+#
+# Precedence (highest to lowest), pinned in the v0.3.0 plan:
+#
+#   1. CLI ``--no-suppress`` switch (``no_suppress=True``) -> never suppress
+#   2. inline   - closest to the code being reviewed; the author's call
+#   3. config   - repo-wide policy; the team's call
+#   4. baseline - historical snapshot; the legacy backlog
+#
+# The resolved reason lands in ``finding.metadata['suppressed_by']`` so
+# SARIF / JSON / ``--show-suppressed`` consumers can explain why a
+# finding was hidden. The audit stamp matters: without it a malicious PR
+# could silently mute a real finding.
+#
+# This class is intentionally pure-functional after construction. The
+# baseline file is read once in ``from_paths`` (so failures surface at
+# construction time, not on every resolve); IgnoreMap retains its lazy
+# per-file cache. ``resolve`` itself does no IO.
+
+from .config_file import SecureScanConfig  # noqa: E402
+from .models import Finding  # noqa: E402
+
+# Precedence reasons. The string values are the audit-trail tokens
+# stamped on ``finding.metadata['suppressed_by']``; downstream renderers
+# pattern-match on these literals so they're part of the public contract.
+REASON_INLINE = "inline"
+REASON_CONFIG = "config"
+REASON_BASELINE = "baseline"
+
+
+def _load_baseline_fingerprints(path: Path) -> frozenset[str]:
+    """Read fingerprints from a baseline JSON file. NEVER raises.
+
+    Mirrors the contract of ``baseline.filter_against_baseline``: a
+    missing or malformed file emits a stderr warning and degrades to an
+    empty set. We deliberately re-implement the load (instead of calling
+    into ``baseline.py``) because we want the *fingerprints*, not a
+    pre-filtered list -- and because we want to delegate parsing of the
+    two accepted shapes (``{"findings": [...]}`` and a flat list) to
+    ``securescan.diff.load_findings_json``, which already handles both.
+    """
+    if not path.exists():
+        print(
+            f"warning: baseline file not found: {path}; skipping",
+            file=sys.stderr,
+        )
+        return frozenset()
+
+    try:
+        from .diff import load_findings_json
+
+        findings = load_findings_json(path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(
+            f"warning: could not parse baseline file {path}: {exc}; skipping",
+            file=sys.stderr,
+        )
+        return frozenset()
+
+    return frozenset(f.fingerprint for f in findings if f.fingerprint)
+
+
+@dataclass(frozen=True)
+class SuppressionContext:
+    """Bundles every suppression input and resolves which one (if any) applies.
+
+    Inputs are pre-loaded by the caller (cli.py); this class is
+    pure-functional and does no IO at resolve time. Use
+    :meth:`from_paths` for the common "load config + read baseline +
+    fresh ignore map" construction path.
+
+    Attributes:
+        config:                Typed ``.securescan.yml`` schema. Default
+                               ``SecureScanConfig()`` means no
+                               config-driven suppression is active.
+        ignore_map:            Lazy per-file inline-comment cache.
+        baseline_fingerprints: Pre-computed set of fingerprints to
+                               suppress; empty if no baseline supplied.
+        no_suppress:           CLI ``--no-suppress`` switch. When
+                               ``True``, ``resolve`` always returns
+                               ``None`` and ``apply`` returns
+                               ``(findings, [])`` without stamping.
+    """
+
+    config: SecureScanConfig = field(default_factory=SecureScanConfig)
+    ignore_map: IgnoreMap = field(default_factory=IgnoreMap)
+    baseline_fingerprints: frozenset[str] = frozenset()
+    no_suppress: bool = False
+
+    @classmethod
+    def from_paths(
+        cls,
+        *,
+        config: SecureScanConfig | None = None,
+        baseline_path: Path | None = None,
+        no_suppress: bool = False,
+    ) -> "SuppressionContext":
+        """Build a context from the common CLI input shape.
+
+        ``config=None`` is shorthand for "no config file present" and
+        yields a default-everything :class:`SecureScanConfig`.
+        ``baseline_path=None`` means "no baseline supplied" -> empty
+        fingerprint set. A *missing* or *malformed* baseline file emits
+        a stderr warning and degrades to an empty set (never raises) so
+        a deleted ``baseline.json`` doesn't crash CI.
+        """
+        cfg = config if config is not None else SecureScanConfig()
+
+        if baseline_path is None:
+            baseline_fps: frozenset[str] = frozenset()
+        else:
+            baseline_fps = _load_baseline_fingerprints(Path(baseline_path))
+
+        return cls(
+            config=cfg,
+            ignore_map=IgnoreMap(),
+            baseline_fingerprints=baseline_fps,
+            no_suppress=no_suppress,
+        )
+
+    def resolve(self, finding: Finding) -> str | None:
+        """Return the precedence reason a finding is suppressed, or ``None``.
+
+        Precedence (highest first):
+
+          1. ``no_suppress=True``         -> always ``None``
+          2. :data:`REASON_INLINE`        -> ``ignore_map`` matches
+                                             ``finding.file_path:line_start``
+                                             with ``finding.rule_id``
+          3. :data:`REASON_CONFIG`        -> ``config.ignored_rules``
+                                             contains ``finding.rule_id``
+          4. :data:`REASON_BASELINE`      -> ``finding.fingerprint`` in
+                                             ``baseline_fingerprints``
+
+        Defensive: ``getattr`` is used for every field access so partial
+        / duck-typed findings (e.g. legacy ``_StubFinding`` test doubles)
+        don't crash the resolver.
+        """
+        if self.no_suppress:
+            return None
+
+        rule_id = getattr(finding, "rule_id", None)
+        file_path = getattr(finding, "file_path", None)
+        line_start = getattr(finding, "line_start", None)
+
+        if (
+            rule_id is not None
+            and file_path is not None
+            and line_start is not None
+            and self.ignore_map.applies_to(file_path, line_start, rule_id)
+        ):
+            return REASON_INLINE
+
+        if rule_id is not None and rule_id in self.config.ignored_rules:
+            return REASON_CONFIG
+
+        fingerprint = getattr(finding, "fingerprint", "") or ""
+        if fingerprint and fingerprint in self.baseline_fingerprints:
+            return REASON_BASELINE
+
+        return None
+
+    def apply(
+        self, findings: list[Finding]
+    ) -> tuple[list[Finding], list[Finding]]:
+        """Partition ``findings`` into ``(kept, suppressed)``.
+
+        Each suppressed finding gets ``metadata['suppressed_by']`` set
+        to the precedence reason -- *unless* that key is already set,
+        in which case the existing value is preserved. The idempotency
+        rule mirrors TS4's ``original_severity`` stamping contract: a
+        second pass through the same context must be a no-op so
+        suppression can be re-evaluated at multiple layers (e.g. scan
+        time and diff time) without clobbering audit trails.
+
+        When ``no_suppress=True`` the override returns
+        ``(findings, [])`` *without* stamping any metadata -- the audit
+        trail is data, and an explicit override shouldn't pollute it.
+        """
+        if self.no_suppress:
+            return list(findings), []
+
+        kept: list[Finding] = []
+        suppressed: list[Finding] = []
+
+        for f in findings:
+            reason = self.resolve(f)
+            if reason is None:
+                kept.append(f)
+                continue
+
+            metadata = getattr(f, "metadata", None)
+            if isinstance(metadata, dict) and "suppressed_by" not in metadata:
+                metadata["suppressed_by"] = reason
+            suppressed.append(f)
+
+        return kept, suppressed
