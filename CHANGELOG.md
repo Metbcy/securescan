@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.5.0] - YYYY-MM-DD
+
+<!-- PG8 finalizes the date and version bump. -->
+
+This release is about prod-readiness ground truth. v0.4.0 made the
+GitHub Action useful for adoption; v0.5.0 makes the FastAPI server
+deployable beyond the developer's laptop and closes the silent-skip
+UX gaps that were burning trust on the dashboard.
+
+### Added
+
+- Optional API key authentication via `SECURESCAN_API_KEY` env var.
+  When set, every `/api/*` endpoint requires `X-API-Key` (or
+  `Authorization: Bearer`); when unset, dev mode preserves v0.4
+  behavior with a startup warning. `secrets.compare_digest` for
+  timing-safe comparison.
+- Structured JSON logging via stdlib (no new deps). Defaults to JSON
+  in containers (`SECURESCAN_IN_CONTAINER=1`), text in dev. Configure
+  with `SECURESCAN_LOG_LEVEL`, `SECURESCAN_LOG_FORMAT`. Each request
+  emits one structured log line with `request_id`, `method`, `path`,
+  `status`, and `latency_ms`.
+- Request-ID correlation: each response carries `X-Request-ID`. Client
+  can pin via the same header on the request; otherwise server
+  generates a uuid4.
+- `GET /ready` endpoint distinct from `/health`. Returns 200 when
+  the database is openable AND the scanner registry loads; returns
+  503 with per-check details when not. Both `/health` and `/ready`
+  remain public regardless of API-key configuration.
+- `Scan.scanners_run` and `Scan.scanners_skipped` fields persisted
+  per scan. Skipped entries include `name`, `reason`, and
+  `install_hint` so the dashboard renders actionable text without
+  re-fetching scanner availability.
+- `metadata["baseline_scope"] = "host" | "target"` stamp on every
+  baseline finding so the audit trail records which scope produced
+  each finding.
+- CLI flag `--baseline-host-probes` on `scan`, `diff`, `compare`
+  for power users who want host-scope alongside target-scope scans.
+- Dashboard `/scan` page reads `/api/dashboard/status` on mount and
+  disables categories whose scanners are all unavailable, with
+  inline install hints. Default selection adapts to availability.
+- Dashboard `FindingsTable` renders `[SUPPRESSED:inline]` /
+  `[SUPPRESSED:config]` / `[SUPPRESSED:baseline]` badges and shows
+  `severity (was: original)` annotations when `.securescan.yml`
+  overrode severity. Optional "Show suppressed findings" toggle.
+- Dashboard scan-result page surfaces `Scanners run: ...` and a
+  collapsible `Skipped (N)` section with install hints.
+
+### Changed
+
+- Baseline scanner now respects `target_path`. When target is `/`
+  or empty, host-wide probes run (v0.4 behavior). Otherwise the
+  scanner probes `<target>/etc/ssh/sshd_config`,
+  `<target>/etc/passwd`, `<target>/etc/shadow` and skips
+  `~/.ssh` perm checks (those are host-scope only). When a target
+  has no host-config files, the scanner emits ONE info-severity
+  finding pointing the user to `--baseline-host-probes`. Backward
+  compat: `target_path = "/"` still runs host-wide probes.
+- Scan results now record `scanners_run` and `scanners_skipped`
+  on both COMPLETED and FAILED scans (no more silent skips).
+- The frontend API client (`frontend/src/lib/api.ts`) injects
+  `X-API-Key` from `NEXT_PUBLIC_SECURESCAN_API_KEY` on every
+  request when the env var is set at build time.
+
+### Documentation
+
+- README "Production deployment" section: API key, log format,
+  health/readiness probes, reverse-proxy notes.
+
 ## [0.4.0] - 2026-04-28
 
 <!-- IR9 finalizes the date and version bump. -->
@@ -233,7 +301,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Metbcy/securescan/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Metbcy/securescan/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Metbcy/securescan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Metbcy/securescan/releases/tag/v0.2.0
