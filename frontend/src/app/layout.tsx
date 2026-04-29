@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Sidebar } from "@/components/sidebar";
+import { Topbar } from "@/components/topbar";
+import { CommandPalette } from "@/components/command-palette";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -29,9 +31,11 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Sidebar />
-          <main className="flex-1 min-h-screen md:ml-60 p-6 md:p-8">
-            {children}
-          </main>
+          <div className="flex-1 md:ml-14 lg:ml-[220px] flex flex-col min-h-screen">
+            <Topbar />
+            <main className="flex-1 px-4 md:px-8 py-6">{children}</main>
+          </div>
+          <CommandPalette />
         </ThemeProvider>
       </body>
     </html>
