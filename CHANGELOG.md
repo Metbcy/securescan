@@ -9,6 +9,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.7.0] - 2026-04-29
+
+A workflow + observability release: the dashboard now lets you
+**triage individual findings** (status + comments) with verdicts that
+survive across scans, and replaces 2-second polling with a **live
+event stream** so a running scan shows real-time per-scanner progress
+instead of a frozen "running" badge.
+
+### Added
+
+- **Findings triage workflow.** Each finding now has an optional
+  triage state (`new`, `triaged`, `false_positive`,
+  `accepted_risk`, `fixed`, `wont_fix`) and a per-finding comments
+  thread. State is keyed on the stable `fingerprint` so a "false
+  positive" verdict on a finding survives subsequent rescans of the
+  same target — and even survives `DELETE /scans/{id}`. New API:
+  - `PATCH /api/v1/findings/{fingerprint}/state` —
+    `{status, note?, updated_by?}` → `FindingState`
+  - `GET /api/v1/findings/{fingerprint}/comments` →
+    `FindingComment[]`
+  - `POST /api/v1/findings/{fingerprint}/comments` —
+    `{text, author?}` → `FindingComment` (201)
+  - `DELETE /api/v1/findings/{fingerprint}/comments/{comment_id}` →
+    204
+  Schema additions (idempotent migrations): `finding_states`,
+  `finding_comments`, plus a previously-missing
+  `idx_findings_scan_id` index that the existing `get_findings`
+  query needed as scan history grew.
+- **Triage UI.** New compact "Status" column in the findings table
+  with status pill (color-coded; `fixed` adds strikethrough +
+  accent-green pill so a regression is loud). Status filter chip
+  strip in the sticky filter bar. Expanded row gets a Triage panel
+  (status dropdown + note textarea) and a Comments panel (lazy
+  loaded; add / delete inline). Triage filter and the existing
+  suppression filter are independent and AND-combined. Default-hide
+  set is `{false_positive, accepted_risk, wont_fix}`. `fixed` is
+  intentionally NOT default-hidden so a "fixed" finding reappearing
+  in a later scan stays visible — the regression signal would
+  otherwise vanish.
+- **Real-time scan progress (SSE).**
+  `GET /api/v1/scans/{scan_id}/events` streams the same lifecycle
+  events the v0.6.1 logger emits (`scan.start`, `scanner.start`,
+  `scanner.complete`, `scanner.skipped`, `scanner.failed`,
+  `scan.complete`, `scan.failed`, `scan.cancelled`).
+  `Content-Type: text/event-stream` with 15-second keepalive
+  comments. Late subscribers get a 200-event replay buffer so a tab
+  refresh mid-scan still rebuilds the full state; the buffer is
+  retained 30 seconds after a terminal event. Terminal events are
+  never dropped on subscriber backpressure (oldest non-terminal
+  event is evicted instead).
+- **Scan-detail page goes live.** New `<ScanProgressPanel>` above
+  the StatLine while a scan is `running`/`pending`, showing
+  per-scanner state dots (queued / running / complete / failed /
+  skipped) with findings counts and durations as they update.
+  `EventSource` replaces the 2-second poll. On `EventSource`
+  error or when an API key is configured (EventSource can't send
+  custom auth headers), the page falls back to the v0.6.1
+  status-only poll path — `EventSource` is closed first so the
+  browser's auto-reconnect doesn't run alongside the fallback.
+
+### Changed
+
+- `GET /api/v1/scans/{id}/findings` now returns
+  `FindingWithState` objects — every existing field, plus an
+  optional `state` payload. The bare `Finding` model is unchanged,
+  so SARIF / JSON / baseline / CLI exporters keep their existing
+  contract.
+
+### Deployment notes
+
+- The SSE event bus is a module-level singleton. SecureScan now
+  requires `--workers 1` for `/api/v1/scans/{id}/events` to work
+  correctly. Multi-process pubsub (Redis backplane) is on the
+  v0.7.x roadmap. Documented in `README.md`.
+- SSE is unauthenticated when `SECURESCAN_API_KEY` is set, because
+  browsers can't attach custom headers to `EventSource`. The
+  frontend silently falls back to polling in that case. Cookie
+  auth / signed-token auth for SSE is on the v0.7.x roadmap.
+
+### Tests
+
+- 709 → 738 (+29): 15 for triage API, 14 for SSE bus + endpoint.
+
 ## [0.6.1] - 2026-04-29
 
 A polish release focused on production readiness on real (large) scans.
@@ -436,7 +519,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Metbcy/securescan/releases/tag/v0.7.0
 [0.6.1]: https://github.com/Metbcy/securescan/releases/tag/v0.6.1
 [0.6.0]: https://github.com/Metbcy/securescan/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Metbcy/securescan/releases/tag/v0.5.0

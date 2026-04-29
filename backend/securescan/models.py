@@ -97,6 +97,63 @@ class ScanSummary(BaseModel):
     scanners_run: list[str]
 
 
+class TriageStatus(str, Enum):
+    """User-assigned verdict for a finding (cross-scan, identified by fingerprint).
+
+    `NEW` is the implicit default for any finding that has never been triaged --
+    we do NOT create a `finding_states` row for findings still in this state, so
+    a missing row is read as `state=None` (UI shows "new") rather than as a
+    `NEW` row. The other values represent explicit user verdicts that should
+    survive subsequent rescans of the same target.
+    """
+    NEW = "new"
+    TRIAGED = "triaged"
+    FALSE_POSITIVE = "false_positive"
+    ACCEPTED_RISK = "accepted_risk"
+    FIXED = "fixed"
+    WONT_FIX = "wont_fix"
+
+
+class FindingState(BaseModel):
+    """Per-fingerprint triage verdict.
+
+    Keyed on the cross-scan-stable `fingerprint` (see fingerprint.py), so a
+    user's "false positive" verdict survives rescans, line shifts, and trivial
+    code edits. Orphan rows (rule_id renamed, file moved out of the project)
+    are intentionally tolerated -- the UI just won't surface them.
+    """
+    fingerprint: str
+    status: TriageStatus
+    note: Optional[str] = None
+    updated_at: datetime
+    updated_by: Optional[str] = None
+
+
+class FindingComment(BaseModel):
+    """A free-text comment on a finding's fingerprint.
+
+    Multiple comments per fingerprint are allowed; they are listed in
+    `created_at` ASC order so a triage thread reads top-to-bottom.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    fingerprint: str
+    text: str
+    author: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class FindingWithState(Finding):
+    """A `Finding` enriched with optional triage state.
+
+    Used ONLY by `GET /scans/{id}/findings` so the UI can render verdict
+    badges in a single round-trip. Bare `Finding` is intentionally left
+    untouched -- SARIF / JSON / baseline / CLI exporters all `model_dump`
+    Findings, and adding fields there would silently change their JSON
+    contracts.
+    """
+    state: Optional[FindingState] = None
+
+
 class SBOMComponent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     sbom_id: str

@@ -28,6 +28,8 @@ import {
   fetchFindings,
   fetchScan,
   fetchScanSummary,
+  getScanEventsUrl,
+  scanEventsAvailable,
   startScan,
 } from "@/lib/api";
 import type { Finding, Scan, ScanSummary } from "@/lib/api";
@@ -35,6 +37,10 @@ import { FindingsTable } from "@/components/findings-table";
 import { ScannerChipStrip } from "@/components/scanner-chip-strip";
 import { PageHeader, StatLine, type StatLineItem } from "@/components/page-header";
 import { SeverityPillStrip } from "@/components/severity-pill-strip";
+import {
+  ScanProgressPanel,
+  type ScannerProgress,
+} from "@/components/scan-progress-panel";
 
 /* ---------- helpers ---------- */
 
@@ -218,6 +224,15 @@ export default function ScanDetailPage() {
   const [cancelling, setCancelling] = useState(false);
   const [retrying, setRetrying] = useState(false);
 
+  // Live SSE progress, keyed by scanner name. Populated only while the scan
+  // is running; cleared (along with totalScanners) when a new scan begins.
+  const [scannerProgress, setScannerProgress] = useState<
+    Record<string, ScannerProgress>
+  >({});
+  const [totalScanners, setTotalScanners] = useState<number | undefined>(
+    undefined,
+  );
+
   // Used to force the relative-time labels to refresh while running.
   const [, setTick] = useState(0);
 
@@ -278,25 +293,172 @@ export default function ScanDetailPage() {
   }, [load]);
 
   /*
-   * While the scan is live, poll the *status* every 2s and refresh the *labels*
-   * every 1s. When status flips to completed, the polling effect tears down its
-   * intervals (isLive becomes false) and the next status-only poll fetches the
-   * full findings + summary in one shot.
+   * Live progress: subscribe to the SSE event stream while the scan is
+   * running/pending. Replaces the v0.6.x 2-second status poll. We still
+   * tick a 1-second interval so duration labels refresh smoothly, and we
+   * still call `load(false, false)` once after a terminal event so the
+   * findings table + summary repopulate without a manual refresh.
+   *
+   * Fallback policy:
+   *   - If `NEXT_PUBLIC_SECURESCAN_API_KEY` is set, EventSource cannot send
+   *     it, so the backend will reject the connection. Skip SSE entirely
+   *     and poll like before.
+   *   - If the EventSource constructor throws or the stream errors out
+   *     once open, close the EventSource FIRST and only then start the
+   *     2s poll. Never run both in parallel — the browser auto-reconnects
+   *     EventSource on transport errors and we'd otherwise burn requests.
    */
   useEffect(() => {
-    if (!scan) return;
-    const isLive = scan.status === "running" || scan.status === "pending";
+    const scanId = scan?.id;
+    const status = scan?.status;
+    if (!scanId) return;
+    const isLive = status === "running" || status === "pending";
     if (!isLive) return;
 
-    const livePoll = setInterval(() => {
-      void load(true, true);
-    }, 2000);
     const labelTick = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => {
-      clearInterval(livePoll);
-      clearInterval(labelTick);
+
+    let es: EventSource | null = null;
+    let pollFallback: ReturnType<typeof setInterval> | null = null;
+
+    const startPollFallback = () => {
+      if (pollFallback) return;
+      pollFallback = setInterval(() => {
+        void load(true, true);
+      }, 2000);
     };
-  }, [scan, load]);
+
+    const handle = (e: MessageEvent, eventName: string) => {
+      let data: { [k: string]: unknown } = {};
+      try {
+        data = JSON.parse(e.data);
+      } catch {
+        // Malformed payloads are ignored — the keepalive comments and
+        // empty-data heartbeats both fall through here harmlessly.
+      }
+      const scannerName = typeof data.scanner === "string" ? data.scanner : "";
+      switch (eventName) {
+        case "scan.start":
+          if (typeof data.scanner_count === "number") {
+            setTotalScanners(data.scanner_count);
+          }
+          break;
+        case "scanner.start":
+          if (scannerName) {
+            setScannerProgress((p) => ({
+              ...p,
+              [scannerName]: { state: "running" },
+            }));
+          }
+          break;
+        case "scanner.complete":
+          if (scannerName) {
+            setScannerProgress((p) => ({
+              ...p,
+              [scannerName]: {
+                state: "complete",
+                duration_s:
+                  typeof data.duration_s === "number" ? data.duration_s : undefined,
+                findings_count:
+                  typeof data.findings_count === "number"
+                    ? data.findings_count
+                    : undefined,
+              },
+            }));
+          }
+          break;
+        case "scanner.skipped":
+          if (scannerName) {
+            setScannerProgress((p) => ({
+              ...p,
+              [scannerName]: {
+                state: "skipped",
+                reason: typeof data.reason === "string" ? data.reason : undefined,
+              },
+            }));
+          }
+          break;
+        case "scanner.failed":
+          if (scannerName) {
+            setScannerProgress((p) => ({
+              ...p,
+              [scannerName]: {
+                state: "failed",
+                duration_s:
+                  typeof data.duration_s === "number" ? data.duration_s : undefined,
+                error: typeof data.error === "string" ? data.error : undefined,
+              },
+            }));
+          }
+          break;
+        case "scan.complete":
+        case "scan.failed":
+        case "scan.cancelled":
+          if (es) {
+            es.close();
+            es = null;
+          }
+          // Final refresh: pulls findings + summary now that scan is done.
+          void load(true, false);
+          break;
+      }
+    };
+
+    if (scanEventsAvailable()) {
+      try {
+        es = new EventSource(getScanEventsUrl(scanId));
+      } catch {
+        es = null;
+        startPollFallback();
+      }
+    } else {
+      // API-key auth blocks EventSource — go straight to polling.
+      startPollFallback();
+    }
+
+    if (es) {
+      const eventNames = [
+        "scan.start",
+        "scanner.start",
+        "scanner.complete",
+        "scanner.skipped",
+        "scanner.failed",
+        "scan.complete",
+        "scan.failed",
+        "scan.cancelled",
+      ] as const;
+      for (const name of eventNames) {
+        es.addEventListener(name, (e) => handle(e as MessageEvent, name));
+      }
+      es.onerror = () => {
+        // CRITICAL: close EventSource before falling back. The browser
+        // auto-reconnects on transport errors, so leaving it open while
+        // polling would run two recovery loops in parallel.
+        if (es) {
+          es.close();
+          es = null;
+        }
+        startPollFallback();
+      };
+    }
+
+    return () => {
+      clearInterval(labelTick);
+      if (es) {
+        es.close();
+        es = null;
+      }
+      if (pollFallback) {
+        clearInterval(pollFallback);
+        pollFallback = null;
+      }
+    };
+  }, [scan?.id, scan?.status, load]);
+
+  // Reset live progress state when the scan id changes (rescans, navigation).
+  useEffect(() => {
+    setScannerProgress({});
+    setTotalScanners(undefined);
+  }, [id]);
 
   const handleCancel = useCallback(async () => {
     if (!id) return;
@@ -613,6 +775,10 @@ export default function ScanDetailPage() {
       {/* Running surface — partial scanner chips + spinner, no stat line yet. */}
       {(scan.status === "running" || scan.status === "pending") && !isFailed && (
         <>
+          <ScanProgressPanel
+            scanners={scannerProgress}
+            totalScanners={totalScanners ?? scan.scan_types?.length}
+          />
           <StatLine
             items={
               [

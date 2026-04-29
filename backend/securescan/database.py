@@ -7,6 +7,9 @@ import aiosqlite
 from .config import settings
 from .models import (
     Finding,
+    FindingComment,
+    FindingState,
+    FindingWithState,
     SBOMComponent,
     SBOMDocument,
     Scan,
@@ -15,6 +18,7 @@ from .models import (
     ScanSummary,
     ScanType,
     Severity,
+    TriageStatus,
 )
 from .scoring import calculate_risk_score
 
@@ -100,6 +104,39 @@ async def init_db() -> None:
                 await db.execute(f"ALTER TABLE scans ADD COLUMN {col} TEXT DEFAULT '[]'")
             except Exception:
                 pass  # Column already exists
+
+        # Triage state + comments (BE-TRIAGE). Fingerprint is the cross-scan
+        # primary key -- see fingerprint.py. Orphan rows (rule renamed / file
+        # moved) are intentionally allowed; the UI just won't surface them.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS finding_states (
+                fingerprint TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                note TEXT,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_finding_states_status ON finding_states(status)"
+        )
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS finding_comments (
+                id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                text TEXT NOT NULL,
+                author TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_finding_comments_fingerprint ON finding_comments(fingerprint)"
+        )
+        # Performance: existing get_findings does WHERE scan_id = ? but
+        # findings has no scan_id index. Idempotent so it's safe to add now.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id)"
+        )
 
         # SBOM tables
         await db.execute("""
@@ -359,6 +396,196 @@ async def get_scan_summary(scan_id: str) -> Optional[ScanSummary]:
         )
     finally:
         await db.close()
+
+
+# --- Triage state + comments (BE-TRIAGE) ---------------------------------
+#
+# These rows are keyed on `fingerprint` (sha256 of scanner|rule|file|context|cwe,
+# see fingerprint.py), NOT on finding.id. That makes a verdict survive
+# rescans -- the same logical issue gets the same fingerprint each time the
+# target is rescanned. Orphans (state rows whose fingerprint no longer
+# matches any finding) are tolerated and never auto-pruned: a finding can
+# disappear because the rule was renamed or the file moved, and we'd rather
+# preserve the user's verdict for when it reappears than silently drop it.
+
+
+def _row_to_finding_state(row: aiosqlite.Row) -> FindingState:
+    return FindingState(
+        fingerprint=row["fingerprint"],
+        status=TriageStatus(row["status"]),
+        note=row["note"],
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+        updated_by=row["updated_by"],
+    )
+
+
+def _row_to_finding_comment(row: aiosqlite.Row) -> FindingComment:
+    return FindingComment(
+        id=row["id"],
+        fingerprint=row["fingerprint"],
+        text=row["text"],
+        author=row["author"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+async def upsert_finding_state(state: FindingState) -> None:
+    """Create or replace the triage state row for a fingerprint.
+
+    INSERT OR REPLACE is the right semantic here: a user changing their
+    verdict ("false_positive" -> "accepted_risk") replaces the prior row,
+    no history is kept (use comments for an audit trail).
+    """
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT OR REPLACE INTO finding_states
+               (fingerprint, status, note, updated_at, updated_by)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                state.fingerprint,
+                state.status.value,
+                state.note,
+                state.updated_at.isoformat(),
+                state.updated_by,
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_finding_state(fingerprint: str) -> Optional[FindingState]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM finding_states WHERE fingerprint = ?", (fingerprint,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_finding_state(row)
+    finally:
+        await db.close()
+
+
+async def get_finding_states_bulk(
+    fingerprints: list[str],
+) -> dict[str, FindingState]:
+    """Bulk lookup keyed by fingerprint. Empty input -> empty dict.
+
+    Used by `get_findings_with_state` to enrich a scan's findings with their
+    triage verdicts in a single round-trip (instead of N+1 lookups).
+    """
+    if not fingerprints:
+        return {}
+    db = await _get_db()
+    try:
+        # Deduplicate so the IN-list stays small even when the same
+        # fingerprint appears on multiple findings (shouldn't happen within
+        # one scan, but cheap defensive code).
+        unique = list({fp for fp in fingerprints if fp})
+        if not unique:
+            return {}
+        placeholders = ",".join("?" * len(unique))
+        cursor = await db.execute(
+            f"SELECT * FROM finding_states WHERE fingerprint IN ({placeholders})",
+            unique,
+        )
+        rows = await cursor.fetchall()
+        return {row["fingerprint"]: _row_to_finding_state(row) for row in rows}
+    finally:
+        await db.close()
+
+
+async def add_finding_comment(comment: FindingComment) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO finding_comments
+               (id, fingerprint, text, author, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                comment.id,
+                comment.fingerprint,
+                comment.text,
+                comment.author,
+                comment.created_at.isoformat(),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_finding_comments(fingerprint: str) -> list[FindingComment]:
+    """Return comments for a fingerprint, oldest first.
+
+    Ordering is `created_at` ASC so the UI can render a top-to-bottom
+    triage thread without reversing client-side. id is the tiebreaker for
+    same-instant comments (uuid4, so stable but unordered -- good enough
+    for a deterministic test, no semantic meaning).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM finding_comments WHERE fingerprint = ? "
+            "ORDER BY created_at ASC, id ASC",
+            (fingerprint,),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_finding_comment(row) for row in rows]
+    finally:
+        await db.close()
+
+
+async def delete_finding_comment(comment_id: str) -> bool:
+    """Delete a single comment by id.
+
+    Returns True when a row was removed, False when the id did not exist
+    (the API layer turns False into a 404 so a second DELETE on the same
+    id is observable).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM finding_comments WHERE id = ?", (comment_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def get_findings_with_state(
+    scan_id: str,
+    severity: Optional[str] = None,
+    scan_type: Optional[str] = None,
+    compliance: Optional[str] = None,
+) -> list[FindingWithState]:
+    """Return a scan's findings enriched with their triage state.
+
+    Same filter signature as `get_findings`. We deliberately call
+    `get_findings` and then bulk-load states rather than JOINing in SQL --
+    `get_findings` is the single source of truth for the row->Finding
+    mapping (severity/compliance ordering, JSON column decoding) and we
+    don't want a second copy drifting out of sync.
+    """
+    findings = await get_findings(
+        scan_id, severity=severity, scan_type=scan_type, compliance=compliance
+    )
+    if not findings:
+        return []
+    states = await get_finding_states_bulk(
+        [f.fingerprint for f in findings if f.fingerprint]
+    )
+    enriched: list[FindingWithState] = []
+    for f in findings:
+        state = states.get(f.fingerprint) if f.fingerprint else None
+        enriched.append(
+            FindingWithState(**f.model_dump(), state=state)
+        )
+    return enriched
 
 
 # --- SBOM persistence ---

@@ -402,6 +402,26 @@ The bucket store is bounded (max 10K live keys, 1h idle TTL with
 LRU eviction) so a key-rotation or DoS pattern can't grow memory
 without limit.
 
+### 6. Real-time scan progress (SSE) — single-worker only
+
+`GET /api/v1/scans/{scan_id}/events` (and the legacy `/api/scans/...`
+alias) emits a Server-Sent Events stream of lifecycle events
+(`scan.start`, `scanner.start`, `scanner.complete`, `scanner.skipped`,
+`scanner.failed`, `scan.complete`, `scan.failed`, `scan.cancelled`)
+so the dashboard can show live progress without polling. Late
+subscribers get a 30 second replay buffer so a tab refresh during
+the closing seconds of a scan still receives the full event sequence
+and the terminal event.
+
+> ⚠️ **Run uvicorn with a single worker** (`--workers 1`, the default).
+> The pub/sub bus is in-process: a `POST /api/v1/scans` that lands on
+> worker A and a `GET /api/v1/scans/{id}/events` that lands on worker B
+> will never see each other. Multi-process backplanes (Redis pubsub)
+> are a future feature. If you need to scale horizontally today, scale
+> by running multiple separate single-worker instances behind a
+> sticky-session load balancer keyed on `scan_id`, or fall back to
+> polling `GET /api/v1/scans/{id}` every couple of seconds.
+
 ## Subcommands
 
 | Command | What it does |

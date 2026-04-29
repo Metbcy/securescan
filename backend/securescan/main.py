@@ -14,6 +14,7 @@ from .api.scans import router as scans_router
 from .api.dashboard import router as dashboard_router, browse_router
 from .api.compliance import router as compliance_router
 from .api.sbom import router as sbom_router
+from .api.triage import router as triage_router
 from .api.versioning import alias_router_at_v1
 from .auth import is_dev_mode, require_api_key
 from .database import init_db
@@ -34,6 +35,7 @@ for _r in (
     browse_router,
     compliance_router,
     sbom_router,
+    triage_router,
 ):
     app.include_router(_r, dependencies=_auth)
     # Parallel /api/v1/* mount — the preferred path going forward. Same

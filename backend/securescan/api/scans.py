@@ -1,17 +1,19 @@
 from datetime import datetime
 import asyncio
+import json
 import logging
 import os
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from ..database import (
     delete_scan_cascade,
     get_findings,
+    get_findings_with_state,
     get_scan,
     get_scan_summary,
     get_scans,
@@ -20,9 +22,11 @@ from ..database import (
 )
 from ..compliance import ComplianceMapper
 from ..dedup import deduplicate_findings, dedup_key
+from ..events import TERMINAL, bus
 from ..fingerprint import populate_fingerprints
 from ..models import (
     Finding,
+    FindingWithState,
     Scan,
     ScannerSkip,
     ScanRequest,
@@ -62,11 +66,28 @@ def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
     the JSON formatter can pick them up if its allowlist is widened later.
     ``scan_id`` is always emitted last to match the request-log convention
     of the most-stable correlation key trailing.
+
+    The event is also fan-out-published to the in-process SSE bus
+    (``securescan.events.bus``) so live dashboard subscribers see scan
+    progress in real time. The publish is fire-and-forget via
+    ``asyncio.create_task`` because the helper is synchronous and many
+    of its callers (``_run_scan`` and friends) hold the event loop —
+    blocking on ``await bus.publish`` would serialize logging behind
+    the slowest subscriber. The bus's ``publish`` does not actually
+    suspend, so the scheduled task drains in a single loop iteration.
     """
     parts = [f"{key}={_format_event_value(val)}" for key, val in fields.items()]
     parts.append(f"scan_id={scan_id}")
     extra = {**fields, "scan_id": scan_id}
     _scan_logger.info(f"{event} {' '.join(parts)}", extra=extra)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No event loop active (e.g., a test that calls
+        # ``_log_scan_event`` directly outside an asyncio context).
+        # Logging fired; SSE delivery just isn't relevant here.
+        return
+    asyncio.create_task(bus.publish(scan_id, event, dict(fields)))
 
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -434,18 +455,113 @@ async def read_scan(scan_id: str):
     return scan
 
 
-@router.get("/{scan_id}/findings", response_model=list[Finding])
+def _sse_format(event: str, payload: dict) -> bytes:
+    """Format a single SSE message frame.
+
+    Per the SSE spec: a single ``event:`` line names the event, a
+    single ``data:`` line carries the JSON payload, and a blank line
+    terminates the frame. ``json.dumps`` with the default separators
+    keeps the body on one line (no embedded ``\\n``) which is required
+    for SSE multi-line semantics not to apply.
+    """
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+
+
+_TERMINAL_STATUSES = {ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED}
+_STATUS_TO_TERMINAL_EVENT = {
+    ScanStatus.COMPLETED: "scan.complete",
+    ScanStatus.FAILED: "scan.failed",
+    ScanStatus.CANCELLED: "scan.cancelled",
+}
+_SSE_KEEPALIVE_SECONDS = 15.0
+
+
+@router.get("/{scan_id}/events")
+async def stream_scan_events(scan_id: str) -> StreamingResponse:
+    """Server-Sent Events stream of lifecycle events for a single scan.
+
+    The stream replays any prior events for ``scan_id`` (so a frontend
+    that subscribes after the scan started still sees ``scan.start``)
+    and then forwards new events live until a terminal event is
+    emitted, at which point the stream closes.
+
+    For an already-terminal scan whose replay buffer is gone (backend
+    restart, or the 30s grace window has elapsed), a synthesized
+    terminal event is emitted from the persisted scan status so the
+    client closes cleanly without polling.
+
+    Sends a ``: keepalive`` comment frame every 15 seconds of
+    inactivity so intermediaries (nginx, ALBs) don't kill the
+    connection during long quiet stretches.
+    """
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    async def event_stream() -> AsyncGenerator[bytes, None]:
+        # Subscribe FIRST so any event published while we're setting
+        # up makes it onto our queue (the bus seeds the queue from the
+        # replay buffer atomically inside subscribe()).
+        q = bus.subscribe(scan_id)
+        try:
+            # If the scan is already terminal AND the replay buffer is
+            # empty (backend restarted, or the 30s grace expired),
+            # synthesize a single terminal event from DB state so the
+            # client can close cleanly. Otherwise the replay buffer
+            # already has the real terminal event queued and we just
+            # let the normal loop deliver it.
+            if scan.status in _TERMINAL_STATUSES and not bus.has_replay(scan_id):
+                terminal_event = _STATUS_TO_TERMINAL_EVENT[scan.status]
+                yield _sse_format(terminal_event, {"status": scan.status.value})
+                return
+
+            while True:
+                try:
+                    event, payload = await asyncio.wait_for(
+                        q.get(), timeout=_SSE_KEEPALIVE_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    yield b": keepalive\n\n"
+                    continue
+                yield _sse_format(event, payload)
+                if event in TERMINAL:
+                    return
+        finally:
+            bus.unsubscribe(scan_id, q)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.get("/{scan_id}/findings", response_model=list[FindingWithState])
 async def list_findings(
     scan_id: str,
     severity: Optional[str] = None,
     scan_type: Optional[str] = None,
     compliance: Optional[str] = None,
 ):
-    """Get findings for a scan, optionally filtered by severity, scan_type, or compliance tag."""
+    """Get findings for a scan, optionally filtered by severity, scan_type, or compliance tag.
+
+    Each finding is enriched with its triage `state` (or `null` when no
+    user verdict has been recorded). State is keyed on the cross-scan
+    `fingerprint`, so a "false positive" verdict on one scan shows up
+    on every later rescan of the same target. This is the ONLY endpoint
+    that returns the enriched payload -- SARIF / JSON / baseline / CLI
+    exporters all keep using the bare `Finding` shape via `get_findings`.
+    """
     scan = await get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return await get_findings(scan_id, severity=severity, scan_type=scan_type, compliance=compliance)
+    return await get_findings_with_state(
+        scan_id, severity=severity, scan_type=scan_type, compliance=compliance
+    )
 
 
 @router.get("/{scan_id}/summary", response_model=ScanSummary)

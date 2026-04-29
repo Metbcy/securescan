@@ -19,6 +19,53 @@ export function apiFetch(input: RequestInfo | URL, init: RequestInit = {}): Prom
   return fetch(input, withApiKey(init));
 }
 
+// SSE endpoint URL for live scan-progress events. EventSource is a built-in
+// browser API and doesn't need a fetch wrapper, but we centralise the URL
+// here so the same API_HOST/API_PREFIX rules apply.
+export function getScanEventsUrl(scanId: string): string {
+  return `${API_BASE}/scans/${scanId}/events`;
+}
+
+// EventSource cannot attach custom headers (no X-API-Key). When the deploy
+// is configured with an API key, the SSE endpoint will reject the request
+// and we must transparently fall back to status polling.
+export function scanEventsAvailable(): boolean {
+  return !API_KEY;
+}
+
+export type TriageStatus =
+  | "new"
+  | "triaged"
+  | "false_positive"
+  | "accepted_risk"
+  | "fixed"
+  | "wont_fix";
+
+export const TRIAGE_STATUSES: readonly TriageStatus[] = [
+  "new",
+  "triaged",
+  "false_positive",
+  "accepted_risk",
+  "fixed",
+  "wont_fix",
+] as const;
+
+export interface FindingState {
+  fingerprint: string;
+  status: TriageStatus;
+  note: string | null;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+export interface FindingComment {
+  id: string;
+  fingerprint: string;
+  text: string;
+  author: string | null;
+  created_at: string;
+}
+
 export interface Finding {
   id: string;
   scan_id: string;
@@ -34,6 +81,7 @@ export interface Finding {
   cwe?: string;
   remediation?: string;
   fingerprint?: string;
+  state?: FindingState | null;
   metadata: Record<string, unknown>;
   compliance_tags: string[];
 }
@@ -167,6 +215,162 @@ export async function deleteScan(scanId: string): Promise<void> {
     if (res.status === 404) throw new Error("Scan not found.");
     throw new Error(`Failed to delete scan (${res.status})`);
   }
+}
+
+// --- Triage (per-finding state + comments) -------------------------------
+//
+// Endpoints:
+//   PATCH  /findings/{fingerprint}/state
+//   GET    /findings/{fingerprint}/comments
+//   POST   /findings/{fingerprint}/comments
+//   DELETE /findings/{fingerprint}/comments/{comment_id}
+//
+// While the backend is rolling these out, every helper falls back to a
+// browser-local store on a 404 so the UI is exercisable end-to-end. The
+// fallback is a no-op once the real endpoints respond — the real response
+// takes precedence and the local store is only re-read when fetchFindings
+// returns `state: null` (see getCachedFindingState below).
+const TRIAGE_LS_PREFIX = "securescan.v0.7.triage.";
+const COMMENTS_LS_PREFIX = "securescan.v0.7.comments.";
+
+function lsAvailable(): boolean {
+  try {
+    return typeof window !== "undefined" && !!window.localStorage;
+  } catch {
+    return false;
+  }
+}
+
+function lsReadJSON<T>(key: string): T | null {
+  if (!lsAvailable()) return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function lsWriteJSON(key: string, value: unknown): void {
+  if (!lsAvailable()) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* quota / private mode — degrade silently */
+  }
+}
+
+/**
+ * Read a previously-applied triage state from the local fallback store.
+ * Used by the UI to hydrate findings whose `state` came back null from a
+ * backend that hasn't yet shipped the triage tables.
+ */
+export function getCachedFindingState(fingerprint: string): FindingState | null {
+  if (!fingerprint) return null;
+  return lsReadJSON<FindingState>(`${TRIAGE_LS_PREFIX}${fingerprint}`);
+}
+
+function newCommentId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function patchFindingState(
+  fingerprint: string,
+  body: { status: TriageStatus; note?: string | null; updated_by?: string | null },
+): Promise<FindingState> {
+  const res = await apiFetch(`${API_BASE}/findings/${encodeURIComponent(fingerprint)}/state`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    const state = (await res.json()) as FindingState;
+    lsWriteJSON(`${TRIAGE_LS_PREFIX}${fingerprint}`, state);
+    return state;
+  }
+  if (res.status === 404) {
+    const fallback: FindingState = {
+      fingerprint,
+      status: body.status,
+      note: body.note ?? null,
+      updated_at: new Date().toISOString(),
+      updated_by: body.updated_by ?? null,
+    };
+    lsWriteJSON(`${TRIAGE_LS_PREFIX}${fingerprint}`, fallback);
+    return fallback;
+  }
+  throw new Error(`Failed to update triage status (${res.status})`);
+}
+
+export async function listFindingComments(fingerprint: string): Promise<FindingComment[]> {
+  const res = await apiFetch(
+    `${API_BASE}/findings/${encodeURIComponent(fingerprint)}/comments`,
+    { cache: "no-store" },
+  );
+  if (res.ok) return (await res.json()) as FindingComment[];
+  if (res.status === 404) {
+    return lsReadJSON<FindingComment[]>(`${COMMENTS_LS_PREFIX}${fingerprint}`) ?? [];
+  }
+  throw new Error(`Failed to load comments (${res.status})`);
+}
+
+export async function addFindingComment(
+  fingerprint: string,
+  body: { text: string; author?: string | null },
+): Promise<FindingComment> {
+  const res = await apiFetch(
+    `${API_BASE}/findings/${encodeURIComponent(fingerprint)}/comments`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+  if (res.ok) return (await res.json()) as FindingComment;
+  if (res.status === 404) {
+    const comment: FindingComment = {
+      id: newCommentId(),
+      fingerprint,
+      text: body.text,
+      author: body.author ?? null,
+      created_at: new Date().toISOString(),
+    };
+    const key = `${COMMENTS_LS_PREFIX}${fingerprint}`;
+    const list = lsReadJSON<FindingComment[]>(key) ?? [];
+    list.push(comment);
+    lsWriteJSON(key, list);
+    return comment;
+  }
+  throw new Error(`Failed to add comment (${res.status})`);
+}
+
+export async function deleteFindingComment(
+  fingerprint: string,
+  commentId: string,
+): Promise<void> {
+  const res = await apiFetch(
+    `${API_BASE}/findings/${encodeURIComponent(fingerprint)}/comments/${encodeURIComponent(commentId)}`,
+    { method: "DELETE" },
+  );
+  if (res.ok || res.status === 204) return;
+  if (res.status === 404) {
+    const key = `${COMMENTS_LS_PREFIX}${fingerprint}`;
+    const list = lsReadJSON<FindingComment[]>(key);
+    if (list) {
+      const filtered = list.filter((c) => c.id !== commentId);
+      // Only "miss" if the comment really doesn't exist locally either —
+      // otherwise this is just the fallback path operating normally.
+      if (filtered.length !== list.length) {
+        lsWriteJSON(key, filtered);
+        return;
+      }
+    }
+    throw new Error("Comment not found");
+  }
+  throw new Error(`Failed to delete comment (${res.status})`);
 }
 
 // --- Directory browser ---
