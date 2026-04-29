@@ -1,430 +1,914 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { Package, Loader2, Download, FolderOpen, ChevronDown, ChevronRight, Search, History, Clock, FolderCode, Eye } from "lucide-react";
-import { generateSBOM, fetchSBOMHistory, exportSBOM } from "@/lib/api";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ChevronsUpDown,
+  Download,
+  FolderOpen,
+  Loader2,
+  Package,
+  Search,
+  X,
+} from "lucide-react";
+import {
+  exportSBOM,
+  fetchSBOMHistory,
+  generateSBOM,
+} from "@/lib/api";
 import type { SBOMHistoryEntry } from "@/lib/api";
 import { DirectoryPicker } from "@/components/directory-picker";
 
-interface ParsedComponent {
-  name: string;
-  version: string;
-  type: string;
-  purl: string;
-  license: string;
-  ecosystem: string;
+// ──────────────────────────────────────────────────────────────────────────────
+// Inline page header (DSH3 primitive not yet on origin/main).
+// ──────────────────────────────────────────────────────────────────────────────
+
+function PageHeader({
+  title,
+  meta,
+  actions,
+}: {
+  title: string;
+  meta: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-6">
+      <div className="space-y-1.5 min-w-0">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground-strong leading-tight">
+          {title}
+        </h1>
+        <p className="text-sm text-muted max-w-prose leading-relaxed">{meta}</p>
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      ) : null}
+    </header>
+  );
 }
 
-function parseComponents(doc: Record<string, unknown>, format: string): ParsedComponent[] {
+// ──────────────────────────────────────────────────────────────────────────────
+// Component-row model. Normalised across CycloneDX + SPDX so the table is the
+// same in both formats.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface ComponentRow {
+  name: string;
+  version: string;
+  license: string;
+  source: string;
+  vulnerable: "critical" | "high" | "medium" | "low" | "info" | null;
+  purl: string;
+}
+
+function purlEcosystem(purl: string): string {
+  if (!purl) return "unknown";
+  const m = purl.match(/^pkg:([^/]+)\//);
+  if (!m) return "unknown";
+  const map: Record<string, string> = {
+    npm: "npm",
+    pypi: "PyPI",
+    golang: "Go",
+    cargo: "Cargo",
+    gem: "RubyGems",
+    composer: "Composer",
+    maven: "Maven",
+    nuget: "NuGet",
+    deb: "deb",
+    rpm: "rpm",
+    apk: "apk",
+    docker: "Docker",
+    oci: "OCI",
+    generic: "generic",
+  };
+  return map[m[1]] ?? m[1];
+}
+
+function parseComponents(
+  doc: Record<string, unknown> | null,
+  format: string,
+): ComponentRow[] {
+  if (!doc) return [];
   if (format === "cyclonedx") {
     const components = (doc.components ?? []) as Record<string, unknown>[];
     return components.map((c) => {
-      const purl = (c.purl as string) || "";
+      const purl = (c.purl as string) ?? "";
+      const licenses = (c.licenses ?? []) as {
+        license?: { name?: string; id?: string };
+        expression?: string;
+      }[];
+      const license =
+        licenses[0]?.license?.id ??
+        licenses[0]?.license?.name ??
+        licenses[0]?.expression ??
+        "";
       return {
-        name: (c.name as string) || "",
-        version: (c.version as string) || "",
-        type: (c.type as string) || "library",
+        name: (c.name as string) ?? "",
+        version: (c.version as string) ?? "",
+        license,
+        source: purlEcosystem(purl),
+        vulnerable: null,
         purl,
-        license: ((c.licenses as { license?: { name?: string; id?: string } }[])?.[0]?.license?.name
-          || (c.licenses as { license?: { name?: string; id?: string } }[])?.[0]?.license?.id
-          || ""),
-        ecosystem: purlToEcosystem(purl),
-      };
-    });
-  } else {
-    // SPDX
-    const packages = (doc.packages ?? []) as Record<string, unknown>[];
-    return packages.map((p) => {
-      const refs = (p.externalRefs ?? []) as { referenceType?: string; referenceLocator?: string }[];
-      const purlRef = refs.find((r) => r.referenceType === "purl");
-      const purl = purlRef?.referenceLocator || "";
-      const license = (p.licenseDeclared as string) || (p.licenseConcluded as string) || "";
-      return {
-        name: (p.name as string) || "",
-        version: (p.versionInfo as string) || "",
-        type: "library",
-        purl,
-        license: license === "NOASSERTION" ? "" : license,
-        ecosystem: purlToEcosystem(purl),
       };
     });
   }
+  // SPDX
+  const packages = (doc.packages ?? []) as Record<string, unknown>[];
+  return packages.map((p) => {
+    const refs = (p.externalRefs ?? []) as {
+      referenceType?: string;
+      referenceLocator?: string;
+    }[];
+    const purl = refs.find((r) => r.referenceType === "purl")?.referenceLocator ?? "";
+    const declared = (p.licenseDeclared as string) ?? "";
+    const concluded = (p.licenseConcluded as string) ?? "";
+    const license =
+      declared && declared !== "NOASSERTION"
+        ? declared
+        : concluded && concluded !== "NOASSERTION"
+        ? concluded
+        : "";
+    return {
+      name: (p.name as string) ?? "",
+      version: (p.versionInfo as string) ?? "",
+      license,
+      source: purlEcosystem(purl),
+      vulnerable: null,
+      purl,
+    };
+  });
 }
 
-function purlToEcosystem(purl: string): string {
-  if (!purl) return "unknown";
-  const match = purl.match(/^pkg:(\w+)\//);
-  if (!match) return "unknown";
-  const map: Record<string, string> = {
-    npm: "npm",
-    pypi: "Python",
-    golang: "Go",
-    cargo: "Rust",
-    gem: "Ruby",
-    composer: "PHP",
-    maven: "Java",
-    nuget: ".NET",
-  };
-  return map[match[1]] || match[1];
-}
+// ──────────────────────────────────────────────────────────────────────────────
+// Tokens for severity pills (used when a component has known vulns — placeholder
+// today, but the column is wired up so when CVE matching lands the colours are
+// already correct).
+// ──────────────────────────────────────────────────────────────────────────────
 
-const ECOSYSTEM_COLORS: Record<string, string> = {
-  npm: "bg-red-500/15 text-red-400 border-red-500/20",
-  Python: "bg-yellow-500/15 text-yellow-400 border-yellow-500/20",
-  Go: "bg-cyan-500/15 text-cyan-400 border-cyan-500/20",
-  Rust: "bg-orange-500/15 text-orange-400 border-orange-500/20",
-  Ruby: "bg-pink-500/15 text-pink-400 border-pink-500/20",
-  PHP: "bg-purple-500/15 text-purple-400 border-purple-500/20",
-  Java: "bg-blue-500/15 text-blue-400 border-blue-500/20",
-  ".NET": "bg-violet-500/15 text-violet-400 border-violet-500/20",
+const SEV_PILL: Record<NonNullable<ComponentRow["vulnerable"]>, string> = {
+  critical: "bg-sev-critical-bg text-sev-critical",
+  high: "bg-sev-high-bg text-sev-high",
+  medium: "bg-sev-medium-bg text-sev-medium",
+  low: "bg-sev-low-bg text-sev-low",
+  info: "bg-sev-info-bg text-sev-info",
 };
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Sortable component table.
+// ──────────────────────────────────────────────────────────────────────────────
+
+type SortKey = "name" | "version" | "license" | "source";
+type SortDir = "asc" | "desc";
+
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  if (!active) return <ChevronsUpDown size={12} className="text-muted/60" />;
+  return dir === "asc" ? (
+    <ArrowUp size={12} className="text-foreground-strong" />
+  ) : (
+    <ArrowDown size={12} className="text-foreground-strong" />
+  );
+}
+
+function ComponentTable({ rows }: { rows: ComponentRow[] }) {
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const av = (a[sortKey] ?? "").toString().toLowerCase();
+      const bv = (b[sortKey] ?? "").toString().toLowerCase();
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return copy;
+  }, [rows, sortKey, sortDir]);
+
+  const toggle = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  const headerCell = (key: SortKey, label: string, width?: string) => (
+    <th
+      key={key}
+      className={`px-4 py-2.5 text-left text-xs font-medium text-muted ${width ?? ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => toggle(key)}
+        className="inline-flex items-center gap-1.5 uppercase tracking-wider hover:text-foreground-strong transition-colors"
+      >
+        {label}
+        <SortIcon active={sortKey === key} dir={sortDir} />
+      </button>
+    </th>
+  );
+
+  if (rows.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-card px-4 py-12 text-center">
+        <Package size={20} className="mx-auto mb-3 text-muted" />
+        <p className="text-sm text-muted">No components match this filter.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-card overflow-hidden">
+      <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-surface-2 border-b border-border">
+            <tr>
+              {headerCell("name", "Name")}
+              {headerCell("version", "Version", "w-[140px]")}
+              {headerCell("license", "License", "w-[180px]")}
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[120px]">
+                Vulnerable
+              </th>
+              {headerCell("source", "Source", "w-[120px]")}
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((c, i) => (
+              <tr
+                key={`${c.name}-${c.version}-${i}`}
+                className="border-b border-border/60 last:border-0 hover:bg-surface-2/50 transition-colors"
+              >
+                <td className="px-4 py-2 align-top">
+                  <div className="font-mono text-sm text-foreground-strong leading-tight">
+                    {c.name || <span className="text-muted">unnamed</span>}
+                  </div>
+                  {c.purl && (
+                    <div
+                      className="font-mono text-[0.6875rem] text-muted truncate max-w-[44ch] mt-0.5"
+                      title={c.purl}
+                    >
+                      {c.purl}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-2 font-mono text-xs text-muted align-top">
+                  {c.version || "—"}
+                </td>
+                <td className="px-4 py-2 align-top">
+                  {c.license ? (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-2 text-muted text-[0.6875rem] font-medium leading-none">
+                      {c.license}
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-2 align-top">
+                  {c.vulnerable ? (
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6875rem] font-medium leading-none ${SEV_PILL[c.vulnerable]}`}
+                    >
+                      <span aria-hidden>●</span>
+                      <span className="capitalize">{c.vulnerable}</span>
+                    </span>
+                  ) : (
+                    <span className="text-muted">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-2 align-top">
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-2 text-muted text-[0.6875rem] font-medium leading-none">
+                    {c.source}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SBOM detail card — summary strip, search, table, downloads.
+// ──────────────────────────────────────────────────────────────────────────────
+
+interface ActiveSBOM {
+  id: string;
+  format: "cyclonedx" | "spdx";
+  document: Record<string, unknown>;
+  componentCount: number;
+  targetPath: string;
+  createdAt?: string;
+}
+
+function SBOMDetail({
+  sbom,
+  onClose,
+  onDownload,
+  downloading,
+}: {
+  sbom: ActiveSBOM;
+  onClose: () => void;
+  onDownload: (format: "cyclonedx" | "spdx") => void;
+  downloading: "cyclonedx" | "spdx" | null;
+}) {
+  const [search, setSearch] = useState("");
+  const components = useMemo(
+    () => parseComponents(sbom.document, sbom.format),
+    [sbom.document, sbom.format],
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return components;
+    return components.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.version.toLowerCase().includes(q) ||
+        c.license.toLowerCase().includes(q) ||
+        c.source.toLowerCase().includes(q) ||
+        c.purl.toLowerCase().includes(q),
+    );
+  }, [components, search]);
+
+  const stats = useMemo(() => {
+    const licenses = new Set<string>();
+    let vulnerable = 0;
+    for (const c of components) {
+      if (c.license) licenses.add(c.license);
+      if (c.vulnerable) vulnerable += 1;
+    }
+    return {
+      components: components.length,
+      licenses: licenses.size,
+      vulnerable,
+    };
+  }, [components]);
+
+  return (
+    <div className="rounded-md border border-border bg-card overflow-hidden">
+      <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="space-y-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-semibold text-foreground-strong">
+              SBOM detail
+            </h3>
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-2 text-muted text-[0.6875rem] font-medium uppercase tracking-wider">
+              {sbom.format === "cyclonedx" ? "CycloneDX" : "SPDX"}
+            </span>
+          </div>
+          <p
+            className="text-xs font-mono text-muted truncate"
+            title={sbom.targetPath}
+          >
+            {sbom.targetPath}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close SBOM detail"
+          className="shrink-0 inline-flex items-center justify-center rounded-md border border-border bg-surface-2 text-muted hover:text-foreground-strong hover:bg-border transition-colors h-8 w-8"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="border-b border-border bg-surface-2/40 px-5 py-3 text-sm text-muted">
+        <span className="text-foreground-strong font-medium">
+          {stats.components}
+        </span>{" "}
+        components{" · "}
+        <span className="text-foreground-strong font-medium">
+          {stats.licenses}
+        </span>{" "}
+        licenses{" · "}
+        <span
+          className={
+            stats.vulnerable > 0
+              ? "text-sev-critical font-semibold"
+              : "text-foreground-strong font-medium"
+          }
+        >
+          {stats.vulnerable}
+        </span>{" "}
+        vulnerable
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-md">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+            />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter by name, version, license, source…"
+              className="w-full pl-9 pr-3 h-9 rounded-md border border-border bg-surface-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-ring transition-colors"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onDownload("cyclonedx")}
+              disabled={downloading === "cyclonedx"}
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-md border border-border bg-surface-2 text-foreground-strong text-xs font-medium hover:bg-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {downloading === "cyclonedx" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              CycloneDX JSON
+            </button>
+            <button
+              type="button"
+              onClick={() => onDownload("spdx")}
+              disabled={downloading === "spdx"}
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-md border border-border bg-surface-2 text-foreground-strong text-xs font-medium hover:bg-border transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {downloading === "spdx" ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+              SPDX JSON
+            </button>
+          </div>
+        </div>
+
+        <div className="text-xs text-muted">
+          {search ? (
+            <>
+              Showing {filtered.length} of {components.length} components.
+            </>
+          ) : (
+            <>{components.length} components.</>
+          )}
+        </div>
+
+        <ComponentTable rows={filtered} />
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Page.
+// ──────────────────────────────────────────────────────────────────────────────
 
 export default function SBOMPage() {
   const [targetPath, setTargetPath] = useState("");
   const [format, setFormat] = useState<"cyclonedx" | "spdx">("cyclonedx");
-  const [loading, setLoading] = useState(false);
-  const [sbom, setSbom] = useState<{ sbom_id: string; component_count: number; document: Record<string, unknown> } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [showRawJson, setShowRawJson] = useState(false);
-  const [tab, setTab] = useState<"generate" | "history">("generate");
+
   const [history, setHistory] = useState<SBOMHistoryEntry[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState<string | null>(null);
-  const [viewingSbomId, setViewingSbomId] = useState<string | null>(null);
-  const [viewingLoading, setViewingLoading] = useState(false);
+
+  const [active, setActive] = useState<ActiveSBOM | null>(null);
+  const [activeLoadingId, setActiveLoadingId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<"cyclonedx" | "spdx" | null>(
+    null,
+  );
+
+  const refreshHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const data = await fetchSBOMHistory();
+      setHistory(data);
+    } catch {
+      setHistoryError(
+        "Failed to load SBOM history. Is the backend running on /api/v1?",
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (tab === "history") {
-      setHistoryLoading(true);
-      setHistoryError(null);
-      fetchSBOMHistory()
-        .then(setHistory)
-        .catch(() => setHistoryError("Failed to load SBOM history. Is the backend running?"))
-        .finally(() => setHistoryLoading(false));
-    }
-  }, [tab]);
+    void refreshHistory();
+  }, [refreshHistory]);
 
-  const handleViewSbom = async (entry: SBOMHistoryEntry) => {
-    setViewingLoading(true);
-    setViewingSbomId(entry.id);
+  const handleGenerate = useCallback(
+    async (e?: React.FormEvent) => {
+      if (e) e.preventDefault();
+      const path = targetPath.trim();
+      if (!path || generating) return;
+      setGenerating(true);
+      setGenerateError(null);
+      try {
+        const result = await generateSBOM(path, format);
+        setActive({
+          id: result.sbom_id,
+          format,
+          document: result.document,
+          componentCount: result.component_count,
+          targetPath: path,
+          createdAt: new Date().toISOString(),
+        });
+        void refreshHistory();
+      } catch {
+        setGenerateError(
+          "Failed to generate SBOM. Make sure the path exists and the backend is reachable.",
+        );
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [targetPath, format, generating, refreshHistory],
+  );
+
+  const handleViewEntry = useCallback(async (entry: SBOMHistoryEntry) => {
+    if (active?.id === entry.id) {
+      setActive(null);
+      return;
+    }
+    setActiveLoadingId(entry.id);
     try {
-      const exported = await exportSBOM(entry.id, entry.format);
-      setSbom({ sbom_id: entry.id, component_count: entry.component_count, document: exported });
-      setFormat(entry.format as "cyclonedx" | "spdx");
-      setSearch("");
-      setShowRawJson(false);
-      setTab("generate");
+      const fmt: "cyclonedx" | "spdx" =
+        entry.format === "spdx" ? "spdx" : "cyclonedx";
+      const doc = await exportSBOM(entry.id, fmt);
+      setActive({
+        id: entry.id,
+        format: fmt,
+        document: doc,
+        componentCount: entry.component_count,
+        targetPath: entry.target_path,
+        createdAt: entry.created_at,
+      });
     } catch {
-      setHistoryError("Failed to load SBOM details");
+      setHistoryError("Failed to load SBOM detail for this entry.");
     } finally {
-      setViewingLoading(false);
-      setViewingSbomId(null);
+      setActiveLoadingId(null);
     }
-  };
+  }, [active?.id]);
 
-  const components = useMemo(() => {
-    if (!sbom) return [];
-    return parseComponents(sbom.document, format);
-  }, [sbom, format]);
+  const handleDownload = useCallback(
+    async (fmt: "cyclonedx" | "spdx") => {
+      if (!active) return;
+      setDownloading(fmt);
+      try {
+        const doc =
+          fmt === active.format
+            ? active.document
+            : await exportSBOM(active.id, fmt);
+        const blob = new Blob([JSON.stringify(doc, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `sbom-${active.id}.${fmt}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        setHistoryError(`Failed to download ${fmt.toUpperCase()} document.`);
+      } finally {
+        setDownloading(null);
+      }
+    },
+    [active],
+  );
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return components;
-    const q = search.toLowerCase();
-    return components.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.version.includes(q) || c.ecosystem.toLowerCase().includes(q) || c.purl.toLowerCase().includes(q)
-    );
-  }, [components, search]);
-
-  const ecosystemStats = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const c of components) {
-      counts[c.ecosystem] = (counts[c.ecosystem] || 0) + 1;
-    }
-    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [components]);
-
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!targetPath.trim()) return;
-    setLoading(true);
-    setError(null);
-    setSbom(null);
-    setSearch("");
-    setShowRawJson(false);
-    try {
-      const result = await generateSBOM(targetPath.trim(), format);
-      setSbom(result);
-      // Refresh history in background so new entry appears
-      fetchSBOMHistory().then(setHistory).catch(() => {});
-    } catch {
-      setError("Failed to generate SBOM. Is the backend running?");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDownload = () => {
-    if (!sbom) return;
-    const blob = new Blob([JSON.stringify(sbom.document, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `sbom-${sbom.sbom_id}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const generateButton = (
+    <button
+      type="button"
+      onClick={() => handleGenerate()}
+      disabled={generating || !targetPath.trim()}
+      className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {generating ? (
+        <>
+          <Loader2 size={14} className="animate-spin" />
+          Generating…
+        </>
+      ) : (
+        <>
+          <Package size={14} />
+          Generate SBOM
+        </>
+      )}
+    </button>
+  );
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <h1 className="text-2xl font-bold tracking-tight">SBOM Generator</h1>
-      <p className="text-sm text-[#a1a1aa]">Generate a Software Bill of Materials for any project directory.</p>
+    <div className="space-y-6 max-w-6xl">
+      <PageHeader
+        title="SBOM"
+        meta="Software bill of materials — every dependency, version, and license."
+        actions={generateButton}
+      />
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-[#262626]">
-        {([
-          { key: "generate" as const, label: "Generate", icon: Package },
-          { key: "history" as const, label: "History", icon: History },
-        ]).map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              tab === key
-                ? "border-blue-500 text-blue-500"
-                : "border-transparent text-[#a1a1aa] hover:text-[#ededed] hover:border-[#404040]"
-            }`}
-          >
-            <Icon size={16} />
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* History tab */}
-      {tab === "history" && (
-        <div className="space-y-4">
-          {historyLoading && (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 size={24} className="animate-spin text-[#52525b]" />
-            </div>
-          )}
-          {historyError && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4">
-              <p className="text-sm text-red-400">{historyError}</p>
-            </div>
-          )}
-          {!historyLoading && !historyError && history.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <Package size={48} className="text-[#52525b] mb-4" />
-              <h2 className="text-xl font-semibold mb-2">No SBOMs generated yet</h2>
-              <p className="text-[#a1a1aa]">Generate your first SBOM and it will appear here.</p>
-            </div>
-          )}
-          {!historyLoading && history.length > 0 && (
-            <div className="rounded-xl border border-[#262626] overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-[#141414]">
-                  <tr className="border-b border-[#262626]">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Target Path</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Format</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Components</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Generated</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#262626]">
-                  {history.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-[#141414]/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <FolderCode size={14} className="text-[#52525b] shrink-0" />
-                          <span className="font-mono text-xs text-[#ededed] truncate max-w-[300px]" title={entry.target_path}>
-                            {entry.target_path}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-medium border bg-blue-500/10 text-blue-400 border-blue-500/20">
-                          {entry.format === "cyclonedx" ? "CycloneDX" : "SPDX"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[#a1a1aa] font-medium">{entry.component_count}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5 text-xs text-[#a1a1aa]">
-                          <Clock size={12} />
-                          {new Date(entry.created_at).toLocaleString()}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleViewSbom(entry)}
-                          disabled={viewingLoading && viewingSbomId === entry.id}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#262626] bg-[#141414] text-xs hover:bg-[#1a1a1a] transition-colors disabled:opacity-50"
-                        >
-                          {viewingLoading && viewingSbomId === entry.id ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <Eye size={12} />
-                          )}
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Generate tab */}
-      {tab === "generate" && <>
-      <form onSubmit={handleGenerate} className="space-y-5">
-        <div>
-          <label className="block text-sm font-medium text-[#a1a1aa] mb-2">Target Path</label>
-          <div className="flex">
-            <input type="text" value={targetPath} onChange={(e) => setTargetPath(e.target.value)}
-              placeholder="/path/to/your/project"
-              className="flex-1 px-4 py-2.5 rounded-l-lg bg-[#141414] border border-[#262626] border-r-0 text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors" />
-            <button type="button" onClick={() => setPickerOpen(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-r-lg bg-[#141414] border border-[#262626] text-[#a1a1aa] hover:bg-[#1a1a1a] hover:text-[#ededed] transition-colors">
-              <FolderOpen size={16} /><span className="text-sm">Browse</span>
-            </button>
-          </div>
-        </div>
-
-        <DirectoryPicker isOpen={pickerOpen} onClose={() => setPickerOpen(false)}
-          onSelect={(path) => { setTargetPath(path); setPickerOpen(false); }}
-          initialPath={targetPath || undefined} />
-
-        <div>
-          <label className="block text-sm font-medium text-[#a1a1aa] mb-2">Format</label>
-          <div className="flex gap-3">
-            {(["cyclonedx", "spdx"] as const).map((f) => (
-              <label key={f} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border cursor-pointer transition-colors ${format === f ? "border-blue-500/40 bg-blue-500/10" : "border-[#262626] bg-[#141414] hover:border-[#404040]"}`}>
-                <input type="radio" name="format" value={f} checked={format === f} onChange={() => setFormat(f)} className="sr-only" />
-                <span className="text-sm font-medium">{f === "cyclonedx" ? "CycloneDX 1.5" : "SPDX 2.3"}</span>
+      {/* Generate panel */}
+      <section className="rounded-md border border-border bg-card p-5 space-y-4">
+        <form onSubmit={handleGenerate} className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 md:gap-4 md:items-end">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="sbom-target"
+                className="block text-xs font-medium text-muted uppercase tracking-wider"
+              >
+                Target path
               </label>
-            ))}
-          </div>
-        </div>
-
-        <button type="submit" disabled={loading || !targetPath.trim()}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-          {loading ? (<><Loader2 size={16} className="animate-spin" />Generating...</>) : (<><Package size={16} />Generate SBOM</>)}
-        </button>
-      </form>
-
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4">
-          <p className="text-sm text-red-400">{error}</p>
-        </div>
-      )}
-
-      {sbom && (
-        <div className="space-y-5">
-          {/* Header with stats */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold">SBOM Generated</h3>
-              <p className="text-sm text-[#a1a1aa]">{sbom.component_count} components found</p>
-            </div>
-            <button onClick={handleDownload}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#262626] bg-[#141414] text-sm hover:bg-[#1a1a1a] transition-colors">
-              <Download size={14} />Download {format === "cyclonedx" ? "CycloneDX" : "SPDX"} JSON
-            </button>
-          </div>
-
-          {/* Ecosystem breakdown */}
-          {ecosystemStats.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-              {ecosystemStats.map(([eco, count]) => (
-                <div key={eco} className="rounded-lg border border-[#262626] bg-[#141414] p-3 text-center">
-                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium mb-2 border ${ECOSYSTEM_COLORS[eco] || "bg-[#262626] text-[#a1a1aa] border-[#404040]"}`}>
-                    {eco}
-                  </span>
-                  <p className="text-xl font-bold">{count}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Search */}
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#52525b]" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter components by name, version, or ecosystem..."
-              className="w-full pl-9 pr-4 py-2 rounded-lg bg-[#141414] border border-[#262626] text-sm text-[#ededed] placeholder-[#52525b] focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 transition-colors"
-            />
-          </div>
-
-          {/* Components table */}
-          <div className="rounded-xl border border-[#262626] overflow-hidden">
-            <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-[#141414] sticky top-0 z-10">
-                  <tr className="border-b border-[#262626]">
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Name</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Version</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">Ecosystem</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">License</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-[#a1a1aa] uppercase tracking-wider">PURL</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#262626]">
-                  {filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-8 text-center text-[#52525b]">
-                        {search ? "No components match your search" : "No components found"}
-                      </td>
-                    </tr>
-                  ) : (
-                    filtered.map((c, i) => (
-                      <tr key={i} className="hover:bg-[#141414]/50 transition-colors">
-                        <td className="px-4 py-2.5 font-medium text-[#ededed]">{c.name}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-[#a1a1aa]">{c.version}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium border ${ECOSYSTEM_COLORS[c.ecosystem] || "bg-[#262626] text-[#a1a1aa] border-[#404040]"}`}>
-                            {c.ecosystem}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-[#a1a1aa] text-xs">{c.license || <span className="text-[#52525b]">—</span>}</td>
-                        <td className="px-4 py-2.5 font-mono text-[10px] text-[#52525b] max-w-[200px] truncate">{c.purl || "—"}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            {search && filtered.length !== components.length && (
-              <div className="px-4 py-2 bg-[#141414] border-t border-[#262626] text-xs text-[#52525b]">
-                Showing {filtered.length} of {components.length} components
+              <div className="flex">
+                <input
+                  id="sbom-target"
+                  type="text"
+                  value={targetPath}
+                  onChange={(e) => setTargetPath(e.target.value)}
+                  placeholder="/path/to/your/project"
+                  className="flex-1 h-9 px-3 rounded-l-md border border-border border-r-0 bg-surface-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-ring transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(true)}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-r-md border border-border bg-surface-2 text-muted hover:text-foreground-strong hover:bg-border transition-colors"
+                >
+                  <FolderOpen size={14} />
+                  <span className="text-xs font-medium">Browse</span>
+                </button>
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <span className="block text-xs font-medium text-muted uppercase tracking-wider">
+                Format
+              </span>
+              <div
+                role="radiogroup"
+                aria-label="SBOM format"
+                className="inline-flex h-9 rounded-md border border-border bg-surface-2 p-0.5"
+              >
+                {(["cyclonedx", "spdx"] as const).map((f) => (
+                  <label
+                    key={f}
+                    className={`inline-flex items-center px-3 rounded-sm text-xs font-medium cursor-pointer transition-colors ${
+                      format === f
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted hover:text-foreground-strong"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="format"
+                      value={f}
+                      checked={format === f}
+                      onChange={() => setFormat(f)}
+                      className="sr-only"
+                    />
+                    {f === "cyclonedx" ? "CycloneDX 1.5" : "SPDX 2.3"}
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DirectoryPicker
+            isOpen={pickerOpen}
+            onClose={() => setPickerOpen(false)}
+            onSelect={(path) => {
+              setTargetPath(path);
+              setPickerOpen(false);
+            }}
+            initialPath={targetPath || undefined}
+          />
+
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={generating || !targetPath.trim()}
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {generating ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                <>
+                  <Package size={14} />
+                  Generate
+                </>
+              )}
+            </button>
+            {generating && (
+              <span className="text-xs text-muted">
+                Resolving manifests, parsing lockfiles, building components…
+              </span>
             )}
           </div>
 
-          {/* Raw JSON toggle */}
-          <button
-            onClick={() => setShowRawJson(!showRawJson)}
-            className="inline-flex items-center gap-1.5 text-xs text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+          {generating && (
+            <div
+              role="progressbar"
+              aria-label="Generating SBOM"
+              className="h-1 w-full overflow-hidden rounded-full bg-surface-2"
+            >
+              <div className="h-full w-1/3 bg-accent animate-[sbomprogress_1.4s_ease-in-out_infinite]" />
+              <style jsx>{`
+                @keyframes sbomprogress {
+                  0% { transform: translateX(-100%); }
+                  100% { transform: translateX(400%); }
+                }
+              `}</style>
+            </div>
+          )}
+        </form>
+
+        {generateError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-sev-critical/30 bg-sev-critical-bg px-3 py-2 text-sm text-sev-critical"
           >
-            {showRawJson ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            Raw JSON
-          </button>
-          {showRawJson && (
-            <div className="rounded-xl border border-[#262626] bg-[#141414] p-4 max-h-72 overflow-auto">
-              <pre className="text-xs text-[#a1a1aa] whitespace-pre-wrap">{JSON.stringify(sbom.document, null, 2)}</pre>
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>{generateError}</span>
+          </div>
+        )}
+      </section>
+
+      {/* History */}
+      <section className="space-y-3">
+        <div className="flex items-end justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground-strong">
+              SBOM history
+            </h2>
+            <p className="text-xs text-muted mt-0.5">
+              Past generations. Click a row to inspect the components.
+            </p>
+          </div>
+          {history.length > 0 && (
+            <span className="text-xs text-muted">
+              {history.length} {history.length === 1 ? "entry" : "entries"}
+            </span>
+          )}
+        </div>
+
+        {historyError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-sev-critical/30 bg-sev-critical-bg px-3 py-2 text-sm text-sev-critical"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>{historyError}</span>
+          </div>
+        )}
+
+        <div className="rounded-md border border-border bg-card overflow-hidden">
+          {historyLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={18} className="animate-spin text-muted" />
+            </div>
+          ) : history.length === 0 ? (
+            <div className="px-4 py-12 text-center">
+              <Package size={20} className="mx-auto mb-3 text-muted" />
+              <p className="text-sm text-foreground-strong font-medium">
+                No SBOMs generated yet
+              </p>
+              <p className="text-xs text-muted mt-1">
+                Pick a target above and run Generate to create your first SBOM.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-surface-2 border-b border-border">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[180px]">
+                      Date
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                      Target
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-muted uppercase tracking-wider w-[120px]">
+                      Components
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[120px]">
+                      Format
+                    </th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-muted uppercase tracking-wider w-[180px]">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((entry) => {
+                    const isActive = active?.id === entry.id;
+                    const isLoading = activeLoadingId === entry.id;
+                    return (
+                      <tr
+                        key={entry.id}
+                        onClick={() => handleViewEntry(entry)}
+                        className={`border-b border-border/60 last:border-0 cursor-pointer transition-colors ${
+                          isActive
+                            ? "bg-accent-soft/40"
+                            : "hover:bg-surface-2/60"
+                        }`}
+                      >
+                        <td className="px-4 py-2.5 text-xs text-muted whitespace-nowrap">
+                          {new Date(entry.created_at).toLocaleString()}
+                        </td>
+                        <td
+                          className="px-4 py-2.5 font-mono text-xs text-foreground-strong truncate max-w-[40ch]"
+                          title={entry.target_path}
+                        >
+                          {entry.target_path}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-sm tabular-nums text-foreground-strong">
+                          {entry.component_count}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-2 text-muted text-[0.6875rem] font-medium uppercase tracking-wider">
+                            {entry.format === "cyclonedx" ? "CycloneDX" : "SPDX"}
+                          </span>
+                        </td>
+                        <td
+                          className="px-4 py-2.5 text-right"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleViewEntry(entry)}
+                              disabled={isLoading}
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded border border-border bg-surface-2 text-muted hover:text-foreground-strong hover:bg-border text-xs font-medium transition-colors disabled:opacity-60"
+                            >
+                              {isLoading ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : null}
+                              {isActive ? "Hide" : "View"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setActiveLoadingId(entry.id);
+                                try {
+                                  const fmt: "cyclonedx" | "spdx" =
+                                    entry.format === "spdx"
+                                      ? "spdx"
+                                      : "cyclonedx";
+                                  const doc = await exportSBOM(entry.id, fmt);
+                                  const blob = new Blob(
+                                    [JSON.stringify(doc, null, 2)],
+                                    { type: "application/json" },
+                                  );
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement("a");
+                                  a.href = url;
+                                  a.download = `sbom-${entry.id}.${fmt}.json`;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                } catch {
+                                  setHistoryError(
+                                    "Failed to download SBOM document.",
+                                  );
+                                } finally {
+                                  setActiveLoadingId(null);
+                                }
+                              }}
+                              disabled={isLoading}
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded border border-border bg-surface-2 text-muted hover:text-foreground-strong hover:bg-border text-xs font-medium transition-colors disabled:opacity-60"
+                            >
+                              <Download size={12} />
+                              Download
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
-      )}
-      </>}
+
+        {active && (
+          <SBOMDetail
+            sbom={active}
+            onClose={() => setActive(null)}
+            onDownload={handleDownload}
+            downloading={downloading}
+          />
+        )}
+      </section>
     </div>
   );
 }

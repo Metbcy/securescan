@@ -1,263 +1,702 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ArrowLeftRight, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
-import type { Scan, CompareResult, Finding } from "@/lib/api";
-import { fetchScans, compareScans } from "@/lib/api";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  Calendar,
+  Equal,
+  FileText,
+  Hash,
+  Loader2,
+  Minus,
+  Plus,
+  ShieldCheck,
+} from "lucide-react";
+import type { CompareResult, Finding, Scan } from "@/lib/api";
+import { compareScans, fetchScans } from "@/lib/api";
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: "bg-red-500/20 text-red-400",
-  high: "bg-orange-500/20 text-orange-400",
-  medium: "bg-yellow-500/20 text-yellow-400",
-  low: "bg-blue-500/20 text-blue-400",
-  info: "bg-neutral-500/20 text-neutral-400",
+// ──────────────────────────────────────────────────────────────────────────────
+// Inline page header (DSH3 primitive not yet on origin/main).
+// ──────────────────────────────────────────────────────────────────────────────
+
+function PageHeader({
+  title,
+  meta,
+  actions,
+}: {
+  title: string;
+  meta: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-6">
+      <div className="space-y-1.5 min-w-0">
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground-strong leading-tight">
+          {title}
+        </h1>
+        <p className="text-sm text-muted max-w-prose leading-relaxed">{meta}</p>
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      ) : null}
+    </header>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Severity tokens.
+// ──────────────────────────────────────────────────────────────────────────────
+
+const SEV_PILL: Record<Finding["severity"], string> = {
+  critical: "bg-sev-critical-bg text-sev-critical",
+  high: "bg-sev-high-bg text-sev-high",
+  medium: "bg-sev-medium-bg text-sev-medium",
+  low: "bg-sev-low-bg text-sev-low",
+  info: "bg-sev-info-bg text-sev-info",
 };
 
-function SeverityBadge({ severity }: { severity: string }) {
+const SEV_ORDER: Record<Finding["severity"], number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  info: 4,
+};
+
+function SeverityPill({ severity }: { severity: Finding["severity"] }) {
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${SEVERITY_COLORS[severity] || ""}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.6875rem] font-medium leading-none capitalize ${SEV_PILL[severity]}`}
+    >
+      <span aria-hidden>●</span>
       {severity}
     </span>
   );
 }
 
-function FindingsTable({ findings, label }: { findings: Finding[]; label: string }) {
-  if (findings.length === 0) {
-    return <p className="text-sm text-[#71717a] italic">No {label.toLowerCase()}</p>;
+// ──────────────────────────────────────────────────────────────────────────────
+// Scan picker card.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function statusToken(status: Scan["status"]): string {
+  switch (status) {
+    case "completed":
+      return "bg-accent-soft text-accent";
+    case "running":
+    case "pending":
+      return "bg-surface-2 text-muted";
+    case "failed":
+      return "bg-sev-critical-bg text-sev-critical";
+    case "cancelled":
+      return "bg-surface-2 text-muted";
+    default:
+      return "bg-surface-2 text-muted";
+  }
+}
+
+function formatDate(scan: Scan): string {
+  const ts = scan.completed_at ?? scan.started_at;
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString();
+}
+
+function ScanPickerCard({
+  label,
+  value,
+  onChange,
+  scans,
+  loading,
+  otherValue,
+}: {
+  label: string;
+  value: string;
+  onChange: (id: string) => void;
+  scans: Scan[];
+  loading: boolean;
+  otherValue: string;
+}) {
+  const selected = scans.find((s) => s.id === value);
+
+  return (
+    <div className="rounded-md border border-border bg-card p-5 space-y-4 min-w-0">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium text-muted uppercase tracking-wider">
+          {label}
+        </span>
+        {selected && (
+          <span
+            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-medium uppercase tracking-wider ${statusToken(selected.status)}`}
+          >
+            {selected.status}
+          </span>
+        )}
+      </div>
+
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={loading}
+        className="w-full h-9 px-3 rounded-md border border-border bg-surface-2 text-sm text-foreground focus:outline-none focus:border-border-strong focus:ring-2 focus:ring-ring transition-colors disabled:opacity-60"
+      >
+        <option value="">
+          {loading ? "Loading scans…" : "Select a scan…"}
+        </option>
+        {scans.map((s) => {
+          const ts = s.completed_at ?? s.started_at;
+          const date = ts ? new Date(ts).toLocaleDateString() : "pending";
+          const tail = s.target_path.split("/").slice(-2).join("/") ||
+            s.target_path;
+          const disabled = s.id === otherValue;
+          return (
+            <option key={s.id} value={s.id} disabled={disabled}>
+              {date} — {tail} ({s.findings_count})
+              {disabled ? " · already chosen" : ""}
+            </option>
+          );
+        })}
+      </select>
+
+      {selected ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
+          <dt className="flex items-center gap-1.5 text-muted">
+            <FileText size={12} />
+            Target
+          </dt>
+          <dd
+            className="font-mono text-foreground-strong truncate"
+            title={selected.target_path}
+          >
+            {selected.target_path}
+          </dd>
+
+          <dt className="flex items-center gap-1.5 text-muted">
+            <Calendar size={12} />
+            Date
+          </dt>
+          <dd className="text-foreground-strong">{formatDate(selected)}</dd>
+
+          <dt className="flex items-center gap-1.5 text-muted">
+            <Hash size={12} />
+            Findings
+          </dt>
+          <dd className="text-foreground-strong tabular-nums">
+            {selected.findings_count}
+          </dd>
+
+          <dt className="flex items-center gap-1.5 text-muted">
+            <ShieldCheck size={12} />
+            Scan ID
+          </dt>
+          <dd
+            className="font-mono text-muted truncate text-[0.6875rem]"
+            title={selected.id}
+          >
+            {selected.id}
+          </dd>
+        </dl>
+      ) : (
+        <p className="text-xs text-muted">
+          Choose a completed scan to populate target, date, and finding count.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Diff summary chip strip.
+// ──────────────────────────────────────────────────────────────────────────────
+
+function SummaryChips({ summary }: { summary: CompareResult["summary"] }) {
+  const items: {
+    key: string;
+    icon: ReactNode;
+    label: string;
+    count: number;
+    className: string;
+  }[] = [
+    {
+      key: "added",
+      icon: <Plus size={12} strokeWidth={2.5} />,
+      label: "added",
+      count: summary.new_count,
+      className: "bg-sev-critical-bg text-sev-critical",
+    },
+    {
+      key: "removed",
+      icon: <Minus size={12} strokeWidth={2.5} />,
+      label: "removed",
+      count: summary.fixed_count,
+      className: "bg-accent-soft text-accent",
+    },
+    {
+      key: "unchanged",
+      icon: <Equal size={12} strokeWidth={2.5} />,
+      label: "unchanged",
+      count: summary.unchanged_count,
+      className: "bg-surface-2 text-muted",
+    },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {items.map((it) => (
+        <span
+          key={it.key}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium ${it.className}`}
+        >
+          {it.icon}
+          <span className="tabular-nums font-semibold">{it.count}</span>
+          <span className="text-muted/0">·</span>
+          <span>{it.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Diff findings table — shared shape between tabs, but the leftmost column
+// changes meaning per row's diff state.
+// ──────────────────────────────────────────────────────────────────────────────
+
+type DiffState = "added" | "removed" | "unchanged";
+
+interface DiffRow {
+  finding: Finding;
+  state: DiffState;
+}
+
+function DiffMarker({ state }: { state: DiffState }) {
+  if (state === "added") {
+    return (
+      <span
+        aria-label="new"
+        className="inline-flex items-center justify-center w-5 h-5 rounded bg-sev-critical-bg text-sev-critical"
+      >
+        <Plus size={12} strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (state === "removed") {
+    return (
+      <span
+        aria-label="resolved"
+        className="inline-flex items-center justify-center w-5 h-5 rounded bg-accent-soft text-accent"
+      >
+        <Minus size={12} strokeWidth={2.5} />
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-label="unchanged"
+      className="inline-flex items-center justify-center w-5 h-5 rounded bg-surface-2 text-muted"
+    >
+      <Equal size={12} strokeWidth={2} />
+    </span>
+  );
+}
+
+function DiffTable({
+  rows,
+  emptyTitle,
+  emptyHint,
+}: {
+  rows: DiffRow[];
+  emptyTitle: string;
+  emptyHint: string;
+}) {
+  const sorted = useMemo(() => {
+    const copy = [...rows];
+    copy.sort((a, b) => {
+      const sa = SEV_ORDER[a.finding.severity] ?? 99;
+      const sb = SEV_ORDER[b.finding.severity] ?? 99;
+      if (sa !== sb) return sa - sb;
+      return (a.finding.title ?? "").localeCompare(b.finding.title ?? "");
+    });
+    return copy;
+  }, [rows]);
+
+  if (sorted.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-card px-4 py-12 text-center">
+        <p className="text-sm font-medium text-foreground-strong">
+          {emptyTitle}
+        </p>
+        <p className="text-xs text-muted mt-1">{emptyHint}</p>
+      </div>
+    );
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-[#262626] text-left text-[#a1a1aa]">
-            <th className="pb-2 pr-4 font-medium">Severity</th>
-            <th className="pb-2 pr-4 font-medium">Title</th>
-            <th className="pb-2 font-medium">File</th>
-          </tr>
-        </thead>
-        <tbody>
-          {findings.map((f) => (
-            <tr key={f.id} className="border-b border-[#1a1a1a]">
-              <td className="py-2 pr-4"><SeverityBadge severity={f.severity} /></td>
-              <td className="py-2 pr-4 text-[#ededed]">{f.title}</td>
-              <td className="py-2 text-[#a1a1aa] font-mono text-xs">
-                {f.file_path || "—"}{f.line_start ? `:${f.line_start}` : ""}
-              </td>
+    <div className="rounded-md border border-border bg-card overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-surface-2 border-b border-border">
+            <tr>
+              <th className="px-4 py-2.5 w-10" aria-label="diff status" />
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[110px]">
+                Severity
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[140px]">
+                Scanner
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                Title
+              </th>
+              <th className="px-4 py-2.5 text-left text-xs font-medium text-muted uppercase tracking-wider w-[36ch]">
+                File
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {sorted.map(({ finding, state }) => (
+              <tr
+                key={`${state}-${finding.id}`}
+                className={`border-b border-border/60 last:border-0 transition-colors ${
+                  state === "added"
+                    ? "hover:bg-sev-critical-bg/40"
+                    : state === "removed"
+                    ? "hover:bg-accent-soft/40"
+                    : "hover:bg-surface-2/50"
+                }`}
+              >
+                <td className="px-4 py-2 align-top">
+                  <DiffMarker state={state} />
+                </td>
+                <td className="px-4 py-2 align-top">
+                  <SeverityPill severity={finding.severity} />
+                </td>
+                <td className="px-4 py-2 font-mono text-xs text-muted align-top">
+                  {finding.scanner}
+                </td>
+                <td className="px-4 py-2 align-top">
+                  <div
+                    className={`text-sm leading-snug ${
+                      state === "removed"
+                        ? "text-muted line-through decoration-muted/60"
+                        : "text-foreground-strong"
+                    }`}
+                  >
+                    {finding.title}
+                  </div>
+                  {finding.rule_id && (
+                    <div className="text-[0.6875rem] font-mono text-muted mt-0.5">
+                      {finding.rule_id}
+                    </div>
+                  )}
+                </td>
+                <td className="px-4 py-2 font-mono text-xs text-muted align-top">
+                  {finding.file_path ? (
+                    <span className="truncate inline-block max-w-[36ch] align-bottom" title={`${finding.file_path}${finding.line_start ? `:${finding.line_start}` : ""}`}>
+                      {finding.file_path}
+                      {finding.line_start ? (
+                        <span className="text-muted">:{finding.line_start}</span>
+                      ) : null}
+                    </span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function CollapsibleSection({
-  title,
-  icon,
-  count,
-  colorClass,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  icon: string;
-  count: number;
-  colorClass: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
+// ──────────────────────────────────────────────────────────────────────────────
+// Page.
+// ──────────────────────────────────────────────────────────────────────────────
 
-  return (
-    <div className="rounded-xl border border-[#262626] bg-[#141414] overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#1a1a1a] transition-colors"
-      >
-        {open ? <ChevronDown size={16} className="text-[#71717a]" /> : <ChevronRight size={16} className="text-[#71717a]" />}
-        <span className="text-lg">{icon}</span>
-        <span className="font-medium text-[#ededed]">{title}</span>
-        <span className={`ml-auto px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}>
-          {count}
-        </span>
-      </button>
-      {open && <div className="px-5 pb-5 border-t border-[#262626] pt-4">{children}</div>}
-    </div>
-  );
-}
-
-function scanLabel(scan: Scan): string {
-  const date = scan.completed_at
-    ? new Date(scan.completed_at).toLocaleDateString()
-    : scan.started_at
-    ? new Date(scan.started_at).toLocaleDateString()
-    : "pending";
-  const path = scan.target_path.split("/").pop() || scan.target_path;
-  return `${path} — ${date} (${scan.status})`;
-}
+type DiffTab = "all" | "new" | "resolved" | "unchanged";
 
 export default function ComparePage() {
   const [scans, setScans] = useState<Scan[]>([]);
+  const [scansLoading, setScansLoading] = useState(true);
+  const [scansError, setScansError] = useState<string | null>(null);
+
   const [scanAId, setScanAId] = useState("");
   const [scanBId, setScanBId] = useState("");
+
   const [result, setResult] = useState<CompareResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [scansLoading, setScansLoading] = useState(true);
+  const [comparing, setComparing] = useState(false);
+  const [compareError, setCompareError] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<DiffTab>("all");
 
   useEffect(() => {
+    let cancelled = false;
     fetchScans()
       .then((data) => {
+        if (cancelled) return;
         setScans(data.filter((s) => s.status === "completed"));
       })
-      .catch(() => setError("Failed to load scans"))
-      .finally(() => setScansLoading(false));
+      .catch(() => {
+        if (cancelled) return;
+        setScansError(
+          "Failed to load scans. Is the backend running on /api/v1?",
+        );
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setScansLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  const canCompare =
+    !!scanAId && !!scanBId && scanAId !== scanBId && !comparing;
+
   async function handleCompare() {
-    if (!scanAId || !scanBId) return;
-    setLoading(true);
-    setError(null);
+    if (!canCompare) return;
+    setComparing(true);
+    setCompareError(null);
     setResult(null);
     try {
       const data = await compareScans(scanAId, scanBId);
       setResult(data);
+      setTab("all");
     } catch {
-      setError("Failed to compare scans. Make sure both scans are valid.");
+      setCompareError(
+        "Failed to compare scans. Make sure both are completed scans on the same target.",
+      );
     } finally {
-      setLoading(false);
+      setComparing(false);
     }
   }
 
+  function handleSwap() {
+    setScanAId(scanBId);
+    setScanBId(scanAId);
+    setResult(null);
+  }
+
+  // Build the unified diff row list for whichever tab is active.
+  const allRows: DiffRow[] = useMemo(() => {
+    if (!result) return [];
+    return [
+      ...result.new_findings.map<DiffRow>((f) => ({
+        finding: f,
+        state: "added",
+      })),
+      ...result.fixed_findings.map<DiffRow>((f) => ({
+        finding: f,
+        state: "removed",
+      })),
+      ...result.unchanged_findings.map<DiffRow>((f) => ({
+        finding: f,
+        state: "unchanged",
+      })),
+    ];
+  }, [result]);
+
+  const visibleRows = useMemo(() => {
+    if (!result) return [];
+    if (tab === "all") return allRows;
+    if (tab === "new") return allRows.filter((r) => r.state === "added");
+    if (tab === "resolved") return allRows.filter((r) => r.state === "removed");
+    return allRows.filter((r) => r.state === "unchanged");
+  }, [tab, allRows, result]);
+
+  const emptyCopy: Record<DiffTab, { title: string; hint: string }> = {
+    all: {
+      title: "No findings on either side",
+      hint: "Both scans came back clean — nothing to diff.",
+    },
+    new: {
+      title: "No new findings",
+      hint: "Nothing regressed between the baseline and the latest scan.",
+    },
+    resolved: {
+      title: "Nothing resolved",
+      hint: "No prior findings dropped off in the latest scan.",
+    },
+    unchanged: {
+      title: "Nothing unchanged",
+      hint: "Every finding on either side either appeared or disappeared.",
+    },
+  };
+
+  const tabs: { key: DiffTab; label: string; count: number | null }[] = result
+    ? [
+        { key: "all", label: "All", count: allRows.length },
+        { key: "new", label: "New findings", count: result.summary.new_count },
+        {
+          key: "resolved",
+          label: "Resolved",
+          count: result.summary.fixed_count,
+        },
+        {
+          key: "unchanged",
+          label: "Unchanged",
+          count: result.summary.unchanged_count,
+        },
+      ]
+    : [];
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight flex items-center gap-3">
-        <ArrowLeftRight size={24} className="text-blue-500" />
-        Compare Scans
-      </h1>
+    <div className="space-y-6 max-w-6xl">
+      <PageHeader
+        title="Compare scans"
+        meta="Side-by-side diff of two scans on the same target. Useful before merging a PR."
+      />
 
-      {/* Scan selectors */}
-      <div className="rounded-xl border border-[#262626] bg-[#141414] p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-[#a1a1aa] mb-2">
-              Scan A (Baseline)
-            </label>
-            <select
-              value={scanAId}
-              onChange={(e) => setScanAId(e.target.value)}
-              disabled={scansLoading}
-              className="w-full rounded-lg border border-[#262626] bg-[#0a0a0a] text-[#ededed] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-            >
-              <option value="">Select baseline scan…</option>
-              {scans.map((s) => (
-                <option key={s.id} value={s.id}>{scanLabel(s)}</option>
-              ))}
-            </select>
+      {/* Selectors */}
+      <section className="space-y-4">
+        {scansError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-sev-critical/30 bg-sev-critical-bg px-3 py-2 text-sm text-sev-critical"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>{scansError}</span>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-[#a1a1aa] mb-2">
-              Scan B (Latest)
-            </label>
-            <select
-              value={scanBId}
-              onChange={(e) => setScanBId(e.target.value)}
-              disabled={scansLoading}
-              className="w-full rounded-lg border border-[#262626] bg-[#0a0a0a] text-[#ededed] px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-4 md:items-stretch">
+          <ScanPickerCard
+            label="Baseline scan"
+            value={scanAId}
+            onChange={setScanAId}
+            scans={scans}
+            loading={scansLoading}
+            otherValue={scanBId}
+          />
+          <div className="flex md:flex-col items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={handleSwap}
+              disabled={!scanAId && !scanBId}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md border border-border bg-surface-2 text-foreground-strong text-xs font-medium hover:bg-border transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Swap baseline and latest"
             >
-              <option value="">Select latest scan…</option>
-              {scans.map((s) => (
-                <option key={s.id} value={s.id}>{scanLabel(s)}</option>
-              ))}
-            </select>
+              <ArrowLeftRight size={14} />
+              Swap
+            </button>
           </div>
+          <ScanPickerCard
+            label="Latest scan"
+            value={scanBId}
+            onChange={setScanBId}
+            scans={scans}
+            loading={scansLoading}
+            otherValue={scanAId}
+          />
         </div>
 
-        <button
-          onClick={handleCompare}
-          disabled={!scanAId || !scanBId || loading || scanAId === scanBId}
-          className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
-        >
-          <ArrowLeftRight size={16} />
-          {loading ? "Comparing…" : "Compare"}
-        </button>
-      </div>
-
-      {error && (
-        <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 flex items-center gap-3">
-          <AlertTriangle size={18} className="text-red-400 shrink-0" />
-          <p className="text-red-400 text-sm">{error}</p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleCompare}
+            disabled={!canCompare}
+            className="inline-flex items-center gap-2 h-9 px-4 rounded-md bg-accent text-accent-foreground text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {comparing ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Comparing…
+              </>
+            ) : (
+              <>
+                <ArrowLeftRight size={14} />
+                Compare
+              </>
+            )}
+          </button>
+          {scanAId && scanBId && scanAId === scanBId && (
+            <span className="text-xs text-muted">
+              Pick two different scans to compare.
+            </span>
+          )}
         </div>
-      )}
 
-      {/* Results */}
+        {compareError && (
+          <div
+            role="alert"
+            className="flex items-start gap-2 rounded-md border border-sev-critical/30 bg-sev-critical-bg px-3 py-2 text-sm text-sev-critical"
+          >
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>{compareError}</span>
+          </div>
+        )}
+      </section>
+
+      {/* Result */}
       {result && (
-        <div className="space-y-4">
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-center">
-              <p className="text-2xl font-bold text-red-400">{result.summary.new_count}</p>
-              <p className="text-xs text-red-400/70 mt-1">New (Regressions)</p>
-            </div>
-            <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4 text-center">
-              <p className="text-2xl font-bold text-green-400">{result.summary.fixed_count}</p>
-              <p className="text-xs text-green-400/70 mt-1">Fixed (Resolved)</p>
-            </div>
-            <div className="rounded-xl border border-[#262626] bg-[#141414] p-4 text-center">
-              <p className="text-2xl font-bold text-[#a1a1aa]">{result.summary.unchanged_count}</p>
-              <p className="text-xs text-[#71717a] mt-1">Unchanged</p>
-            </div>
-            <div className={`rounded-xl border p-4 text-center ${
-              result.summary.risk_delta > 0
-                ? "border-red-500/20 bg-red-500/5"
-                : result.summary.risk_delta < 0
-                ? "border-green-500/20 bg-green-500/5"
-                : "border-[#262626] bg-[#141414]"
-            }`}>
-              <p className={`text-2xl font-bold ${
-                result.summary.risk_delta > 0
-                  ? "text-red-400"
-                  : result.summary.risk_delta < 0
-                  ? "text-green-400"
-                  : "text-[#a1a1aa]"
-              }`}>
-                {result.summary.risk_delta > 0 ? "+" : ""}{result.summary.risk_delta}
-              </p>
-              <p className="text-xs text-[#71717a] mt-1">Risk Delta</p>
+        <section className="space-y-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <SummaryChips summary={result.summary} />
+            <p className="text-xs text-muted">
+              Risk delta:{" "}
+              <span
+                className={`tabular-nums font-semibold ${
+                  result.summary.risk_delta > 0
+                    ? "text-sev-critical"
+                    : result.summary.risk_delta < 0
+                    ? "text-accent"
+                    : "text-foreground-strong"
+                }`}
+              >
+                {result.summary.risk_delta > 0 ? "+" : ""}
+                {result.summary.risk_delta}
+              </span>
+            </p>
+          </div>
+
+          {/* Tabs */}
+          <div className="border-b border-border">
+            <div
+              role="tablist"
+              aria-label="Diff filter"
+              className="flex gap-1 -mb-px"
+            >
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  role="tab"
+                  aria-selected={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`inline-flex items-center gap-2 px-3 h-9 text-xs font-medium border-b-2 transition-colors ${
+                    tab === t.key
+                      ? "border-accent text-foreground-strong"
+                      : "border-transparent text-muted hover:text-foreground-strong"
+                  }`}
+                >
+                  {t.label}
+                  {t.count != null && (
+                    <span
+                      className={`tabular-nums px-1.5 py-0.5 rounded text-[0.6875rem] font-medium ${
+                        tab === t.key
+                          ? "bg-accent-soft text-accent"
+                          : "bg-surface-2 text-muted"
+                      }`}
+                    >
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Findings sections */}
-          <CollapsibleSection
-            title="New Findings (Regressions)"
-            icon="🔴"
-            count={result.summary.new_count}
-            colorClass="bg-red-500/20 text-red-400"
-            defaultOpen={result.summary.new_count > 0}
-          >
-            <FindingsTable findings={result.new_findings} label="new findings" />
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Fixed Findings (Resolved)"
-            icon="✅"
-            count={result.summary.fixed_count}
-            colorClass="bg-green-500/20 text-green-400"
-            defaultOpen={result.summary.fixed_count > 0}
-          >
-            <FindingsTable findings={result.fixed_findings} label="fixed findings" />
-          </CollapsibleSection>
-
-          <CollapsibleSection
-            title="Unchanged Findings"
-            icon="⚪"
-            count={result.summary.unchanged_count}
-            colorClass="bg-neutral-500/20 text-neutral-400"
-          >
-            <FindingsTable findings={result.unchanged_findings} label="unchanged findings" />
-          </CollapsibleSection>
-        </div>
+          <DiffTable
+            rows={visibleRows}
+            emptyTitle={emptyCopy[tab].title}
+            emptyHint={emptyCopy[tab].hint}
+          />
+        </section>
       )}
     </div>
   );
