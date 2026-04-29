@@ -55,6 +55,9 @@ jobs:
 | `prefer-image`     | `false`          | Skip the wheel install path and always run the container image.                                   |
 | `baseline`         | (none)           | Path (relative to repo root) of a baseline JSON file to suppress legacy findings on **both** sides. |
 | `github-token`     | `${{ github.token }}` | Token used for PR comment upsert.                                                            |
+| `pr-mode`          | `summary`        | Where to post the diff: `summary` (single PR comment, the v0.2.0 default), `inline` (one GitHub Review with one comment per finding anchored at the offending line), or `both`. Inline modes require a `pull_request` event. |
+| `review-event`     | `COMMENT`        | GitHub Reviews API event when `pr-mode` includes inline submission: `COMMENT`, `REQUEST_CHANGES`, or `APPROVE`. `COMMENT` is the default to avoid silently blocking merges via branch protection. |
+| `inline-suggestions` | `true`         | Include suggestion blocks (one-click apply) in inline review comments where SecureScan can construct a mechanical fix. Set to `false` for compact comment bodies. |
 
 ## Outputs
 
@@ -63,8 +66,50 @@ The action writes two artefacts to `${GITHUB_WORKSPACE}/.securescan/`:
 - `diff.md` -- the rendered PR comment body (also posted by the action).
 - `diff.sarif` -- the SARIF document uploaded to the Security tab.
 
+When `pr-mode` is `inline` or `both`, the action additionally writes:
+
+- `review.json` -- the GitHub Reviews API payload (the body submitted by
+  the action; useful to inspect or diff between runs).
+
 You can `actions/upload-artifact` either of these if you want to keep
 them around longer than the run.
+
+## PR comment modes
+
+`pr-mode` selects where SecureScan posts the diff. The default `summary`
+preserves v0.2.0/v0.3.0 single-comment behaviour for every existing
+caller; opt into the new modes by setting the input explicitly.
+
+- **`summary`** (default) -- one PR comment summarising every new
+  finding, upserted on each push via the `<!-- securescan:diff -->`
+  marker. Backward-compatible with v0.2.0 callers.
+- **`inline`** -- a single GitHub Review with one inline comment per
+  finding anchored at the offending line. Findings whose line is outside
+  the PR's diff fall back into the review body. Each comment carries a
+  hidden fingerprint trailer so re-runs edit the existing comment instead
+  of duplicating it.
+- **`both`** -- posts the summary comment AND the inline review. Useful
+  for repos that want a high-level overview in `Conversation` plus
+  per-line context in the `Files changed` tab.
+
+```yaml
+- uses: Metbcy/securescan@v1
+  with:
+    pr-mode: inline
+    review-event: COMMENT          # or REQUEST_CHANGES to block merge
+    inline-suggestions: 'true'     # one-click apply for mechanical fixes
+```
+
+`pr-mode: inline` and `pr-mode: both` require a `pull_request` event
+payload (the inline anchors need the PR's diff). On any other event
+SecureScan logs a warning and skips the inline submission rather than
+failing the workflow; the summary path (when `pr-mode` is `summary` or
+`both`) continues to follow the existing `pull_request`-only gate.
+
+`review-event: COMMENT` is the default. `REQUEST_CHANGES` blocks merging
+when the repo has branch protection requiring approving reviews, which
+is great for some workflows and hostile in others -- pick it
+deliberately.
 
 ## Pinning
 
@@ -103,14 +148,17 @@ default `latest`:
 | Permission               | Why                                |
 | ------------------------ | ---------------------------------- |
 | `contents: read`         | Checkout + diff against base.      |
-| `pull-requests: write`   | Create / update the PR comment.    |
+| `pull-requests: write`   | Create / update the PR comment AND submit inline reviews (the GitHub Reviews API uses the same scope as issue comments -- no extra permission needed for `pr-mode: inline` or `both`). |
 | `security-events: write` | Upload SARIF to the Security tab.  |
 
 ## Local self-test
 
 `action/test-resolve.sh` exercises `entrypoint-resolve.sh` against
-synthetic event payloads. Run it from the repo root:
+synthetic event payloads. `action/test-pr-mode.sh` exercises
+`entrypoint.sh`'s `pr-mode` dispatch (summary / inline / both, plus the
+non-PR-event guard). Run them from the repo root:
 
 ```bash
 bash action/test-resolve.sh
+bash action/test-pr-mode.sh
 ```

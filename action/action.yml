@@ -45,6 +45,29 @@ inputs:
     description: Token used for PR comment upsert. Defaults to GITHUB_TOKEN.
     required: false
     default: ${{ github.token }}
+  pr-mode:
+    description: |
+      Where to post the diff: "summary" posts a single PR comment summarizing
+      all findings (the v0.2.0 default); "inline" posts a single GitHub Review
+      with one inline comment per finding anchored at the offending line; "both"
+      posts both. Inline mode requires pull-requests: write permission and the
+      standard pull_request event payload.
+    required: false
+    default: summary
+  review-event:
+    description: |
+      Event type for the GitHub Review when pr-mode is "inline" or "both". One of:
+      COMMENT (default), REQUEST_CHANGES (blocks merge via branch protection),
+      APPROVE. Only effective when pr-mode includes inline review submission.
+    required: false
+    default: COMMENT
+  inline-suggestions:
+    description: |
+      Include suggestion blocks in inline review comments (one-click apply for
+      severity-pin / inline-ignore where SecureScan can construct a mechanical fix).
+      Defaults to true; set to false for compact comment bodies.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -70,6 +93,9 @@ runs:
         INPUT_PREFER_IMAGE: ${{ inputs.prefer-image }}
         INPUT_BASELINE: ${{ inputs.baseline }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_PR_MODE: ${{ inputs.pr-mode }}
+        INPUT_REVIEW_EVENT: ${{ inputs.review-event }}
+        INPUT_INLINE_SUGGESTIONS: ${{ inputs.inline-suggestions }}
     - name: Upload SARIF to Security tab
       if: always() && inputs.upload-sarif == 'true'
       uses: github/codeql-action/upload-sarif@v3
