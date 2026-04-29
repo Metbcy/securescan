@@ -803,7 +803,7 @@ def test_compare_command_accepts_show_suppressed_flag(tmp_path, monkeypatch):
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
 
-    async def _stub_scan(_target, _types, *, enable_ai):  # noqa: ARG001
+    async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
     monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
@@ -827,7 +827,7 @@ def test_compare_command_accepts_hide_suppressed_flag(tmp_path, monkeypatch):
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
 
-    async def _stub_scan(_target, _types, *, enable_ai):  # noqa: ARG001
+    async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
     monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
@@ -851,7 +851,7 @@ def test_compare_command_accepts_no_suppress_flag(tmp_path, monkeypatch):
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
 
-    async def _stub_scan(_target, _types, *, enable_ai):  # noqa: ARG001
+    async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
     monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
@@ -878,7 +878,7 @@ def test_scan_command_accepts_show_suppressed_flag(monkeypatch):
     from securescan import cli as cli_mod
     from securescan.models import Scan, ScanStatus
 
-    async def _stub_run_scan_async(target, types, *, enable_ai):  # noqa: ARG001
+    async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
         return (
             Scan(
                 target_path=target,
@@ -901,7 +901,7 @@ def test_scan_command_accepts_hide_suppressed_flag(monkeypatch):
     from securescan import cli as cli_mod
     from securescan.models import Scan, ScanStatus
 
-    async def _stub_run_scan_async(target, types, *, enable_ai):  # noqa: ARG001
+    async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
         return (
             Scan(
                 target_path=target,
@@ -924,7 +924,7 @@ def test_scan_command_accepts_no_suppress_flag(monkeypatch):
     from securescan import cli as cli_mod
     from securescan.models import Scan, ScanStatus
 
-    async def _stub_run_scan_async(target, types, *, enable_ai):  # noqa: ARG001
+    async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
         return (
             Scan(
                 target_path=target,

@@ -75,7 +75,7 @@ def _stub_run_scan(monkeypatch, findings: list[Finding]) -> None:
     same private helper as diff, so this is the right seam to fake.
     """
 
-    async def _fake_run_scan(target_path, scan_types, *, enable_ai):
+    async def _fake_run_scan(target_path, scan_types, *, enable_ai, scanner_kwargs=None):
         return list(findings)
 
     monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _fake_run_scan)
