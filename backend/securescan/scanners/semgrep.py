@@ -1,6 +1,8 @@
 import asyncio
 import json
 import shutil
+import sys
+from pathlib import Path
 
 from .base import BaseScanner
 from ..models import Finding, ScanType, Severity
@@ -28,10 +30,39 @@ class SemgrepScanner(BaseScanner):
         return "pip install semgrep"
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
+        semgrep_rules: list[Path] | None = kwargs.get("semgrep_rules")
+
+        # Validate any user-supplied rule paths *before* invoking semgrep so a
+        # typo in ``.securescan.yml`` fails fast instead of silently falling
+        # back to ``--config auto`` (which would mask the misconfiguration).
+        if semgrep_rules:
+            for rule_path in semgrep_rules:
+                p = Path(rule_path)
+                if not p.exists():
+                    raise FileNotFoundError(
+                        f"Semgrep rule path does not exist: {p} "
+                        f"(paths in .securescan.yml are resolved relative to "
+                        f"the config file's directory)"
+                    )
+
+        if semgrep_rules:
+            config_args: list[str] = []
+            for rule_path in semgrep_rules:
+                config_args.extend(["--config", str(rule_path)])
+            print(
+                f"using {len(semgrep_rules)} custom Semgrep rule pack(s): "
+                f"{[str(p) for p in semgrep_rules]}",
+                file=sys.stderr,
+            )
+        else:
+            config_args = ["--config", "auto"]
+
+        argv = ["semgrep", "scan", "--json", *config_args, target_path]
+
         findings: list[Finding] = []
         try:
             proc = await asyncio.create_subprocess_exec(
-                "semgrep", "scan", "--json", "--config", "auto", target_path,
+                *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
