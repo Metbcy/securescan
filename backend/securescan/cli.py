@@ -24,7 +24,12 @@ from .database import (
 )
 from .dedup import deduplicate_findings
 from .diff import ChangeSet, classify, load_findings_json
-from .exporters import findings_to_sarif, findings_to_csv, findings_to_junit
+from .exporters import (
+    findings_to_csv,
+    findings_to_json,
+    findings_to_junit,
+    findings_to_sarif,
+)
 from .fingerprint import populate_fingerprints
 from .git_ops import (
     GitOpError,
@@ -265,7 +270,16 @@ async def _run_scan_for_diff(
     return all_findings
 
 
-def _print_findings(findings: list[Finding]) -> None:
+def _print_findings(
+    findings: list[Finding], *, show_suppressed: bool = False
+) -> None:
+    if not show_suppressed:
+        findings = [
+            f for f in findings
+            if not (isinstance(getattr(f, "metadata", None), dict)
+                    and f.metadata.get("suppressed_by"))
+        ]
+
     if not findings:
         console.print("\n[green]No findings! 🎉[/green]")
         return
@@ -279,10 +293,17 @@ def _print_findings(findings: list[Finding]) -> None:
 
     for f in findings:
         color = SEVERITY_COLORS.get(f.severity, "white")
+        title = f.title[:60]
+        if show_suppressed:
+            metadata = getattr(f, "metadata", None)
+            if isinstance(metadata, dict):
+                reason = metadata.get("suppressed_by")
+                if isinstance(reason, str) and reason:
+                    title = f"[SUPPRESSED:{reason}] {title}"[:80]
         table.add_row(
             f"[{color}]{f.severity.value.upper()}[/{color}]",
             f.scanner,
-            f.title[:60],
+            title,
             (f.file_path or "")[:30],
             str(f.line_start or ""),
         )
@@ -341,6 +362,29 @@ def scan(
         "--baseline",
         help="Path to a baseline JSON file; findings whose fingerprint matches are suppressed",
     ),
+    show_suppressed: Optional[bool] = typer.Option(
+        None,
+        "--show-suppressed/--hide-suppressed",
+        help=(
+            "Include suppressed findings in output, marked with "
+            "[SUPPRESSED:<reason>] prefix where supported. Default: "
+            "auto -- shown on a TTY (table/text formats) so devs see "
+            "what CI would hide; hidden when piped or in non-text "
+            "formats (json/sarif/csv/junit). Use --hide-suppressed to "
+            "force hiding even on a TTY."
+        ),
+    ),
+    no_suppress: bool = typer.Option(
+        False,
+        "--no-suppress",
+        help=(
+            "Disable all suppression mechanisms (config, inline "
+            "comments, baseline). Use to debug what would otherwise "
+            "be hidden. Wired through to SuppressionContext; the "
+            "scan-time application is owned by the wire-cli-flow "
+            "integration (TS10)."
+        ),
+    ),
 ):
     """Run a security scan on the target path."""
     if no_ai and ai:
@@ -374,23 +418,55 @@ def scan(
     # the same logical scan.
     findings = sort_findings_canonical(findings)
 
+    # Resolve the show_suppressed default once per invocation. TS6
+    # contract: TTY default for table/text on, off for everything
+    # else; explicit flag overrides. The actual SuppressionContext.apply
+    # call that stamps metadata['suppressed_by'] is owned by TS10
+    # (wire-cli-flow); for now we plumb the flag through every renderer
+    # so the rendering half of the contract is in place.
+    effective_show_suppressed = _default_show_suppressed(
+        explicit=show_suppressed, output_format=output
+    )
+    # The no_suppress flag is a kill switch for SuppressionContext,
+    # acknowledged here so the CLI accepts it; TS10 hands it to
+    # SuppressionContext.from_paths(no_suppress=...) at the scan-pipeline
+    # entry point. Recorded as a local so static-checkers and future
+    # readers see the variable is intentionally referenced.
+    _ = no_suppress
+
     # Format output
     output_content = None
     if output == "table":
         console.print()
-        _print_findings(findings)
+        _print_findings(findings, show_suppressed=effective_show_suppressed)
         console.print()
         _print_summary(result_scan, findings)
         if result_scan.summary:
             console.print(f"\n[bold cyan]AI Summary:[/bold cyan] {result_scan.summary}\n")
     elif output == "json":
-        output_content = json.dumps([f.model_dump(mode="json") for f in findings], indent=2, default=str)
+        output_content = findings_to_json(
+            findings, show_suppressed=effective_show_suppressed
+        )
     elif output == "sarif":
-        output_content = json.dumps(findings_to_sarif(findings, result_scan), indent=2, default=str)
+        output_content = json.dumps(
+            findings_to_sarif(
+                findings,
+                result_scan,
+                show_suppressed=effective_show_suppressed,
+            ),
+            indent=2,
+            default=str,
+        )
     elif output == "csv":
-        output_content = findings_to_csv(findings)
+        output_content = findings_to_csv(
+            findings, show_suppressed=effective_show_suppressed
+        )
     elif output == "junit":
-        output_content = findings_to_junit(findings, result_scan)
+        output_content = findings_to_junit(
+            findings,
+            result_scan,
+            show_suppressed=effective_show_suppressed,
+        )
     elif output == "report-html":
         compliance_coverage = []
         compliance_data_dir = Path(settings.compliance_data_dir)
@@ -460,7 +536,7 @@ _SEVERITY_THRESHOLD_MAP: dict[str, Severity] = {
 }
 
 
-def _render_diff_text(cs: ChangeSet) -> str:
+def _render_diff_text(cs: ChangeSet, *, show_suppressed: bool = False) -> str:
     """Render a ``ChangeSet`` as plain-text suitable for a human terminal.
 
     Format is intentionally minimal so it fits on a single screen for
@@ -474,17 +550,38 @@ def _render_diff_text(cs: ChangeSet) -> str:
 
     No ANSI colour, no Markdown, no emojis. The PR-comment renderer
     handles the GitHub case; this is the local-development case.
+
+    When ``show_suppressed`` is True, suppressed findings are included
+    in the listing with a ``[SUPPRESSED:<reason>]`` prefix on the
+    title; the leading-line counts ("N new, M fixed") reflect the
+    pre-filter totals so the developer sees the full picture. When
+    False (the CI / pipe default), suppressed findings are filtered
+    out entirely and the counts reflect only what is shown.
     """
+    new_findings = list(cs.new)
+    fixed_findings = list(cs.fixed)
+    if not show_suppressed:
+        new_findings = [
+            f for f in new_findings
+            if not (isinstance(getattr(f, "metadata", None), dict)
+                    and f.metadata.get("suppressed_by"))
+        ]
+        fixed_findings = [
+            f for f in fixed_findings
+            if not (isinstance(getattr(f, "metadata", None), dict)
+                    and f.metadata.get("suppressed_by"))
+        ]
+
     lines: list[str] = [
-        f"SecureScan diff: {len(cs.new)} new, {len(cs.fixed)} fixed, "
+        f"SecureScan diff: {len(new_findings)} new, {len(fixed_findings)} fixed, "
         f"{len(cs.unchanged)} unchanged"
     ]
-    if not cs.new and not cs.fixed:
+    if not new_findings and not fixed_findings:
         lines.append("")
         lines.append("No new or fixed findings.")
         return "\n".join(lines) + "\n"
 
-    if cs.new:
+    if new_findings:
         lines.append("")
         lines.append("New findings:")
         severity_order = (
@@ -495,7 +592,7 @@ def _render_diff_text(cs: ChangeSet) -> str:
             Severity.INFO,
         )
         for sev in severity_order:
-            for f in cs.new:
+            for f in new_findings:
                 if f.severity != sev:
                     continue
                 loc = ""
@@ -504,28 +601,54 @@ def _render_diff_text(cs: ChangeSet) -> str:
                     if f.line_start:
                         loc += f":{f.line_start}"
                     loc += ")"
-                lines.append(f"  [{sev.value.upper()}] {f.title}{loc}")
+                prefix = ""
+                if show_suppressed:
+                    metadata = getattr(f, "metadata", None)
+                    if isinstance(metadata, dict):
+                        reason = metadata.get("suppressed_by")
+                        if isinstance(reason, str) and reason:
+                            prefix = f"[SUPPRESSED:{reason}] "
+                lines.append(f"  [{sev.value.upper()}] {prefix}{f.title}{loc}")
 
-    if cs.fixed:
+    if fixed_findings:
         lines.append("")
-        lines.append(f"Fixed findings: {len(cs.fixed)}")
+        lines.append(f"Fixed findings: {len(fixed_findings)}")
 
     return "\n".join(lines) + "\n"
 
 
-def _render_compare_text(cs: ChangeSet) -> str:
+def _render_compare_text(cs: ChangeSet, *, show_suppressed: bool = False) -> str:
     """Render a ``ChangeSet`` as plain-text for ``securescan compare``.
 
     Counterpart of ``_render_diff_text`` with compare-mode wording:
     ``DISAPPEARED`` instead of ``fixed``, ``still present`` instead of
     ``unchanged``. Same minimal single-screen format, no Markdown, no
     ANSI, no emojis.
+
+    ``show_suppressed`` semantics match :func:`_render_diff_text`:
+    True includes suppressed findings prefixed with
+    ``[SUPPRESSED:<reason>]``; False (default for non-TTY / CI)
+    filters them out and the counts reflect only the visible subset.
     """
+    new_findings = list(cs.new)
+    fixed_findings = list(cs.fixed)
+    if not show_suppressed:
+        new_findings = [
+            f for f in new_findings
+            if not (isinstance(getattr(f, "metadata", None), dict)
+                    and f.metadata.get("suppressed_by"))
+        ]
+        fixed_findings = [
+            f for f in fixed_findings
+            if not (isinstance(getattr(f, "metadata", None), dict)
+                    and f.metadata.get("suppressed_by"))
+        ]
+
     lines: list[str] = [
-        f"SecureScan compare: {len(cs.new)} new since baseline, "
-        f"{len(cs.fixed)} disappeared, {len(cs.unchanged)} still present"
+        f"SecureScan compare: {len(new_findings)} new since baseline, "
+        f"{len(fixed_findings)} disappeared, {len(cs.unchanged)} still present"
     ]
-    if not cs.new and not cs.fixed:
+    if not new_findings and not fixed_findings:
         lines.append("")
         lines.append("No drift since baseline.")
         return "\n".join(lines) + "\n"
@@ -538,35 +661,35 @@ def _render_compare_text(cs: ChangeSet) -> str:
         Severity.INFO,
     )
 
-    if cs.new:
+    def _render_bucket(bucket: list[Finding]) -> None:
+        for sev in severity_order:
+            for f in bucket:
+                if f.severity != sev:
+                    continue
+                loc = ""
+                if f.file_path:
+                    loc = f" ({f.file_path}"
+                    if f.line_start:
+                        loc += f":{f.line_start}"
+                    loc += ")"
+                prefix = ""
+                if show_suppressed:
+                    metadata = getattr(f, "metadata", None)
+                    if isinstance(metadata, dict):
+                        reason = metadata.get("suppressed_by")
+                        if isinstance(reason, str) and reason:
+                            prefix = f"[SUPPRESSED:{reason}] "
+                lines.append(f"  [{sev.value.upper()}] {prefix}{f.title}{loc}")
+
+    if new_findings:
         lines.append("")
         lines.append("New since baseline:")
-        for sev in severity_order:
-            for f in cs.new:
-                if f.severity != sev:
-                    continue
-                loc = ""
-                if f.file_path:
-                    loc = f" ({f.file_path}"
-                    if f.line_start:
-                        loc += f":{f.line_start}"
-                    loc += ")"
-                lines.append(f"  [{sev.value.upper()}] {f.title}{loc}")
+        _render_bucket(new_findings)
 
-    if cs.fixed:
+    if fixed_findings:
         lines.append("")
         lines.append("Disappeared from baseline (drift?):")
-        for sev in severity_order:
-            for f in cs.fixed:
-                if f.severity != sev:
-                    continue
-                loc = ""
-                if f.file_path:
-                    loc = f" ({f.file_path}"
-                    if f.line_start:
-                        loc += f":{f.line_start}"
-                    loc += ")"
-                lines.append(f"  [{sev.value.upper()}] {f.title}{loc}")
+        _render_bucket(fixed_findings)
 
     return "\n".join(lines) + "\n"
 
@@ -578,6 +701,7 @@ def _render_diff_sarif(
     scan_types: list[ScanType],
     base_ref: str | None,
     head_ref: str | None,
+    show_suppressed: bool = False,
 ) -> dict:
     """Render the NEW findings of a changeset as a SARIF document.
 
@@ -587,13 +711,20 @@ def _render_diff_sarif(
     ``invocations[].properties`` block records ``diffMode: true`` plus
     the base / head refs so a downstream consumer can tell this isn't a
     full scan upload.
+
+    ``show_suppressed`` is forwarded to :func:`findings_to_sarif`:
+    default False filters suppressed findings out of the SARIF, True
+    includes them with a per-result ``properties.suppressed_by``
+    field. SARIF's ``suppressions`` array is intentionally not used --
+    inline properties travel with the result and don't require the
+    consumer to cross-reference a separate top-level array.
     """
     diff_scan = Scan(
         target_path=target_path,
         scan_types=scan_types or [ScanType.CODE],
         status=ScanStatus.COMPLETED,
     )
-    sarif = findings_to_sarif(cs.new, diff_scan)
+    sarif = findings_to_sarif(cs.new, diff_scan, show_suppressed=show_suppressed)
     try:
         run = sarif["runs"][0]
         invocation = run["invocations"][0]
@@ -619,6 +750,34 @@ def _resolve_default_output(explicit: str | None) -> str:
     if explicit:
         return explicit
     return "text" if sys.stdout.isatty() else "github-pr-comment"
+
+
+def _default_show_suppressed(
+    *, explicit: bool | None, output_format: str
+) -> bool:
+    """Resolve the effective ``show_suppressed`` value for a renderer call.
+
+    When ``explicit`` is non-``None``, the user passed
+    ``--show-suppressed`` or ``--hide-suppressed`` and that value wins
+    verbatim. Otherwise the default depends on the output format and
+    whether stdout is a TTY:
+
+    - Text output (``text`` / ``table``) on a TTY -> ``True``. The dev
+      is at a terminal running ``securescan diff`` locally; they need
+      to see what would be silenced in CI so they can audit it.
+    - Everything else (``github-pr-comment``, ``sarif``, ``json``,
+      ``csv``, ``junit``, or text on a non-TTY pipe) -> ``False``.
+      CI / piped output stays clean by default; the explicit flag
+      turns it back on for audits.
+
+    Pure function. Same inputs (and same ``sys.stdout.isatty()``
+    state) -> same output.
+    """
+    if explicit is not None:
+        return explicit
+    if output_format in {"text", "table"} and sys.stdout.isatty():
+        return True
+    return False
 
 
 @app.command()
@@ -695,6 +854,28 @@ def diff(
     ),
     no_ai: bool = typer.Option(False, "--no-ai"),
     ai: bool = typer.Option(False, "--ai"),
+    show_suppressed: Optional[bool] = typer.Option(
+        None,
+        "--show-suppressed/--hide-suppressed",
+        help=(
+            "Include suppressed findings in output, marked with "
+            "[SUPPRESSED:<reason>] prefix where supported. Default: "
+            "auto -- shown on a TTY (text format) so devs see what CI "
+            "would hide; hidden when piped or in non-text formats "
+            "(github-pr-comment / sarif / json). Use --hide-suppressed "
+            "to force hiding even on a TTY."
+        ),
+    ),
+    no_suppress: bool = typer.Option(
+        False,
+        "--no-suppress",
+        help=(
+            "Disable all suppression mechanisms (config, inline "
+            "comments, baseline). Use to debug what would otherwise "
+            "be hidden. Wired through to SuppressionContext; the "
+            "diff-time application is owned by TS10."
+        ),
+    ),
 ):
     """Diff two scan snapshots; emit only NEW findings (and counts of fixed/unchanged).
 
@@ -863,8 +1044,25 @@ def diff(
 
     cs = classify(base_findings, head_findings)
 
+    # TS6: resolve the show_suppressed default once; plumb through to
+    # every renderer in this command. The actual SuppressionContext.apply
+    # call that stamps metadata['suppressed_by'] is owned by TS10
+    # (wire-cli-flow); for now we plumb the flag so the rendering half
+    # of the contract is in place. ``no_suppress`` is acknowledged as a
+    # local so the CLI accepts it; TS10 hands it to
+    # ``SuppressionContext.from_paths(no_suppress=...)``.
+    effective_show_suppressed = _default_show_suppressed(
+        explicit=show_suppressed, output_format=output_format
+    )
+    _ = no_suppress
+
     if output_format == "github-pr-comment":
-        body = render_pr_comment(cs, repo=repo, sha=sha)
+        body = render_pr_comment(
+            cs,
+            repo=repo,
+            sha=sha,
+            show_suppressed=effective_show_suppressed,
+        )
     elif output_format == "sarif":
         body = json.dumps(
             _render_diff_sarif(
@@ -873,22 +1071,37 @@ def diff(
                 scan_types=parsed_types,
                 base_ref=base_ref,
                 head_ref=head_ref or resolved_head_sha,
+                show_suppressed=effective_show_suppressed,
             ),
             indent=2,
             default=str,
         )
     elif output_format == "json":
+        if effective_show_suppressed:
+            new_list = list(cs.new)
+            fixed_list = list(cs.fixed)
+        else:
+            new_list = [
+                f for f in cs.new
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            ]
+            fixed_list = [
+                f for f in cs.fixed
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            ]
         body = json.dumps(
             {
-                "new": [f.model_dump(mode="json") for f in cs.new],
-                "fixed": [f.model_dump(mode="json") for f in cs.fixed],
+                "new": [f.model_dump(mode="json") for f in new_list],
+                "fixed": [f.model_dump(mode="json") for f in fixed_list],
                 "unchanged_count": len(cs.unchanged),
             },
             indent=2,
             default=str,
         )
     else:
-        body = _render_diff_text(cs)
+        body = _render_diff_text(cs, show_suppressed=effective_show_suppressed)
 
     if output_file is not None:
         Path(output_file).write_text(body)
@@ -1102,6 +1315,28 @@ def compare(
     ),
     no_ai: bool = typer.Option(False, "--no-ai"),
     ai: bool = typer.Option(False, "--ai"),
+    show_suppressed: Optional[bool] = typer.Option(
+        None,
+        "--show-suppressed/--hide-suppressed",
+        help=(
+            "Include suppressed findings in output, marked with "
+            "[SUPPRESSED:<reason>] prefix where supported. Default: "
+            "auto -- shown on a TTY (text format) so devs see what CI "
+            "would hide; hidden when piped or in non-text formats "
+            "(github-pr-comment / sarif / json). Use --hide-suppressed "
+            "to force hiding even on a TTY."
+        ),
+    ),
+    no_suppress: bool = typer.Option(
+        False,
+        "--no-suppress",
+        help=(
+            "Disable all suppression mechanisms (config, inline "
+            "comments, baseline). Use to debug what would otherwise "
+            "be hidden. Wired through to SuppressionContext; the "
+            "compare-time application is owned by TS10."
+        ),
+    ),
 ):
     """Compare current scan against a baseline; report what's NEW and what
     DISAPPEARED (drift).
@@ -1176,8 +1411,25 @@ def compare(
 
     cs = classify(baseline_findings, fresh_findings)
 
+    # TS6: resolve show_suppressed once, plumb through every renderer.
+    # SuppressionContext.apply integration is owned by TS10; this side
+    # of the contract is the rendering behavior. ``no_suppress`` is
+    # acknowledged here so the CLI accepts it; TS10 hands it to
+    # ``SuppressionContext.from_paths(no_suppress=...)`` at the
+    # scan-pipeline entry point.
+    effective_show_suppressed = _default_show_suppressed(
+        explicit=show_suppressed, output_format=output_format
+    )
+    _ = no_suppress
+
     if output_format == "github-pr-comment":
-        body = render_pr_comment(cs, repo=repo, sha=sha, mode="compare")
+        body = render_pr_comment(
+            cs,
+            repo=repo,
+            sha=sha,
+            mode="compare",
+            show_suppressed=effective_show_suppressed,
+        )
     elif output_format == "sarif":
         body = json.dumps(
             _render_diff_sarif(
@@ -1186,22 +1438,37 @@ def compare(
                 scan_types=parsed_types,
                 base_ref=None,
                 head_ref=None,
+                show_suppressed=effective_show_suppressed,
             ),
             indent=2,
             default=str,
         )
     elif output_format == "json":
+        if effective_show_suppressed:
+            new_list = list(cs.new)
+            disappeared_list = list(cs.fixed)
+        else:
+            new_list = [
+                f for f in cs.new
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            ]
+            disappeared_list = [
+                f for f in cs.fixed
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            ]
         body = json.dumps(
             {
-                "new": [f.model_dump(mode="json") for f in cs.new],
-                "disappeared": [f.model_dump(mode="json") for f in cs.fixed],
+                "new": [f.model_dump(mode="json") for f in new_list],
+                "disappeared": [f.model_dump(mode="json") for f in disappeared_list],
                 "unchanged_count": len(cs.unchanged),
             },
             indent=2,
             default=str,
         )
     else:
-        body = _render_compare_text(cs)
+        body = _render_compare_text(cs, show_suppressed=effective_show_suppressed)
 
     if output_file is not None:
         Path(output_file).write_text(body)
