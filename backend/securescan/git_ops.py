@@ -122,3 +122,26 @@ def checkout(target: Path, ref: str) -> None:
         raise GitOpError(
             f"git checkout {ref!r} failed: {exc.stderr.strip()}"
         ) from exc
+
+
+def diff_text(target: Path, base: str, head: str) -> str:
+    """Return the unified-diff text for ``base..head`` in ``target``.
+
+    Used by the ``--output github-review`` path to feed
+    :func:`securescan.diff_position.parse_unified_diff` so the
+    renderer can resolve ``(file, line)`` to the GitHub Reviews API
+    ``position`` integer. ``--no-color`` is passed explicitly to
+    keep output ANSI-free regardless of the user's git config; the
+    diff is consumed by a parser, not a human.
+
+    Raises :class:`GitOpError` (with stderr) on failure. Typical
+    failure modes: ``base`` or ``head`` not resolvable as refs in
+    this repo, ``target`` not a git working tree.
+    """
+    try:
+        result = _run(["diff", "--no-color", base, head], cwd=target)
+        return result.stdout
+    except subprocess.CalledProcessError as exc:
+        raise GitOpError(
+            f"git diff {base!r}..{head!r} failed: {exc.stderr.strip()}"
+        ) from exc
