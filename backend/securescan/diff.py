@@ -123,6 +123,14 @@ def load_findings_json(path: Path) -> list[Finding]:
     Missing ``fingerprint`` fields are tolerated (defaulted to "")
     because the classifier will recompute them on the way through.
 
+    The loader is also intentionally lenient about the noisy fields the
+    canonical baseline format (TS8) drops -- ``scan_id``, ``description``,
+    ``remediation``, ``metadata``, ``compliance_tags``. These are not
+    inputs to the fingerprint and not consumed by the diff classifier,
+    so we default them to empty values rather than rejecting a baseline
+    JSON the user just generated. This makes ``baseline_writer``
+    output round-trippable through this loader.
+
     Raises ``json.JSONDecodeError`` on malformed input -- callers (the
     CLI / GH Action) are responsible for surfacing that to the user.
     """
@@ -141,5 +149,10 @@ def load_findings_json(path: Path) -> list[Finding]:
         if not isinstance(item, dict):
             continue
         item.setdefault("fingerprint", "")
+        item.setdefault("scan_id", "")
+        item.setdefault("description", "")
+        item.setdefault("remediation", "")
+        item.setdefault("metadata", {})
+        item.setdefault("compliance_tags", [])
         findings.append(Finding.model_validate(item))
     return findings
