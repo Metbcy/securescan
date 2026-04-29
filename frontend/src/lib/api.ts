@@ -33,6 +33,7 @@ export interface Finding {
   rule_id?: string;
   cwe?: string;
   remediation?: string;
+  fingerprint?: string;
   metadata: Record<string, unknown>;
   compliance_tags: string[];
 }
@@ -203,6 +204,13 @@ export async function compareScans(scanAId: string, scanBId: string): Promise<Co
   );
   if (!res.ok) throw new Error("Failed to compare scans");
   return res.json();
+}
+
+// PR-style diff: thin wrapper over compareScans that takes a {base, head}
+// argument shape. Used by the /diff dashboard page (FEAT1) to mirror the
+// CLI's `compare` subcommand semantics (base = older, head = newer).
+export function fetchScanDiff({ base, head }: { base: string; head: string }): Promise<CompareResult> {
+  return compareScans(base, head);
 }
 
 // --- Trends ---
