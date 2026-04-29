@@ -1,5 +1,5 @@
 """Tests for Pydantic models."""
-from securescan.models import Finding, Scan, Severity, ScanType, ScanStatus, ScanRequest, ScanSummary
+from securescan.models import Finding, Scan, ScannerSkip, Severity, ScanType, ScanStatus, ScanRequest, ScanSummary
 
 
 def test_severity_enum():
@@ -81,3 +81,24 @@ def test_scan_summary():
     )
     assert ss.total_findings == 10
     assert ss.risk_score == 65.3
+
+
+def test_scanner_skip_model():
+    skip = ScannerSkip(name="bandit", reason="not installed", install_hint="pip install bandit")
+    assert skip.name == "bandit"
+    assert skip.reason == "not installed"
+    assert skip.install_hint == "pip install bandit"
+    # Round-trip via model_dump / parse to mirror DB JSON persistence.
+    rebuilt = ScannerSkip(**skip.model_dump())
+    assert rebuilt == skip
+
+
+def test_scanner_skip_optional_install_hint():
+    skip = ScannerSkip(name="trivy", reason="unavailable")
+    assert skip.install_hint is None
+
+
+def test_scan_has_scanners_run_and_skipped_defaults():
+    s = Scan(target_path="/p", scan_types=[ScanType.CODE])
+    assert s.scanners_run == []
+    assert s.scanners_skipped == []

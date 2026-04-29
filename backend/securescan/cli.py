@@ -43,6 +43,7 @@ from .git_ops import (
 from .models import (
     Finding,
     Scan,
+    ScannerSkip,
     ScanStatus,
     ScanType,
     Severity,
@@ -192,11 +193,20 @@ async def _run_scan_async(
     all_findings: list[Finding] = []
     scanners_run: list[str] = []
 
-    # Filter to available scanners
+    # Filter to available scanners. Track skipped ones with their install_hint
+    # so the dashboard / `report` command can surface why a category produced
+    # zero findings (PG2: closes UX gap #2).
     available_scanners = []
+    scanners_skipped: list[ScannerSkip] = []
     for scanner in scanners:
         available = await scanner.is_available()
         if not available:
+            install_hint = getattr(scanner, "install_hint", None)
+            scanners_skipped.append(ScannerSkip(
+                name=scanner.name,
+                reason="not installed" if install_hint else "unavailable",
+                install_hint=install_hint,
+            ))
             console.print(f"  [dim]⏭ {scanner.name} not available, skipping[/dim]")
             continue
         available_scanners.append(scanner)
@@ -257,6 +267,8 @@ async def _run_scan_async(
 
     scan.status = ScanStatus.COMPLETED
     scan.completed_at = datetime.now()
+    scan.scanners_run = sorted(scanners_run)
+    scan.scanners_skipped = sorted(scanners_skipped, key=lambda s: s.name)
     await save_scan(scan)
 
     return scan, all_findings

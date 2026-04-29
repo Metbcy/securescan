@@ -31,6 +31,12 @@ export interface Finding {
   compliance_tags: string[];
 }
 
+export interface ScannerSkip {
+  name: string;
+  reason: string;
+  install_hint?: string | null;
+}
+
 export interface Scan {
   id: string;
   target_path: string;
@@ -44,6 +50,8 @@ export interface Scan {
   error?: string;
   target_url?: string;
   target_host?: string;
+  scanners_run?: string[];
+  scanners_skipped?: ScannerSkip[];
 }
 
 export interface ScanSummary {
