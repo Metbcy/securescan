@@ -307,12 +307,23 @@ def _load_baseline_fingerprints(path: Path) -> frozenset[str]:
     """Read fingerprints from a baseline JSON file. NEVER raises.
 
     Mirrors the contract of ``baseline.filter_against_baseline``: a
-    missing or malformed file emits a stderr warning and degrades to an
-    empty set. We deliberately re-implement the load (instead of calling
-    into ``baseline.py``) because we want the *fingerprints*, not a
-    pre-filtered list -- and because we want to delegate parsing of the
-    two accepted shapes (``{"findings": [...]}`` and a flat list) to
-    ``securescan.diff.load_findings_json``, which already handles both.
+    missing or malformed file emits a stderr warning and degrades to
+    an empty set. We delegate to ``baseline._extract_fingerprints``
+    because it accepts every shape the legacy ``--baseline`` flag has
+    historically taken:
+
+    * ``[{"fingerprint": "..."}]`` -- the minimal "just fingerprints"
+      shape used by docs and lightweight CI scripts
+    * ``[{"fingerprint": "...", "severity": "...", ...}]`` -- a flat
+      list of full finding dicts
+    * ``{"findings": [...], "scan_id": "..."}`` -- the full
+      ``securescan scan --output json`` envelope
+
+    Using the strict ``Finding.model_validate`` loader from
+    ``securescan.diff.load_findings_json`` would reject the first
+    shape (missing ``scanner`` / ``severity`` / ``title``), which is
+    exactly the shape the test suite (and the documented quick-start
+    example) uses.
     """
     if not path.exists():
         print(
@@ -322,9 +333,10 @@ def _load_baseline_fingerprints(path: Path) -> frozenset[str]:
         return frozenset()
 
     try:
-        from .diff import load_findings_json
+        from .baseline import _extract_fingerprints
 
-        findings = load_findings_json(path)
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         print(
             f"warning: could not parse baseline file {path}: {exc}; skipping",
@@ -332,7 +344,7 @@ def _load_baseline_fingerprints(path: Path) -> frozenset[str]:
         )
         return frozenset()
 
-    return frozenset(f.fingerprint for f in findings if f.fingerprint)
+    return frozenset(_extract_fingerprints(data))
 
 
 @dataclass(frozen=True)

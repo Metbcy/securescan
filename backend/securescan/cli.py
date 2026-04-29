@@ -11,7 +11,6 @@ from rich.console import Console
 from rich.table import Table
 
 from .baseline_writer import write_baseline as _write_baseline_file
-from .baseline import filter_against_baseline
 from .compliance import ComplianceMapper
 from .config import settings
 from .reports import ReportGenerator
@@ -52,9 +51,10 @@ from .scanners import ALL_SCANNERS, get_scanners_for_types
 from .scoring import build_summary
 from .threshold import count_at_or_above
 from .ai import AIEnricher
-from .config_file import load_config
+from .config_file import SecureScanConfig, load_config
 from .config_lint import LintReport, lint_config
 from .ordering import sort_findings_canonical
+from .pipeline import apply_pipeline
 
 app = typer.Typer(name="securescan", help="AI-powered security scanning CLI")
 config_app = typer.Typer(
@@ -81,55 +81,103 @@ SEVERITY_RANK = {
 }
 
 
-def should_run_ai(*, explicit_ai: bool, explicit_no_ai: bool, ci_env: str) -> bool:
+def should_run_ai(
+    *,
+    explicit_ai: bool,
+    explicit_no_ai: bool,
+    ci_env: str,
+    config_ai: bool | None = None,
+) -> bool:
     """Decide whether AI enrichment should run for a given invocation.
 
-    Truth table:
+    Truth table (highest precedence first):
 
-    * ``--ai``       wins        -> True
-    * ``--no-ai``    wins        -> False
-    * ``CI`` env in {"true","1"} -> False  (deterministic by default in CI)
-    * otherwise                  -> True   (legacy default outside CI)
+    * ``--ai``       wins                -> True
+    * ``--no-ai``    wins                -> False
+    * ``config_ai`` is not None          -> bool value (config wins)
+    * ``CI`` env in {"true","1"}         -> False  (deterministic in CI)
+    * otherwise                          -> True   (legacy default off-CI)
 
-    ``ci_env`` is the raw string value of the ``CI`` environment variable
-    (or empty string when unset). Pure-functional so tests don't need to
-    mutate ``os.environ``.
+    ``ci_env`` is the raw string value of the ``CI`` environment
+    variable (or empty string when unset). Pure-functional so tests
+    don't need to mutate ``os.environ``.
+
+    ``config_ai`` is the resolved ``ai`` field of ``.securescan.yml``
+    (``None`` when the key is absent or no config file was found).
+    Setting ``ai: false`` in the repo config force-disables AI even
+    outside CI; setting ``ai: true`` force-enables it even on CI.
+    Explicit CLI flags still win over both.
     """
     if explicit_ai:
         return True
     if explicit_no_ai:
         return False
+    if config_ai is not None:
+        return config_ai
     if (ci_env or "").lower() in ("true", "1"):
         return False
     return True
 
 
-def diff_should_run_ai(*, explicit_ai: bool, explicit_no_ai: bool) -> bool:
-    """AI gate for ``securescan diff``. Differs from the regular ``scan``
-    command's ``should_run_ai`` in one way: AI is **off by default**
-    even outside CI, because diff mode is fundamentally a CI/automation
-    use case (PR comments must be byte-identical across re-runs to
-    enable upsert) and every diff caller we've seen wants determinism.
-    The user has to opt back in with ``--ai`` explicitly.
+def diff_should_run_ai(
+    *,
+    explicit_ai: bool,
+    explicit_no_ai: bool,
+    config_ai: bool | None = None,
+) -> bool:
+    """AI gate for ``securescan diff`` / ``compare``. Differs from
+    ``should_run_ai`` only in the default arm: AI is **off by default**
+    in diff/compare mode even outside CI, because both are fundamentally
+    CI/automation surfaces (PR comments must be byte-identical across
+    re-runs to enable upsert). The user opts back in with ``--ai``.
 
-    Truth table:
+    Truth table (highest precedence first):
 
-    * ``--no-ai``  -> False
-    * ``--ai``     -> True
-    * neither      -> False  (the diff-mode default)
+    * ``--ai``                    -> True
+    * ``--no-ai``                 -> False
+    * ``config_ai`` is not None   -> bool value (config wins)
+    * neither                     -> False  (the diff-mode default)
 
     Flag mutex (``--ai && --no-ai``) is rejected at the CLI layer
     before this helper is consulted.
     """
+    if explicit_ai:
+        return True
     if explicit_no_ai:
         return False
-    return explicit_ai
+    if config_ai is not None:
+        return config_ai
+    return False
+
+
+def _load_resolved_config(target_path: str) -> tuple[SecureScanConfig, Path | None]:
+    """Load and path-resolve the ``.securescan.yml`` for ``target_path``.
+
+    Used by every CLI subcommand that needs the config *before* the
+    scanner pass (for the AI gate and for forwarding ``semgrep_rules``
+    to the Semgrep scanner). The result is then re-used by
+    :func:`apply_pipeline` via its ``config=`` parameter so we don't
+    walk the filesystem twice per invocation.
+
+    Returns ``(resolved_config, found_path)``. When no config file is
+    present, ``found_path`` is ``None`` and the returned config is the
+    default :class:`SecureScanConfig` resolved against
+    ``target_path.resolve()`` (semgrep_rules will be empty in that
+    case so the resolution base doesn't matter, but we use the
+    target path for predictability).
+    """
+    target = Path(target_path)
+    cfg, found = load_config(start_dir=target)
+    base = found.parent if found is not None else target.resolve()
+    return cfg.resolve_paths(base), found
 
 
 async def _run_scan_async(
     target_path: str,
     scan_types: list[ScanType],
     enable_ai: bool = True,
+    *,
+    scanner_kwargs: dict | None = None,
 ) -> tuple[Scan, list[Finding]]:
     await init_db()
 
@@ -156,8 +204,10 @@ async def _run_scan_async(
         scanner_names = [s.name for s in available_scanners]
         console.print(f"  [cyan]▶ Running scanners in parallel: {', '.join(scanner_names)}[/cyan]")
 
+        kwargs = scanner_kwargs or {}
+
         async def _run_one(scanner):
-            results = await scanner.scan(target_path, scan.id)
+            results = await scanner.scan(target_path, scan.id, **kwargs)
             return scanner.name, results
 
         tasks = [_run_one(s) for s in available_scanners]
@@ -215,6 +265,7 @@ async def _run_scan_for_diff(
     scan_types: list[ScanType],
     *,
     enable_ai: bool,
+    scanner_kwargs: dict | None = None,
 ) -> list[Finding]:
     """Lightweight scan helper used by the ``diff`` subcommand.
 
@@ -233,7 +284,10 @@ async def _run_scan_for_diff(
     requested scan types, drop unavailable scanners, run the rest in
     parallel, dedupe the union, populate fingerprints. AI enrichment is
     opt-in via ``enable_ai`` (the diff CLI defaults this to False --
-    see ``diff_should_run_ai``).
+    see ``diff_should_run_ai``). ``scanner_kwargs`` is forwarded to
+    every scanner's ``scan()`` call (used by TS10 to plumb
+    ``semgrep_rules`` from ``.securescan.yml``); unknown keys are
+    swallowed by each scanner's ``**kwargs`` accept-all signature.
     """
     scan_id = str(__import__("uuid").uuid4())
     scanners = get_scanners_for_types(scan_types)
@@ -248,8 +302,10 @@ async def _run_scan_for_diff(
             continue
 
     if available_scanners:
+        kwargs = scanner_kwargs or {}
+
         async def _run_one(s):
-            return await s.scan(target_path, scan_id)
+            return await s.scan(target_path, scan_id, **kwargs)
 
         results = await asyncio.gather(
             *(_run_one(s) for s in available_scanners),
@@ -395,24 +451,82 @@ def scan(
     types = scan_type if scan_type else [ScanType.CODE, ScanType.DEPENDENCY, ScanType.IAC, ScanType.BASELINE]
     console.print(f"\n[bold]🔍 SecureScan — scanning {target_path}[/bold]\n")
 
+    # TS10: load + path-resolve .securescan.yml ONCE up front. The same
+    # config object feeds (a) the AI gate via ``config_ai``, (b) the
+    # Semgrep custom-rule plumbing via ``scanner_kwargs``, and (c) the
+    # post-scan ``apply_pipeline`` (severity overrides + suppression).
+    # A single load avoids re-walking the filesystem and guarantees all
+    # three observers see the same effective config for the run.
+    resolved_config, found_config_path = _load_resolved_config(target_path)
+    if found_config_path is not None:
+        print(
+            f"loaded config from {found_config_path}",
+            file=sys.stderr,
+        )
+
     ci_env = os.environ.get("CI", "")
-    enable_ai = should_run_ai(explicit_ai=ai, explicit_no_ai=no_ai, ci_env=ci_env)
-    if not enable_ai and (ci_env or "").lower() in ("true", "1") and not no_ai and not ai:
+    enable_ai = should_run_ai(
+        explicit_ai=ai,
+        explicit_no_ai=no_ai,
+        ci_env=ci_env,
+        config_ai=resolved_config.ai,
+    )
+    if (
+        not enable_ai
+        and (ci_env or "").lower() in ("true", "1")
+        and not no_ai
+        and not ai
+        and resolved_config.ai is None
+    ):
         print(
             "CI detected, skipping AI enrichment for determinism (use --ai to override)",
             file=sys.stderr,
         )
 
-    result_scan, findings = asyncio.run(_run_scan_async(target_path, types, enable_ai=enable_ai))
+    scanner_kwargs: dict = {}
+    if resolved_config.semgrep_rules:
+        scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
 
-    # Baseline suppression (post-scan, pre-render)
-    if baseline is not None:
-        findings, suppressed = filter_against_baseline(findings, baseline)
-        if suppressed:
-            print(
-                f"Suppressed {suppressed} findings via baseline {baseline}",
-                file=sys.stderr,
-            )
+    result_scan, findings = asyncio.run(
+        _run_scan_async(
+            target_path,
+            types,
+            enable_ai=enable_ai,
+            scanner_kwargs=scanner_kwargs,
+        )
+    )
+
+    # TS10: replace the standalone filter_against_baseline call with the
+    # unified pipeline. ``apply_pipeline`` does the same baseline-
+    # fingerprint suppression *plus* config-ignored rules, inline ignore
+    # comments, severity overrides and the audit-trail metadata stamps
+    # in a single, idempotent pass. ``--no-suppress`` propagates here as
+    # the CLI kill switch.
+    pipeline = apply_pipeline(
+        findings,
+        target_path=Path(target_path),
+        baseline_path=baseline,
+        no_suppress=no_suppress,
+        config=resolved_config,
+    )
+    if pipeline.suppressed:
+        # Mirror the pre-TS10 ``filter_against_baseline`` stderr line so
+        # CI logs that grep for "Suppressed" still find the count, but
+        # report the union across all three suppression sources now.
+        print(
+            f"Suppressed {len(pipeline.suppressed)} finding(s) "
+            f"(inline + config + baseline)",
+            file=sys.stderr,
+        )
+    if pipeline.severity_overrides_applied:
+        print(
+            f"Applied {pipeline.severity_overrides_applied} severity override(s) from config",
+            file=sys.stderr,
+        )
+
+    # ``findings`` carries kept + suppressed so renderers see both and
+    # the ``[SUPPRESSED:<reason>]`` metadata stamps survive into output.
+    findings = pipeline.kept + pipeline.suppressed
 
     # Canonicalize finding order so every output format (table, json,
     # sarif, csv, junit, report-html) is byte-identical for re-runs of
@@ -420,20 +534,13 @@ def scan(
     findings = sort_findings_canonical(findings)
 
     # Resolve the show_suppressed default once per invocation. TS6
-    # contract: TTY default for table/text on, off for everything
-    # else; explicit flag overrides. The actual SuppressionContext.apply
-    # call that stamps metadata['suppressed_by'] is owned by TS10
-    # (wire-cli-flow); for now we plumb the flag through every renderer
-    # so the rendering half of the contract is in place.
+    # contract: TTY default for table/text on, off for everything else;
+    # explicit flag overrides. After TS10 the suppressed findings carry
+    # the ``metadata['suppressed_by']`` stamp produced by the pipeline,
+    # so renderers can both filter and label them.
     effective_show_suppressed = _default_show_suppressed(
         explicit=show_suppressed, output_format=output
     )
-    # The no_suppress flag is a kill switch for SuppressionContext,
-    # acknowledged here so the CLI accepts it; TS10 hands it to
-    # SuppressionContext.from_paths(no_suppress=...) at the scan-pipeline
-    # entry point. Recorded as a local so static-checkers and future
-    # readers see the variable is intentionally referenced.
-    _ = no_suppress
 
     # Format output
     output_content = None
@@ -503,6 +610,12 @@ def scan(
         else:
             console.print(output_content)
 
+    # TS10: gates count only the kept findings. Suppression is the
+    # "explicitly tolerated" lane; failing CI on a finding the user
+    # silenced via .securescan.yml / inline / baseline would defeat
+    # the purpose of those mechanisms.
+    gate_findings = pipeline.kept
+
     # Check failure thresholds
     if fail_on_severity:
         severity_threshold = fail_on_severity.lower()
@@ -516,15 +629,15 @@ def scan(
         if threshold_sev is None:
             console.print(f"[red]Invalid severity: {fail_on_severity}. Use critical, high, medium, or low.[/red]")
             raise typer.Exit(code=1)
-        offending = count_at_or_above(findings, threshold_sev)
+        offending = count_at_or_above(gate_findings, threshold_sev)
         if offending > 0:
             console.print(
                 f"[bold red]✗ Failing: found {offending} finding(s) at or above threshold '{severity_threshold}'[/bold red]"
             )
             raise typer.Exit(code=1)
 
-    if fail_on_count is not None and len(findings) > fail_on_count:
-        console.print(f"[bold red]✗ Failing: {len(findings)} findings exceed threshold of {fail_on_count}[/bold red]")
+    if fail_on_count is not None and len(gate_findings) > fail_on_count:
+        console.print(f"[bold red]✗ Failing: {len(gate_findings)} findings exceed threshold of {fail_on_count}[/bold red]")
         raise typer.Exit(code=1)
 
 
@@ -955,7 +1068,24 @@ def diff(
             )
             raise typer.Exit(code=2)
 
-    enable_ai = diff_should_run_ai(explicit_ai=ai, explicit_no_ai=no_ai)
+    # TS10: load + path-resolve .securescan.yml ONCE up front, before
+    # the scanner pass. Same instance feeds (a) the AI gate via
+    # ``config_ai``, (b) the Semgrep custom-rule plumbing via
+    # ``scanner_kwargs``, and (c) the post-scan ``apply_pipeline``
+    # invocations on each side of the diff.
+    resolved_config, found_config_path = _load_resolved_config(target_path)
+    if found_config_path is not None:
+        typer.echo(f"diff: loaded config from {found_config_path}", err=True)
+
+    enable_ai = diff_should_run_ai(
+        explicit_ai=ai,
+        explicit_no_ai=no_ai,
+        config_ai=resolved_config.ai,
+    )
+
+    scanner_kwargs: dict = {}
+    if resolved_config.semgrep_rules:
+        scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
 
     resolved_head_sha: str | None = None
 
@@ -1001,13 +1131,19 @@ def diff(
                 git_checkout(target, base_resolved_sha)
                 base_findings = asyncio.run(
                     _run_scan_for_diff(
-                        str(target), parsed_types, enable_ai=enable_ai
+                        str(target),
+                        parsed_types,
+                        enable_ai=enable_ai,
+                        scanner_kwargs=scanner_kwargs,
                     )
                 )
                 git_checkout(target, resolved_head_sha)
                 head_findings = asyncio.run(
                     _run_scan_for_diff(
-                        str(target), parsed_types, enable_ai=enable_ai
+                        str(target),
+                        parsed_types,
+                        enable_ai=enable_ai,
+                        scanner_kwargs=scanner_kwargs,
                     )
                 )
             except GitOpError as exc:
@@ -1026,36 +1162,53 @@ def diff(
     if sha is None and resolved_head_sha:
         sha = resolved_head_sha
 
-    if baseline is not None:
-        base_findings, base_suppressed = filter_against_baseline(
-            base_findings, baseline
+    # TS10: apply the pipeline to BOTH sides of the diff. Config and
+    # baseline rules apply uniformly across both; running them
+    # symmetrically is what lets the fingerprint-based classifier
+    # ("new" / "fixed" / "unchanged") downstream stay agnostic of
+    # suppression. In snapshot mode the inputs may already carry
+    # ``suppressed_by`` stamps from a previous run -- the pipeline is
+    # idempotent (TS3 contract) so we re-apply anyway, which lets a
+    # config change since the snapshot was generated take effect.
+    base_pipeline = apply_pipeline(
+        base_findings,
+        target_path=Path(target_path),
+        baseline_path=baseline,
+        no_suppress=no_suppress,
+        config=resolved_config,
+    )
+    head_pipeline = apply_pipeline(
+        head_findings,
+        target_path=Path(target_path),
+        baseline_path=baseline,
+        no_suppress=no_suppress,
+        config=resolved_config,
+    )
+    if base_pipeline.suppressed or head_pipeline.suppressed:
+        typer.echo(
+            f"diff: suppressed "
+            f"{len(base_pipeline.suppressed)} base / "
+            f"{len(head_pipeline.suppressed)} head finding(s) "
+            "(inline + config + baseline)",
+            err=True,
         )
-        head_findings, head_suppressed = filter_against_baseline(
-            head_findings, baseline
-        )
-        if base_suppressed or head_suppressed:
-            typer.echo(
-                f"diff: baseline suppressed {base_suppressed} base / "
-                f"{head_suppressed} head finding(s)",
-                err=True,
-            )
 
-    populate_fingerprints(base_findings)
-    populate_fingerprints(head_findings)
+    # Feed kept + suppressed to the classifier so the suppression
+    # stamps survive into the ChangeSet; the renderers then filter on
+    # ``show_suppressed``. Failure-gate counts only the kept side
+    # below.
+    base_findings = base_pipeline.kept + base_pipeline.suppressed
+    head_findings = head_pipeline.kept + head_pipeline.suppressed
 
     cs = classify(base_findings, head_findings)
 
-    # TS6: resolve the show_suppressed default once; plumb through to
-    # every renderer in this command. The actual SuppressionContext.apply
-    # call that stamps metadata['suppressed_by'] is owned by TS10
-    # (wire-cli-flow); for now we plumb the flag so the rendering half
-    # of the contract is in place. ``no_suppress`` is acknowledged as a
-    # local so the CLI accepts it; TS10 hands it to
-    # ``SuppressionContext.from_paths(no_suppress=...)``.
+    # TS10: the show_suppressed flag is now backed by real
+    # ``metadata['suppressed_by']`` stamps from the pipeline above, so
+    # the renderer's filter / label paths actually have something to
+    # filter / label.
     effective_show_suppressed = _default_show_suppressed(
         explicit=show_suppressed, output_format=output_format
     )
-    _ = no_suppress
 
     if output_format == "github-pr-comment":
         body = render_pr_comment(
@@ -1081,6 +1234,7 @@ def diff(
         if effective_show_suppressed:
             new_list = list(cs.new)
             fixed_list = list(cs.fixed)
+            unchanged_count = len(cs.unchanged)
         else:
             new_list = [
                 f for f in cs.new
@@ -1092,11 +1246,22 @@ def diff(
                 if not (isinstance(getattr(f, "metadata", None), dict)
                         and f.metadata.get("suppressed_by"))
             ]
+            # TS10: ``classify`` now operates on kept+suppressed (so the
+            # ``suppressed_by`` audit stamps survive into the ChangeSet).
+            # Keep the JSON output consumer-facing-consistent: when
+            # show_suppressed=False, ``unchanged_count`` reflects only
+            # the user-visible unchanged findings, mirroring the
+            # filtered ``new`` / ``fixed`` lists.
+            unchanged_count = sum(
+                1 for f in cs.unchanged
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            )
         body = json.dumps(
             {
                 "new": [f.model_dump(mode="json") for f in new_list],
                 "fixed": [f.model_dump(mode="json") for f in fixed_list],
-                "unchanged_count": len(cs.unchanged),
+                "unchanged_count": unchanged_count,
             },
             indent=2,
             default=str,
@@ -1118,7 +1283,17 @@ def diff(
                 err=True,
             )
             raise typer.Exit(code=2)
-        offending = count_at_or_above(cs.new, threshold_sev)
+        # TS10: gate counts only non-suppressed new findings. A finding
+        # the user has explicitly silenced via .securescan.yml / inline /
+        # baseline is not allowed to fail CI.
+        gate_new = [
+            f for f in cs.new
+            if not (
+                isinstance(getattr(f, "metadata", None), dict)
+                and f.metadata.get("suppressed_by")
+            )
+        ]
+        offending = count_at_or_above(gate_new, threshold_sev)
         if offending > 0:
             raise typer.Exit(code=1)
 
@@ -1360,6 +1535,14 @@ def compare(
     AI enrichment is off by default in compare mode (same rationale as
     ``diff``: PR-comment bodies must be byte-identical across re-runs
     to enable upsert). Pass ``--ai`` to opt back in.
+
+    Pipeline scope: ``compare`` applies the current ``.securescan.yml``
+    (severity overrides, ``ignored_rules``, inline ``# securescan:
+    ignore`` directives) to the FRESH scan only. The baseline JSON is
+    NOT re-filtered -- a baseline is what it is at write time, and
+    re-running today's config against yesterday's baseline would
+    silently rewrite history. If you want the baseline normalized to
+    today's config, regenerate it with ``securescan baseline``.
     """
     if no_ai and ai:
         typer.echo("compare: --ai and --no-ai are mutually exclusive", err=True)
@@ -1395,7 +1578,29 @@ def compare(
             )
             raise typer.Exit(code=2)
 
-    enable_ai = diff_should_run_ai(explicit_ai=ai, explicit_no_ai=no_ai)
+    # TS10: load + path-resolve .securescan.yml ONCE up front. Same
+    # instance feeds (a) the AI gate, (b) the Semgrep custom-rule
+    # plumbing for the fresh scan, and (c) the post-scan
+    # ``apply_pipeline`` on the FRESH side only.
+    #
+    # Compare deliberately does NOT re-filter the baseline JSON: the
+    # baseline is a frozen artifact (it is what it is at write time --
+    # see the ``securescan baseline`` command's docstring for the
+    # determinism contract). Re-running today's config against
+    # yesterday's baseline would silently rewrite history.
+    resolved_config, found_config_path = _load_resolved_config(target_path)
+    if found_config_path is not None:
+        typer.echo(f"compare: loaded config from {found_config_path}", err=True)
+
+    enable_ai = diff_should_run_ai(
+        explicit_ai=ai,
+        explicit_no_ai=no_ai,
+        config_ai=resolved_config.ai,
+    )
+
+    scanner_kwargs: dict = {}
+    if resolved_config.semgrep_rules:
+        scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
 
     try:
         baseline_findings = load_findings_json(baseline_path)
@@ -1404,24 +1609,42 @@ def compare(
         raise typer.Exit(code=2)
 
     fresh_findings = asyncio.run(
-        _run_scan_for_diff(target_path, parsed_types, enable_ai=enable_ai)
+        _run_scan_for_diff(
+            target_path,
+            parsed_types,
+            enable_ai=enable_ai,
+            scanner_kwargs=scanner_kwargs,
+        )
     )
 
     populate_fingerprints(baseline_findings)
-    populate_fingerprints(fresh_findings)
+
+    # TS10: apply pipeline to FRESH side only (see comment above for the
+    # baseline-is-frozen rationale).
+    fresh_pipeline = apply_pipeline(
+        fresh_findings,
+        target_path=Path(target_path),
+        baseline_path=None,  # baseline_path arg is for fingerprint-suppression; here the baseline is already the comparison axis
+        no_suppress=no_suppress,
+        config=resolved_config,
+    )
+    if fresh_pipeline.suppressed:
+        typer.echo(
+            f"compare: suppressed {len(fresh_pipeline.suppressed)} "
+            "fresh finding(s) (inline + config)",
+            err=True,
+        )
+    fresh_findings = fresh_pipeline.kept + fresh_pipeline.suppressed
 
     cs = classify(baseline_findings, fresh_findings)
 
-    # TS6: resolve show_suppressed once, plumb through every renderer.
-    # SuppressionContext.apply integration is owned by TS10; this side
-    # of the contract is the rendering behavior. ``no_suppress`` is
-    # acknowledged here so the CLI accepts it; TS10 hands it to
-    # ``SuppressionContext.from_paths(no_suppress=...)`` at the
-    # scan-pipeline entry point.
+    # TS10: show_suppressed is now backed by real
+    # ``metadata['suppressed_by']`` stamps from the fresh-side pipeline
+    # above; renderers can both filter (CI default) and label (TTY
+    # default) accordingly.
     effective_show_suppressed = _default_show_suppressed(
         explicit=show_suppressed, output_format=output_format
     )
-    _ = no_suppress
 
     if output_format == "github-pr-comment":
         body = render_pr_comment(
@@ -1448,6 +1671,7 @@ def compare(
         if effective_show_suppressed:
             new_list = list(cs.new)
             disappeared_list = list(cs.fixed)
+            unchanged_count = len(cs.unchanged)
         else:
             new_list = [
                 f for f in cs.new
@@ -1459,11 +1683,21 @@ def compare(
                 if not (isinstance(getattr(f, "metadata", None), dict)
                         and f.metadata.get("suppressed_by"))
             ]
+            # TS10: see the matching note in ``diff`` -- when the fresh
+            # side carries ``suppressed_by`` stamps, keep the JSON
+            # ``unchanged_count`` aligned with the (filtered) ``new`` /
+            # ``disappeared`` lists so consumers don't have to re-do
+            # the filter themselves.
+            unchanged_count = sum(
+                1 for f in cs.unchanged
+                if not (isinstance(getattr(f, "metadata", None), dict)
+                        and f.metadata.get("suppressed_by"))
+            )
         body = json.dumps(
             {
                 "new": [f.model_dump(mode="json") for f in new_list],
                 "disappeared": [f.model_dump(mode="json") for f in disappeared_list],
-                "unchanged_count": len(cs.unchanged),
+                "unchanged_count": unchanged_count,
             },
             indent=2,
             default=str,
