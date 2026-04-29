@@ -34,6 +34,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "weasyprint>=62.0",
     "defusedxml>=0.7.1",
+    "PyYAML>=6.0",
 ]
 
 [project.optional-dependencies]
