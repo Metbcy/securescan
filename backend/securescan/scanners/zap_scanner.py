@@ -6,6 +6,7 @@ scanner reports itself as unavailable and returns no findings.
 """
 import asyncio
 import time
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -43,10 +44,20 @@ class ZapScanner(BaseScanner):
 
     @property
     def install_hint(self) -> str:
+        # Prefer Arch's packaged path when present; on other distros recommend
+        # the upstream `zap.sh` shipped by the ZAP install. We standardize on
+        # port 8090 because 8080 is commonly already in use.
+        arch_zap = Path("/usr/share/zaproxy/zap.sh")
+        if arch_zap.exists():
+            launcher = "/usr/share/zaproxy/zap.sh"
+        else:
+            launcher = "zap.sh"
         return (
-            "pip install python-owasp-zap-v2.4  "
-            "and start the ZAP daemon: "
-            "zap.sh -daemon -port 8080 -config api.key=<key>"
+            "pip install python-owasp-zap-v2.4 then start the ZAP daemon: "
+            f"{launcher} -daemon -host 127.0.0.1 -port 8090 -config api.key=<key>; "
+            "set SECURESCAN_ZAP_ADDRESS=http://127.0.0.1:8090 and "
+            "SECURESCAN_ZAP_API_KEY=<key> in your environment "
+            "(or ~/.config/securescan/.env)"
         )
 
     def _make_zap(self) -> Optional[object]:

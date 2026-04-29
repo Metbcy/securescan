@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 const RECENTS_STORAGE_KEY = "securescan:recent-scans";
 
 const navItems = [

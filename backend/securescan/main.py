@@ -1,5 +1,12 @@
 import logging
 
+from .config_loader import load_user_env
+
+# Load ~/.config/securescan/.env (or $XDG_CONFIG_HOME/securescan/.env)
+# before any module that instantiates Settings is imported. Shell env
+# always wins; a missing file is a silent no-op.
+load_user_env()
+
 from fastapi import Depends, HTTPException
 
 from .api import app

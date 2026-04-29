@@ -9,6 +9,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.6.1] - 2026-04-29
+
+A polish release focused on production readiness on real (large) scans.
+The 20k-finding scan that shipped during v0.6.0 testing exposed three
+issues — a stale-running UI badge, a janky search box, and a missing
+delete-scan endpoint — all fixed here. We also added structured scan
+lifecycle logs, a user-scoped `.env` loader so credentials persist
+across restarts, and a smarter ZAP install hint.
+
+### Added
+
+- `DELETE /api/v1/scans/{id}` removes a scan and cascades its findings.
+  Returns 204 on success, 409 if the scan is `running`/`pending`
+  (cancel first), 404 otherwise. The History page Delete action is now
+  enabled and wired up with a confirm prompt.
+- Structured INFO logging for the scan lifecycle on the
+  `securescan.scan` logger: `scan.start`, `scanner.start`,
+  `scanner.complete` (with `duration_s` and `findings_count`),
+  `scanner.skipped`, `scanner.failed`, `scan.complete`, `scan.failed`,
+  `scan.cancelled`. Tail `/tmp/securescan-backend.log` to debug a scan
+  in flight.
+- `~/.config/securescan/.env` (or `$XDG_CONFIG_HOME/securescan/.env`)
+  is auto-loaded at backend startup. Persist `SECURESCAN_ZAP_ADDRESS`,
+  `SECURESCAN_ZAP_API_KEY`, etc. across reboots without re-exporting.
+  Shell environment still wins over the file. Documented in `README.md`.
+
+### Changed
+
+- `frontend/src/app/scan/[id]/page.tsx` polling no longer refetches
+  the entire findings array every 2 seconds. While a scan is running,
+  only the lightweight scan-status record is polled; findings and
+  summary load once on mount and once when status flips to
+  `completed`. Fixes the "scan stays running forever" UI bug on
+  large-result scans.
+- `FindingsTable` is responsive again on 20k-finding scans. Search
+  input uses React 19's `useDeferredValue`; a single memoized
+  projection (`severityNorm`, `suppressed`, `haystack`) replaces
+  per-keystroke string normalization across filter, sort, severity
+  counts, and scanner options. Measured: 9.6 ms avg keystroke handling
+  (was hundreds of ms).
+- `ZapScanner.install_hint` now detects Arch Linux's
+  `/usr/share/zaproxy/zap.sh` launcher, recommends port `8090` (8080
+  is commonly busy), and points users at the new `.env` file for
+  credential persistence.
+
+### Tests
+
+- 690 → 709 (+19): 11 for the DELETE endpoint, 4 for the lifecycle
+  logger, 4 for the env-file loader.
+
 ## [0.6.0] - 2026-04-29
 
 This release pairs an end-to-end frontend redesign with two backend
@@ -386,7 +436,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Metbcy/securescan/releases/tag/v0.6.1
 [0.6.0]: https://github.com/Metbcy/securescan/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Metbcy/securescan/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Metbcy/securescan/releases/tag/v0.4.0

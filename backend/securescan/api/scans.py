@@ -2,13 +2,15 @@ from datetime import datetime
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 
 from ..database import (
+    delete_scan_cascade,
     get_findings,
     get_scan,
     get_scan_summary,
@@ -34,6 +36,38 @@ from ..scoring import build_summary
 from ..ai import AIEnricher
 
 logger = logging.getLogger(__name__)
+
+# Dedicated lifecycle logger so `tail -f securescan-backend.log` shows
+# scanner subprocess progress for in-flight scans. Existing per-request
+# log line on `securescan.request` is unchanged; we add `securescan.scan`
+# for the orchestrator's lifecycle events (scan.start/scanner.start/...).
+_scan_logger = logging.getLogger("securescan.scan")
+
+# scanner.failed `error` field cap. Stack traces are common and we don't
+# want to flood the log when a scanner crashes hard.
+_SCAN_ERROR_TRUNCATE = 200
+
+
+def _format_event_value(value: Any) -> str:
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+
+def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
+    """Emit a structured INFO line on the `securescan.scan` logger.
+
+    Message is human-readable (`event k=v k=v scan_id=...`) so it is useful
+    in the dev text log, and the same fields are passed via ``extra=`` so
+    the JSON formatter can pick them up if its allowlist is widened later.
+    ``scan_id`` is always emitted last to match the request-log convention
+    of the most-stable correlation key trailing.
+    """
+    parts = [f"{key}={_format_event_value(val)}" for key, val in fields.items()]
+    parts.append(f"scan_id={scan_id}")
+    extra = {**fields, "scan_id": scan_id}
+    _scan_logger.info(f"{event} {' '.join(parts)}", extra=extra)
+
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
 _RUNNING_SCAN_TASKS: dict[str, asyncio.Task[None]] = {}
@@ -63,8 +97,10 @@ async def _run_scan(scan_id: str) -> None:
         return
 
     if scan.status == ScanStatus.CANCELLED:
+        _log_scan_event("scan.cancelled", scan_id=scan_id)
         return
 
+    scan_started_perf = time.perf_counter()
     try:
         scan.status = ScanStatus.RUNNING
         scan.started_at = datetime.now()
@@ -74,6 +110,13 @@ async def _run_scan(scan_id: str) -> None:
         all_findings: list[Finding] = []
         scanners_run: list[str] = []
 
+        _log_scan_event(
+            "scan.start",
+            scan_id=scan.id,
+            target=scan.target_path,
+            scanner_count=len(scanners),
+        )
+
         # Filter to available scanners. Record skipped ones so the dashboard
         # can show which scanners did NOT run (PG2: closes UX gap #2 where
         # users saw "0 findings" with no signal that nothing actually ran).
@@ -82,11 +125,18 @@ async def _run_scan(scan_id: str) -> None:
         for scanner in scanners:
             if not await scanner.is_available():
                 install_hint = getattr(scanner, "install_hint", None)
+                reason = "not installed" if install_hint else "unavailable"
                 scanners_skipped.append(ScannerSkip(
                     name=scanner.name,
-                    reason="not installed" if install_hint else "unavailable",
+                    reason=reason,
                     install_hint=install_hint,
                 ))
+                _log_scan_event(
+                    "scanner.skipped",
+                    scan_id=scan.id,
+                    scanner=scanner.name,
+                    reason=reason,
+                )
                 continue
             available_scanners.append(scanner)
 
@@ -95,11 +145,36 @@ async def _run_scan(scan_id: str) -> None:
             logger.info("Running scanners in parallel: %s", [s.name for s in available_scanners])
 
             async def _run_one(scanner):
-                results = await scanner.scan(
-                    scan.target_path,
-                    scan.id,
-                    target_url=scan.target_url,
-                    target_host=scan.target_host,
+                _log_scan_event(
+                    "scanner.start",
+                    scan_id=scan.id,
+                    scanner=scanner.name,
+                )
+                started = time.perf_counter()
+                try:
+                    results = await scanner.scan(
+                        scan.target_path,
+                        scan.id,
+                        target_url=scan.target_url,
+                        target_host=scan.target_host,
+                    )
+                except Exception as exc:
+                    duration_s = round(time.perf_counter() - started, 2)
+                    _log_scan_event(
+                        "scanner.failed",
+                        scan_id=scan.id,
+                        scanner=scanner.name,
+                        duration_s=duration_s,
+                        error=str(exc)[:_SCAN_ERROR_TRUNCATE],
+                    )
+                    raise
+                duration_s = round(time.perf_counter() - started, 2)
+                _log_scan_event(
+                    "scanner.complete",
+                    scan_id=scan.id,
+                    scanner=scanner.name,
+                    duration_s=duration_s,
+                    findings_count=len(results),
                 )
                 return scanner.name, results
 
@@ -116,6 +191,7 @@ async def _run_scan(scan_id: str) -> None:
 
         latest_scan = await get_scan(scan.id)
         if latest_scan is not None and latest_scan.status == ScanStatus.CANCELLED:
+            _log_scan_event("scan.cancelled", scan_id=scan.id)
             return
 
         # Deduplicate findings
@@ -138,6 +214,7 @@ async def _run_scan(scan_id: str) -> None:
 
         latest_scan = await get_scan(scan.id)
         if latest_scan is not None and latest_scan.status == ScanStatus.CANCELLED:
+            _log_scan_event("scan.cancelled", scan_id=scan.id)
             return
 
         # Save findings AFTER AI enrichment so remediation text is persisted.
@@ -153,6 +230,14 @@ async def _run_scan(scan_id: str) -> None:
         scan.status = ScanStatus.COMPLETED
         scan.completed_at = datetime.now()
         await save_scan(scan)
+
+        _log_scan_event(
+            "scan.complete",
+            scan_id=scan.id,
+            duration_s=round(time.perf_counter() - scan_started_perf, 2),
+            scanner_count=len(scanners_run),
+            findings_count=summary.total_findings,
+        )
     except asyncio.CancelledError:
         latest_scan = await get_scan(scan_id)
         if latest_scan is not None and latest_scan.status != ScanStatus.CANCELLED:
@@ -160,6 +245,7 @@ async def _run_scan(scan_id: str) -> None:
             latest_scan.error = _CANCELLED_BY_USER
             latest_scan.completed_at = datetime.now()
             await save_scan(latest_scan)
+        _log_scan_event("scan.cancelled", scan_id=scan_id)
     except Exception as e:
         latest_scan = await get_scan(scan_id)
         if latest_scan is not None and latest_scan.status != ScanStatus.CANCELLED:
@@ -171,6 +257,11 @@ async def _run_scan(scan_id: str) -> None:
             latest_scan.scanners_run = sorted(scanners_run)
             latest_scan.scanners_skipped = sorted(scanners_skipped, key=lambda s: s.name)
             await save_scan(latest_scan)
+        _log_scan_event(
+            "scan.failed",
+            scan_id=scan_id,
+            error=str(e)[:_SCAN_ERROR_TRUNCATE],
+        )
     finally:
         _RUNNING_SCAN_TASKS.pop(scan_id, None)
 
@@ -200,6 +291,34 @@ async def create_scan(request: ScanRequest):
 async def list_scans():
     """List all scans."""
     return await get_scans()
+
+
+@router.delete("/{scan_id}", status_code=204)
+async def delete_scan(scan_id: str) -> Response:
+    """Delete a scan, its findings, and any per-scan rows that reference it.
+
+    Refuses to delete a live scan (pending or running) with 409 -- the
+    caller must POST `/cancel` first to put it in a terminal state. This
+    matches the precedent set by the cancel endpoint, which uses 409 for
+    the symmetric "wrong state for this transition" condition.
+    A second DELETE on the same id returns 404 (idempotent from the
+    caller's perspective: the resource is gone either way).
+    """
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING}:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Cannot delete scan in '{scan.status.value}' state; "
+                "cancel it first"
+            ),
+        )
+
+    await delete_scan_cascade(scan_id)
+    return Response(status_code=204)
 
 
 @router.post("/{scan_id}/cancel", response_model=Scan)

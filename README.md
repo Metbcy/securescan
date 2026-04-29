@@ -511,6 +511,16 @@ docker compose up
 Open http://localhost:3000 — it talks to the backend at
 http://localhost:8000.
 
+## Local config
+
+SecureScan loads `~/.config/securescan/.env` at startup. Use it to persist credentials between reboots:
+
+    # ~/.config/securescan/.env
+    SECURESCAN_ZAP_ADDRESS=http://127.0.0.1:8090
+    SECURESCAN_ZAP_API_KEY=your-key-here
+
+Shell environment vars take precedence over this file.
+
 ## Release signing
 
 Every tagged release publishes signed artifacts. The exact verification

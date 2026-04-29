@@ -221,21 +221,37 @@ export default function ScanDetailPage() {
   // Used to force the relative-time labels to refresh while running.
   const [, setTick] = useState(0);
 
-  /* Initial + polling load. */
+  /*
+   * Two-phase loader:
+   *   - statusOnly=true  : just refresh the scan record (cheap; safe to call every 2s).
+   *   - statusOnly=false : also fetch findings + summary (expensive; only on mount,
+   *                        on user refresh, and once when status flips to completed).
+   *
+   * Polling previously refetched the entire findings array every 2 seconds. With
+   * a 20k-finding scan that's a 14 MB JSON parse + a full re-sort/re-filter of the
+   * memoized table on every tick, which locks up the browser and prevents the
+   * "running" badge from ever repainting to "completed".
+   */
   const load = useCallback(
-    async (silent = false) => {
+    async (silent = false, statusOnly = false) => {
       if (!id) return;
       try {
         if (!silent) setLoading(true);
         const scanData = await fetchScan(id);
         setScan(scanData);
 
+        if (statusOnly && scanData.status !== "completed") {
+          // Lightweight poll path: don't touch findings while still running.
+          setError(null);
+          return;
+        }
+
         if (scanData.status === "completed") {
           const [fin, sum] = await Promise.all([fetchFindings(id), fetchScanSummary(id)]);
           setFindings(fin);
           setSummary(sum);
         } else if (scanData.status === "running" || scanData.status === "pending") {
-          // Best-effort partial findings while running.
+          // Initial load only — fetch any partial findings the backend has so far.
           try {
             const fin = await fetchFindings(id);
             setFindings(fin);
@@ -258,17 +274,22 @@ export default function ScanDetailPage() {
   );
 
   useEffect(() => {
-    void load(false);
+    void load(false, false);
   }, [load]);
 
-  // Poll every 2s while running, plus a 1s tick to refresh duration/relative labels.
+  /*
+   * While the scan is live, poll the *status* every 2s and refresh the *labels*
+   * every 1s. When status flips to completed, the polling effect tears down its
+   * intervals (isLive becomes false) and the next status-only poll fetches the
+   * full findings + summary in one shot.
+   */
   useEffect(() => {
     if (!scan) return;
     const isLive = scan.status === "running" || scan.status === "pending";
     if (!isLive) return;
 
     const livePoll = setInterval(() => {
-      void load(true);
+      void load(true, true);
     }, 2000);
     const labelTick = setInterval(() => setTick((n) => n + 1), 1000);
     return () => {

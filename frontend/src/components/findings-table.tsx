@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   ChevronDown,
   Search,
@@ -72,48 +72,62 @@ export function FindingsTable({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<PageSize>(25);
 
+  // Defer the search query so typing remains responsive on very large scans.
+  // Filtering uses the deferred value, which React schedules at lower priority.
+  const deferredQuery = useDeferredValue(query);
+
+  // Pre-normalize the findings list once per `findings` change. All downstream
+  // filters/counts/sort operate on this projection so we don't re-lowercase
+  // severity strings or rebuild the search haystack on every keystroke.
+  const projected = useMemo(
+    () =>
+      findings.map((f) => ({
+        finding: f,
+        severityNorm: normalize(f.severity),
+        suppressed: getSuppressedBy(f.metadata),
+        haystack:
+          `${f.title} ${f.description ?? ""} ${f.file_path ?? ""} ${f.scanner}`.toLowerCase(),
+      })),
+    [findings],
+  );
+
   const totalAll = findings.length;
   const suppressedCount = useMemo(
-    () => findings.reduce((n, f) => (getSuppressedBy(f.metadata) ? n + 1 : n), 0),
-    [findings],
+    () => projected.reduce((n, p) => (p.suppressed ? n + 1 : n), 0),
+    [projected],
   );
 
   const scannerOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const f of findings) {
-      if (f.scanner) set.add(f.scanner);
+    for (const p of projected) {
+      if (p.finding.scanner) set.add(p.finding.scanner);
     }
     return Array.from(set).sort();
-  }, [findings]);
+  }, [projected]);
 
   const severityCounts = useMemo(() => {
     const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-    for (const f of findings) {
-      if (!showSuppressed && getSuppressedBy(f.metadata)) continue;
-      counts[normalize(f.severity)] += 1;
+    for (const p of projected) {
+      if (!showSuppressed && p.suppressed) continue;
+      counts[p.severityNorm] += 1;
     }
     return counts;
-  }, [findings, showSuppressed]);
+  }, [projected, showSuppressed]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return findings.filter((f) => {
-      if (!showSuppressed && getSuppressedBy(f.metadata)) return false;
-      if (activeSeverities.size > 0 && !activeSeverities.has(normalize(f.severity))) return false;
-      if (activeScanner !== "__all__" && f.scanner !== activeScanner) return false;
-      if (q.length > 0) {
-        const hay = `${f.title} ${f.description ?? ""} ${f.file_path ?? ""} ${f.scanner}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
+    const q = deferredQuery.trim().toLowerCase();
+    return projected.filter((p) => {
+      if (!showSuppressed && p.suppressed) return false;
+      if (activeSeverities.size > 0 && !activeSeverities.has(p.severityNorm)) return false;
+      if (activeScanner !== "__all__" && p.finding.scanner !== activeScanner) return false;
+      if (q.length > 0 && !p.haystack.includes(q)) return false;
       return true;
     });
-  }, [findings, query, activeSeverities, activeScanner, showSuppressed]);
+  }, [projected, deferredQuery, activeSeverities, activeScanner, showSuppressed]);
 
   const sorted = useMemo(
     () =>
-      [...filtered].sort(
-        (a, b) => SEVERITY_RANK[normalize(a.severity)] - SEVERITY_RANK[normalize(b.severity)],
-      ),
+      [...filtered].sort((a, b) => SEVERITY_RANK[a.severityNorm] - SEVERITY_RANK[b.severityNorm]),
     [filtered],
   );
 
@@ -360,12 +374,12 @@ export function FindingsTable({
               </tr>
             </thead>
             <tbody>
-              {visible.map((f) => (
+              {visible.map((p) => (
                 <FindingRow
-                  key={f.id}
-                  finding={f}
-                  expanded={expandedIds.has(f.id)}
-                  onToggle={() => toggleExpanded(f.id)}
+                  key={p.finding.id}
+                  finding={p.finding}
+                  expanded={expandedIds.has(p.finding.id)}
+                  onToggle={() => toggleExpanded(p.finding.id)}
                   colSpan={6}
                 />
               ))}

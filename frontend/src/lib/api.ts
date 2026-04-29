@@ -160,6 +160,15 @@ export async function cancelScan(scanId: string): Promise<Scan> {
   return res.json();
 }
 
+export async function deleteScan(scanId: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/scans/${scanId}`, { method: "DELETE" });
+  if (!res.ok) {
+    if (res.status === 409) throw new Error("Cannot delete a running scan. Cancel it first.");
+    if (res.status === 404) throw new Error("Scan not found.");
+    throw new Error(`Failed to delete scan (${res.status})`);
+  }
+}
+
 // --- Directory browser ---
 
 export interface BrowseEntry {

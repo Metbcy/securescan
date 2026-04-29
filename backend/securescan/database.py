@@ -271,6 +271,30 @@ async def get_scans() -> list[Scan]:
         await db.close()
 
 
+async def delete_scan_cascade(scan_id: str) -> bool:
+    """Delete a scan and all rows that reference it.
+
+    Removes the row in `scans` plus every `findings` row carrying the
+    matching `scan_id`. Both deletes share a single transaction so a
+    failure mid-way leaves the DB untouched (no orphan findings).
+    Returns True when the scan row existed and was removed, False when
+    the id did not match any scan (treated as a no-op by the API layer
+    so a second DELETE on the same id can return 404).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT 1 FROM scans WHERE id = ?", (scan_id,))
+        existed = await cursor.fetchone() is not None
+        if not existed:
+            return False
+        await db.execute("DELETE FROM findings WHERE scan_id = ?", (scan_id,))
+        await db.execute("DELETE FROM scans WHERE id = ?", (scan_id,))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
 async def get_findings(
     scan_id: str,
     severity: Optional[str] = None,

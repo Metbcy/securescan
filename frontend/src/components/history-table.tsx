@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreHorizontal, Eye, GitCompare, RotateCw, StopCircle, Trash2, X } from "lucide-react";
 import type { Scan } from "@/lib/api";
-import { startScan, cancelScan } from "@/lib/api";
+import { startScan, cancelScan, deleteScan } from "@/lib/api";
 import { DataTable, type Column, type SortState } from "@/components/data-table";
 import { StatusIcon } from "@/components/status-icon";
 
@@ -139,10 +139,11 @@ interface ActionMenuProps {
   onCancel: (id: string) => void | Promise<void>;
   onRerun: (scan: Scan) => void | Promise<void>;
   onCompare: (scan: Scan) => void;
+  onDelete: (scan: Scan) => void | Promise<void>;
   busy?: boolean;
 }
 
-function ActionMenu({ scan, onCancel, onRerun, onCompare, busy }: ActionMenuProps) {
+function ActionMenu({ scan, onCancel, onRerun, onCompare, onDelete, busy }: ActionMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -164,6 +165,7 @@ function ActionMenu({ scan, onCancel, onRerun, onCompare, busy }: ActionMenuProp
   }, [open]);
 
   const canCancel = scan.status === "running" || scan.status === "pending";
+  const canDelete = !canCancel;
 
   return (
     <div className="relative inline-block" ref={ref}>
@@ -238,9 +240,13 @@ function ActionMenu({ scan, onCancel, onRerun, onCompare, busy }: ActionMenuProp
           <button
             type="button"
             role="menuitem"
-            disabled
-            title="Coming soon"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted opacity-60 cursor-not-allowed border-t border-border"
+            disabled={busy || !canDelete}
+            title={canDelete ? undefined : "Cancel the scan before deleting"}
+            onClick={() => {
+              setOpen(false);
+              onDelete(scan);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-sev-critical hover:bg-surface-2 disabled:opacity-50 disabled:cursor-not-allowed border-t border-border"
           >
             <Trash2 size={14} aria-hidden="true" />
             Delete
@@ -434,6 +440,26 @@ export function HistoryTable({
     }
   }
 
+  async function handleDelete(scan: Scan) {
+    if (
+      !window.confirm(
+        "Delete this scan? This permanently removes the scan and all its findings.",
+      )
+    ) {
+      return;
+    }
+    onError(null);
+    markBusy(scan.id, true);
+    try {
+      await deleteScan(scan.id);
+      onScansUpdate((prev) => prev.filter((s) => s.id !== scan.id));
+    } catch (e) {
+      onError(e instanceof Error ? e.message : "Failed to delete scan");
+    } finally {
+      markBusy(scan.id, false);
+    }
+  }
+
   const columns: Column<Scan>[] = [
     {
       key: "status",
@@ -553,6 +579,7 @@ export function HistoryTable({
             onCancel={handleCancel}
             onRerun={handleRerun}
             onCompare={(target) => setCompareBase(target)}
+            onDelete={handleDelete}
             busy={busyIds.has(s.id)}
           />
         </div>
