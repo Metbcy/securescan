@@ -2,6 +2,10 @@
 # Diff-aware security scan: posts a single upserted PR comment of NEW
 # findings introduced by the PR, and uploads SARIF to the Security tab.
 #
+# Place a `.securescan.yml` at your repo root to configure scan behavior;
+# the action picks it up automatically. See:
+#   https://github.com/Metbcy/securescan#configuration
+#
 # Behavior notes:
 # - The PR comment is upserted via the marker `<!-- securescan:diff -->`,
 #   so re-runs replace the previous comment in place instead of stacking.

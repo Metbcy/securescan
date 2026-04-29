@@ -7,7 +7,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-<!-- New features land here on each PR; SS16 promotes them into the next versioned section at release time. -->
+<!-- New features land here on each PR. -->
+
+## [0.3.0] - YYYY-MM-DD
+
+<!-- TS12 finalizes the date and version bump. -->
+
+This release is about signal quality. v0.2.0 made SecureScan a useful
+CI/CD tool; v0.3.0 makes it tunable enough to *stay on* across months
+of CI runs without becoming PR-comment noise.
+
+### Added
+
+- `.securescan.yml` configuration file (auto-detected, walks up from
+  the scan target). Covers `scan_types`, `severity_overrides`,
+  `ignored_rules`, `semgrep_rules` (custom rule packs),
+  `fail_on_severity`, and `ai`.
+- Inline ignore comments in source: `# securescan: ignore RULE-ID`,
+  `// securescan: ignore-next-line RULE-A, RULE-B`, etc. Recognized in
+  `#`, `//`, and `--` comment styles. `*` wildcard supported.
+- Per-rule severity overrides applied post-scan; original severity
+  preserved on `metadata.original_severity` for audit.
+- Custom Semgrep rule packs via `semgrep_rules:` in config. When set,
+  replaces `--config auto` with one `--config <path>` per entry.
+- `securescan compare <baseline.json>` subcommand: classifies the
+  current scan against a baseline JSON into NEW / DISAPPEARED /
+  STILL_PRESENT. Marker: `<!-- securescan:compare -->` for PR-comment
+  upsert.
+- `securescan baseline` subcommand: writes a canonicalized,
+  byte-deterministic baseline JSON (default `.securescan/baseline.json`)
+  with no timestamps and a relative `target_path` so it's git-friendly.
+- `securescan config validate` subcommand: lints `.securescan.yml` for
+  typos, bad severity values, missing rule-pack paths, and
+  `ignored_rules` ↔ `severity_overrides` collisions.
+- `--show-suppressed` and `--no-suppress` flags on `scan`, `diff`, and
+  `compare`. By default, suppressed findings are hidden in CI but shown
+  on a TTY with a `[SUPPRESSED:<reason>]` prefix for audit visibility.
+- `--ai` / `--no-ai` flags on every relevant subcommand, with a
+  three-tier precedence: CLI flag > `.securescan.yml`'s `ai:` key > CI
+  environment auto-detection.
+- `metadata.suppressed_by` finding stamp records the suppression reason
+  (`"inline"` | `"config"` | `"baseline"`) so SARIF / JSON / CSV
+  consumers can audit which mechanism applied.
+- New CSV column `suppressed` (when `--show-suppressed`); JUnit
+  `<system-out>SUPPRESSED:<reason></system-out>` annotations; SARIF
+  `properties.suppressed_by` per result.
+
+### Changed
+
+- `securescan diff` and `securescan compare` now apply
+  `.securescan.yml` to BOTH sides of the comparison (config rules apply
+  uniformly across base and head). Backward-compatible when no config
+  file is present.
+- The PR comment summary table includes a "Suppressed: N (inline=I,
+  config=C, baseline=B)" row when `--show-suppressed` is set so
+  reviewers can audit the breakdown without rerunning.
+- `--fail-on-severity` counts only the `kept` findings (not suppressed
+  ones), matching the v0.2.0 invariant that fail-on-severity respects
+  diff filtering.
+
+### Documentation
+
+- README rewrite with new "Configuration", "Suppressing findings", and
+  "Subcommands" sections; full `.securescan.yml` schema example with
+  every key documented.
 
 ## [0.2.0] - 2026-04-28
 
@@ -104,6 +167,7 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Metbcy/securescan/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Metbcy/securescan/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Metbcy/securescan/releases/tag/v0.1.0
