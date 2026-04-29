@@ -35,6 +35,7 @@ from .git_ops import (
     GitOpError,
     checkout as git_checkout,
     current_ref as git_current_ref,
+    diff_text as git_diff_text,
     is_clean as git_is_clean,
     is_git_repo,
     rev_parse as git_rev_parse,
@@ -47,6 +48,7 @@ from .models import (
     Severity,
 )
 from .render_pr_comment import render_pr_comment
+from .render_review import render_review_json
 from .scanners import ALL_SCANNERS, get_scanners_for_types
 from .scoring import build_summary
 from .threshold import count_at_or_above
@@ -403,7 +405,16 @@ def scan(
         None, "--fail-on-count", help="Exit with code 1 if total findings exceed this count"
     ),
     output: str = typer.Option(
-        "table", "--output", "-o", help="Output format: table, json, sarif, csv, junit"
+        "table",
+        "--output",
+        "-o",
+        help=(
+            "Output format: table, json, sarif, csv, junit, "
+            "report-html, report-pdf. The github-review payload is "
+            "NOT supported here -- inline review comments need a "
+            "PR base+head diff context to anchor against; use "
+            "`securescan diff` or `securescan compare` for that."
+        ),
     ),
     output_file: Optional[str] = typer.Option(
         None, "--output-file", help="Write output to file instead of stdout"
@@ -446,6 +457,23 @@ def scan(
     """Run a security scan on the target path."""
     if no_ai and ai:
         console.print("[red]--ai and --no-ai are mutually exclusive[/red]")
+        raise typer.Exit(code=2)
+
+    if output == "github-review":
+        # ``github-review`` anchors inline comments at diff positions
+        # in a PR's unified diff (base..head). ``scan`` has no
+        # base+head context -- it's a single-snapshot command -- so
+        # there is nothing to anchor against. Fail fast and point the
+        # user at the right subcommand instead of silently emitting a
+        # degenerate payload that pushes every finding into the body
+        # fallback.
+        typer.echo(
+            "scan: --output github-review is not supported on `scan`. "
+            "Inline PR review comments need a base+head commit pair to "
+            "anchor against; run `securescan diff` or "
+            "`securescan compare` instead.",
+            err=True,
+        )
         raise typer.Exit(code=2)
 
     types = scan_type if scan_type else [ScanType.CODE, ScanType.DEPENDENCY, ScanType.IAC, ScanType.BASELINE]
@@ -853,6 +881,65 @@ def _render_diff_sarif(
     return sarif
 
 
+_REVIEW_EVENTS: tuple[str, ...] = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
+
+
+def _validate_review_event(event: str, *, subcommand: str) -> str:
+    """Validate ``--review-event`` against the GitHub Reviews API enum.
+
+    Pure validator (no side effects). Returns the value verbatim on
+    success; on failure echoes a helpful stderr line and raises
+    :class:`typer.Exit`. Centralised so both ``diff`` and ``compare``
+    surface the same error wording when a user typos the event name.
+    """
+    if event not in _REVIEW_EVENTS:
+        typer.echo(
+            f"{subcommand}: invalid --review-event {event!r}. "
+            f"Choose {' | '.join(_REVIEW_EVENTS)}.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    return event
+
+
+def _require_github_review_inputs(
+    *,
+    subcommand: str,
+    repo: str | None,
+    sha: str | None,
+    base_sha: str | None,
+) -> None:
+    """Gate the ``--output github-review`` path on its required inputs.
+
+    The Reviews API call needs ``repo``, ``sha`` (the head commit the
+    review is anchored to), and ``base_sha`` (the commit the diff is
+    computed against, so :mod:`securescan.diff_position` can resolve
+    line numbers to diff positions). Each is independently required;
+    we surface ALL missing ones in a single message rather than the
+    user iterating one at a time.
+
+    Env fallbacks (``GITHUB_REPOSITORY`` / ``GITHUB_SHA``) are wired
+    via typer's ``envvar=`` on the option itself, so by the time we
+    get here the value is either explicit-or-env or genuinely
+    missing.
+    """
+    missing: list[str] = []
+    if not repo:
+        missing.append("--repo (or GITHUB_REPOSITORY)")
+    if not sha:
+        missing.append("--sha (or GITHUB_SHA)")
+    if not base_sha:
+        missing.append("--base-sha")
+    if missing:
+        typer.echo(
+            f"{subcommand}: --output github-review requires "
+            + ", ".join(missing)
+            + ".",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+
 def _resolve_default_output(explicit: str | None) -> str:
     """Choose the default ``--output`` value.
 
@@ -932,8 +1019,10 @@ def diff(
         None,
         "--output",
         help=(
-            "Output format: github-pr-comment | sarif | json | text. "
-            "Default: github-pr-comment when stdout is piped, text on a TTY."
+            "Output format: github-pr-comment | github-review | sarif "
+            "| json | text. Default: github-pr-comment when stdout is "
+            "piped, text on a TTY. ``github-review`` emits the GitHub "
+            "Reviews API JSON the action's post-review.sh POSTs."
         ),
     ),
     output_file: Optional[Path] = typer.Option(
@@ -950,13 +1039,46 @@ def diff(
         None,
         "--repo",
         envvar="GITHUB_REPOSITORY",
-        help="owner/repo for github-pr-comment links.",
+        help=(
+            "owner/repo for github-pr-comment links AND the "
+            "github-review payload. Falls back to $GITHUB_REPOSITORY."
+        ),
     ),
     sha: Optional[str] = typer.Option(
         None,
         "--sha",
         envvar="GITHUB_SHA",
-        help="Commit sha for github-pr-comment links.",
+        help=(
+            "Commit sha for github-pr-comment links AND the "
+            "github-review ``commit_id`` (the head sha the review is "
+            "anchored to). Falls back to $GITHUB_SHA."
+        ),
+    ),
+    base_sha: Optional[str] = typer.Option(
+        None,
+        "--base-sha",
+        help=(
+            "Base commit sha for github-review's `git diff` "
+            "resolution. In ref-mode auto-resolved from --base-ref "
+            "via `git rev-parse`; in snapshot-mode required (or "
+            "set $GITHUB_BASE_REF, which we resolve via git)."
+        ),
+    ),
+    review_event: str = typer.Option(
+        "COMMENT",
+        "--review-event",
+        help=(
+            "GitHub Reviews API event for --output github-review: "
+            "COMMENT | REQUEST_CHANGES | APPROVE. Default COMMENT."
+        ),
+    ),
+    no_suggestions: bool = typer.Option(
+        False,
+        "--no-suggestions",
+        help=(
+            "Drop GitHub `suggestion` fences from inline review "
+            "comments (compact output). Default: suggestions on."
+        ),
     ),
     baseline: Optional[Path] = typer.Option(
         None,
@@ -1048,13 +1170,18 @@ def diff(
         raise typer.Exit(code=2)
 
     output_format = _resolve_default_output(output)
-    if output_format not in {"github-pr-comment", "sarif", "json", "text"}:
+    if output_format not in {"github-pr-comment", "github-review", "sarif", "json", "text"}:
         typer.echo(
             f"diff: unknown --output {output_format!r}. "
-            "Choose github-pr-comment | sarif | json | text.",
+            "Choose github-pr-comment | github-review | sarif | json | text.",
             err=True,
         )
         raise typer.Exit(code=2)
+
+    # Validate --review-event up-front (before any git work / scan)
+    # so a typo on the new --output github-review path fails fast.
+    if output_format == "github-review":
+        _validate_review_event(review_event, subcommand="diff")
 
     parsed_types: list[ScanType] = []
     for raw_type in scan_types:
@@ -1088,6 +1215,7 @@ def diff(
         scanner_kwargs["semgrep_rules"] = resolved_config.semgrep_rules
 
     resolved_head_sha: str | None = None
+    resolved_base_sha: str | None = None
 
     if have_snap_inputs:
         try:
@@ -1122,6 +1250,7 @@ def diff(
         try:
             resolved_head_sha = git_rev_parse(target, h_ref)
             base_resolved_sha = git_rev_parse(target, base_ref)
+            resolved_base_sha = base_resolved_sha
         except GitOpError as exc:
             typer.echo(f"diff: {exc}", err=True)
             raise typer.Exit(code=2)
@@ -1161,6 +1290,21 @@ def diff(
 
     if sha is None and resolved_head_sha:
         sha = resolved_head_sha
+    if base_sha is None and resolved_base_sha:
+        base_sha = resolved_base_sha
+    # Snapshot-mode fallback: GITHUB_BASE_REF (the action ships it as
+    # the PR's base ref name, e.g. ``main``); resolve it via git when
+    # the target is a real repo. We don't apply this in ref-mode
+    # because ref-mode already pinned ``--base-ref``.
+    if base_sha is None and have_snap_inputs:
+        env_base_ref = os.environ.get("GITHUB_BASE_REF") or ""
+        if env_base_ref:
+            target = Path(target_path).resolve()
+            if is_git_repo(target):
+                try:
+                    base_sha = git_rev_parse(target, env_base_ref)
+                except GitOpError:
+                    pass
 
     # TS10: apply the pipeline to BOTH sides of the diff. Config and
     # baseline rules apply uniformly across both; running them
@@ -1216,6 +1360,42 @@ def diff(
             repo=repo,
             sha=sha,
             show_suppressed=effective_show_suppressed,
+        )
+    elif output_format == "github-review":
+        # The Reviews API needs ``commit_id`` (head sha) and a
+        # base..head unified diff for position resolution. We
+        # require all three of repo + sha + base-sha up front;
+        # without them the payload is either invalid or anchors
+        # every finding in the body fallback (silent degradation).
+        _require_github_review_inputs(
+            subcommand="diff",
+            repo=repo,
+            sha=sha,
+            base_sha=base_sha,
+        )
+        target = Path(target_path).resolve()
+        if not is_git_repo(target):
+            typer.echo(
+                f"diff: --output github-review requires a git "
+                f"working tree at {target}; got a non-git path. "
+                f"Either run against a real repo or switch "
+                f"--output to github-pr-comment / sarif / json / text.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        try:
+            diff_unified = git_diff_text(target, base_sha, sha)
+        except GitOpError as exc:
+            typer.echo(f"diff: {exc}", err=True)
+            raise typer.Exit(code=2)
+        body = render_review_json(
+            changeset=cs,
+            commit_id=sha,
+            diff_text=diff_unified,
+            mode="diff",
+            event=review_event,
+            repo=repo,
+            include_suggestions=not no_suggestions,
         )
     elif output_format == "sarif":
         body = json.dumps(
@@ -1468,8 +1648,10 @@ def compare(
         None,
         "--output",
         help=(
-            "Output format: github-pr-comment | sarif | json | text. "
-            "Defaults to text on TTY, github-pr-comment when piped."
+            "Output format: github-pr-comment | github-review | sarif "
+            "| json | text. Defaults to text on TTY, github-pr-comment "
+            "when piped. ``github-review`` emits the GitHub Reviews "
+            "API JSON the action's post-review.sh POSTs."
         ),
     ),
     output_file: Optional[Path] = typer.Option(
@@ -1481,13 +1663,46 @@ def compare(
         None,
         "--repo",
         envvar="GITHUB_REPOSITORY",
-        help="owner/repo for github-pr-comment links.",
+        help=(
+            "owner/repo for github-pr-comment links AND the "
+            "github-review payload. Falls back to $GITHUB_REPOSITORY."
+        ),
     ),
     sha: Optional[str] = typer.Option(
         None,
         "--sha",
         envvar="GITHUB_SHA",
-        help="Commit sha for github-pr-comment links.",
+        help=(
+            "Commit sha for github-pr-comment links AND the "
+            "github-review ``commit_id`` (the head sha the review is "
+            "anchored to). Falls back to $GITHUB_SHA."
+        ),
+    ),
+    base_sha: Optional[str] = typer.Option(
+        None,
+        "--base-sha",
+        help=(
+            "Base commit sha for github-review's `git diff` "
+            "resolution. REQUIRED for compare's github-review path: "
+            "we don't track which commit the baseline was scanned "
+            "at (a v0.5 enhancement), so the user must assert it."
+        ),
+    ),
+    review_event: str = typer.Option(
+        "COMMENT",
+        "--review-event",
+        help=(
+            "GitHub Reviews API event for --output github-review: "
+            "COMMENT | REQUEST_CHANGES | APPROVE. Default COMMENT."
+        ),
+    ),
+    no_suggestions: bool = typer.Option(
+        False,
+        "--no-suggestions",
+        help=(
+            "Drop GitHub `suggestion` fences from inline review "
+            "comments (compact output). Default: suggestions on."
+        ),
     ),
     no_ai: bool = typer.Option(False, "--no-ai"),
     ai: bool = typer.Option(False, "--ai"),
@@ -1558,13 +1773,16 @@ def compare(
         raise typer.Exit(code=2)
 
     output_format = _resolve_default_output(output)
-    if output_format not in {"github-pr-comment", "sarif", "json", "text"}:
+    if output_format not in {"github-pr-comment", "github-review", "sarif", "json", "text"}:
         typer.echo(
             f"compare: unknown --output {output_format!r}. "
-            "Choose github-pr-comment | sarif | json | text.",
+            "Choose github-pr-comment | github-review | sarif | json | text.",
             err=True,
         )
         raise typer.Exit(code=2)
+
+    if output_format == "github-review":
+        _validate_review_event(review_event, subcommand="compare")
 
     parsed_types: list[ScanType] = []
     for raw_type in scan_types:
@@ -1653,6 +1871,42 @@ def compare(
             sha=sha,
             mode="compare",
             show_suppressed=effective_show_suppressed,
+        )
+    elif output_format == "github-review":
+        # ``compare`` doesn't track the baseline's commit-id (the
+        # baseline JSON is a frozen artifact; recording the sha it
+        # was scanned at is a v0.5 enhancement). So --base-sha is
+        # not auto-resolvable here -- we trust the user's assertion
+        # of "what commit the baseline corresponds to".
+        _require_github_review_inputs(
+            subcommand="compare",
+            repo=repo,
+            sha=sha,
+            base_sha=base_sha,
+        )
+        target = Path(target_path).resolve()
+        if not is_git_repo(target):
+            typer.echo(
+                f"compare: --output github-review requires a git "
+                f"working tree at {target}; got a non-git path. "
+                f"Either run against a real repo or switch "
+                f"--output to github-pr-comment / sarif / json / text.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        try:
+            diff_unified = git_diff_text(target, base_sha, sha)
+        except GitOpError as exc:
+            typer.echo(f"compare: {exc}", err=True)
+            raise typer.Exit(code=2)
+        body = render_review_json(
+            changeset=cs,
+            commit_id=sha,
+            diff_text=diff_unified,
+            mode="compare",
+            event=review_event,
+            repo=repo,
+            include_suggestions=not no_suggestions,
         )
     elif output_format == "sarif":
         body = json.dumps(
