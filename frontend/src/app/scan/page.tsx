@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen, StopCircle, Download } from "lucide-react";
-import { startScan, fetchScan, fetchFindings, fetchScanSummary, cancelScan, getReportUrl } from "@/lib/api";
-import type { Scan, Finding, ScanSummary } from "@/lib/api";
+import { ScanSearch, Loader2, CheckCircle, XCircle, FolderOpen, StopCircle, Download, AlertTriangle } from "lucide-react";
+import { startScan, fetchScan, fetchFindings, fetchScanSummary, cancelScan, getReportUrl, fetchScannerStatus } from "@/lib/api";
+import type { Scan, Finding, ScanSummary, ScannerStatus } from "@/lib/api";
 import { FindingsTable } from "@/components/findings-table";
 import { SeverityChart } from "@/components/severity-chart";
 import { RiskScore } from "@/components/risk-score";
@@ -18,9 +18,53 @@ const SCAN_TYPES = [
   { id: "network", label: "Network Scan" },
 ];
 
+const DEFAULT_SELECTION = ["code", "dependency"];
+
+interface CategoryAvailability {
+  available: number;
+  total: number;
+  unavailable: { name: string; install_hint: string }[];
+}
+
+function aggregateAvailability(scanners: ScannerStatus[]): Map<string, CategoryAvailability> {
+  const map = new Map<string, CategoryAvailability>();
+  for (const t of SCAN_TYPES) {
+    map.set(t.id, { available: 0, total: 0, unavailable: [] });
+  }
+  for (const s of scanners) {
+    const entry = map.get(s.scan_type);
+    if (!entry) continue;
+    entry.total += 1;
+    if (s.available) {
+      entry.available += 1;
+    } else {
+      entry.unavailable.push({
+        name: s.name,
+        install_hint: s.install_hint ?? "",
+      });
+    }
+  }
+  return map;
+}
+
+function pickDefaultSelection(availability: Map<string, CategoryAvailability>): Set<string> {
+  const usable = DEFAULT_SELECTION.filter((id) => (availability.get(id)?.available ?? 0) > 0);
+  if (usable.length > 0) return new Set(usable);
+  let bestId: string | null = null;
+  let bestAvailable = 0;
+  for (const t of SCAN_TYPES) {
+    const a = availability.get(t.id);
+    if (a && a.available > bestAvailable) {
+      bestAvailable = a.available;
+      bestId = t.id;
+    }
+  }
+  return bestId ? new Set([bestId]) : new Set();
+}
+
 export default function NewScanPage() {
   const [targetPath, setTargetPath] = useState("");
-  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(["code", "dependency"]));
+  const [selectedTypes, setSelectedTypes] = useState<Set<string>>(new Set(DEFAULT_SELECTION));
   const [targetUrl, setTargetUrl] = useState("");
   const [targetHost, setTargetHost] = useState("");
   const [scan, setScan] = useState<Scan | null>(null);
@@ -30,6 +74,36 @@ export default function NewScanPage() {
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [availability, setAvailability] = useState<Map<string, CategoryAvailability> | null>(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(true);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  // Fetch scanner availability on mount; default selection adapts to what's installed.
+  useEffect(() => {
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    fetchScannerStatus()
+      .then((scanners) => {
+        if (cancelled) return;
+        const agg = aggregateAvailability(scanners);
+        setAvailability(agg);
+        setSelectedTypes(pickDefaultSelection(agg));
+        setAvailabilityError(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAvailability(null);
+        setAvailabilityError(
+          "Could not load scanner availability. Showing all categories — your scan may produce zero findings if scanners are not installed."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleType = (id: string) => {
     setSelectedTypes((prev) => {
@@ -39,6 +113,16 @@ export default function NewScanPage() {
       return next;
     });
   };
+
+  const totalAvailable = availability
+    ? Array.from(availability.values()).reduce((sum, a) => sum + a.available, 0)
+    : 0;
+  const totalScanners = availability
+    ? Array.from(availability.values()).reduce((sum, a) => sum + a.total, 0)
+    : 0;
+  const someDisabled = availability
+    ? Array.from(availability.values()).some((a) => a.total > 0 && a.available === 0)
+    : false;
 
   const poll = useCallback(async (scanId: string) => {
     try {
@@ -202,39 +286,100 @@ export default function NewScanPage() {
           <label className="block text-sm font-medium text-[#a1a1aa] mb-3">
             Scan Types
           </label>
+
+          {availabilityLoading && (
+            <div className="flex items-center gap-2 text-xs text-[#a1a1aa] mb-3">
+              <Loader2 size={14} className="animate-spin" />
+              Loading scanner availability…
+            </div>
+          )}
+
+          {availabilityError && (
+            <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 mb-3 flex items-start gap-2">
+              <AlertTriangle size={14} className="text-yellow-400 shrink-0 mt-0.5" />
+              <p className="text-xs text-yellow-300">{availabilityError}</p>
+            </div>
+          )}
+
+          {availability && !availabilityLoading && (
+            <p className="text-xs text-[#a1a1aa] mb-3">
+              Available scanners: {totalAvailable} of {totalScanners}.
+              {someDisabled && " Some categories are disabled because their scanners are not installed."}
+            </p>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            {SCAN_TYPES.map((t) => (
-              <label
-                key={t.id}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg border cursor-pointer transition-colors ${
-                  selectedTypes.has(t.id)
-                    ? "border-blue-500/40 bg-blue-500/10"
-                    : "border-[#262626] bg-[#141414] hover:border-[#404040]"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.has(t.id)}
-                  onChange={() => toggleType(t.id)}
-                  disabled={!!isRunning}
-                  className="sr-only"
-                />
-                <div
-                  className={`w-4 h-4 rounded border flex items-center justify-center ${
-                    selectedTypes.has(t.id)
-                      ? "bg-blue-600 border-blue-600"
-                      : "border-[#52525b]"
-                  }`}
-                >
-                  {selectedTypes.has(t.id) && (
-                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                      <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+            {SCAN_TYPES.map((t) => {
+              const info = availability?.get(t.id);
+              const hasInfo = !!info && info.total > 0;
+              const allUnavailable = hasInfo && info.available === 0;
+              const partial = hasInfo && info.available > 0 && info.available < info.total;
+              const checked = selectedTypes.has(t.id);
+              const showWarning = checked && allUnavailable;
+              const installHints = info
+                ? info.unavailable
+                    .map((u) => u.install_hint)
+                    .filter((h) => h && h.length > 0)
+                : [];
+              const tooltip = allUnavailable && installHints.length > 0
+                ? `Install: ${installHints.join(", ")}`
+                : undefined;
+              const labelText = partial
+                ? `${t.label} (${info!.available} of ${info!.total} available)`
+                : t.label;
+              const disabledControl = !!isRunning || availabilityLoading;
+              return (
+                <div key={t.id} className="space-y-1">
+                  <label
+                    title={tooltip}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors ${
+                      disabledControl ? "cursor-not-allowed" : "cursor-pointer"
+                    } ${
+                      checked
+                        ? "border-blue-500/40 bg-blue-500/10"
+                        : "border-[#262626] bg-[#141414] hover:border-[#404040]"
+                    } ${allUnavailable ? "opacity-60" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleType(t.id)}
+                      disabled={disabledControl}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-4 h-4 rounded border flex items-center justify-center ${
+                        checked
+                          ? "bg-blue-600 border-blue-600"
+                          : "border-[#52525b]"
+                      }`}
+                    >
+                      {checked && (
+                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                          <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </div>
+                    <span className={`text-sm font-medium ${allUnavailable ? "text-[#a1a1aa]" : ""}`}>
+                      {labelText}
+                    </span>
+                  </label>
+
+                  {allUnavailable && installHints.length > 0 && (
+                    <p className="px-1 text-[11px] text-[#71717a]">
+                      Install: {installHints.join(", ")}
+                    </p>
+                  )}
+
+                  {showWarning && (
+                    <p className="flex items-start gap-1 px-1 text-[11px] text-yellow-300">
+                      <AlertTriangle size={11} className="shrink-0 mt-0.5" />
+                      No scanners available; this scan will produce no findings for this category.
+                    </p>
                   )}
                 </div>
-                <span className="text-sm font-medium">{t.label}</span>
-              </label>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -269,7 +414,7 @@ export default function NewScanPage() {
         {/* Submit */}
         <button
           type="submit"
-          disabled={submitting || !!isRunning || !targetPath.trim() || selectedTypes.size === 0}
+          disabled={submitting || !!isRunning || availabilityLoading || !targetPath.trim() || selectedTypes.size === 0}
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {submitting || isRunning ? (
