@@ -7,7 +7,31 @@ sorted order, and wall-clock timestamps that would otherwise differ
 between re-runs of the same scan are intentionally omitted from SARIF
 (the scan's ``started_at``/``completed_at`` are still persisted on the
 ``Scan`` model itself for audit purposes).
+
+Suppressed findings (TS6)
+-------------------------
+Every exporter accepts a keyword-only ``show_suppressed: bool = False``
+parameter. The contract is uniform across formats so callers can plumb
+one resolved boolean through any renderer:
+
+* ``show_suppressed=False`` (default): findings whose
+  ``metadata['suppressed_by']`` is set are filtered out entirely. The
+  byte output for the non-suppressed subset is byte-identical to the
+  pre-TS6 output (no new columns, no new properties, no new XML nodes
+  appear when nothing is suppressed-and-shown).
+* ``show_suppressed=True``: suppressed findings are included and the
+  reason is surfaced in a format-appropriate way (a SARIF property,
+  a CSV column, a JUnit ``<system-out>`` line, the PR-comment row
+  prefix). This is the audit / debug mode.
+
+This exists because a security tool that hides findings *without*
+showing reviewers what was hidden is a silent-mute attack vector. The
+TTY-mode default in the CLI (``--show-suppressed`` auto-on at a real
+terminal) makes the audit trail visible at the moment a developer
+would notice it; the CI / PR-comment / file-output paths default to
+False so the ordinary signal stays clean.
 """
+import json
 import xml.etree.ElementTree as ET
 
 from .diff import ChangeSet
@@ -16,7 +40,45 @@ from .ordering import sort_findings_canonical
 from .render_pr_comment import render_pr_comment
 
 
-def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
+def _suppressed_reason(finding: Finding) -> str | None:
+    """Return the suppression reason stamped on ``finding`` or ``None``.
+
+    Reads ``metadata['suppressed_by']`` defensively: a finding without a
+    ``metadata`` dict, with a non-dict ``metadata``, or with no
+    ``suppressed_by`` key all degrade to ``None`` (i.e. "not
+    suppressed"). The stamping is owned by ``SuppressionContext.apply``
+    in :mod:`securescan.suppression`; this helper is the read-side
+    half of that contract.
+    """
+    metadata = getattr(finding, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    reason = metadata.get("suppressed_by")
+    if isinstance(reason, str) and reason:
+        return reason
+    return None
+
+
+def _filter_suppressed(
+    findings: list[Finding], *, show_suppressed: bool
+) -> list[Finding]:
+    """Return ``findings`` minus suppressed entries when ``show_suppressed``
+    is False, or the input list unchanged when True.
+
+    Order is preserved (stable filter) so the caller's canonical sort
+    is not perturbed and determinism is maintained.
+    """
+    if show_suppressed:
+        return list(findings)
+    return [f for f in findings if _suppressed_reason(f) is None]
+
+
+def findings_to_sarif(
+    findings: list[Finding],
+    scan: Scan,
+    *,
+    show_suppressed: bool = False,
+) -> dict:
     """Convert findings to SARIF v2.1.0 format for GitHub/GitLab integration.
 
     Output is deterministic: findings are sorted by the canonical key,
@@ -37,7 +99,19 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
     ``line_start`` (canonical sort already places it first). Findings
     whose ``fingerprint`` is empty are passed through unchanged with
     no ``partialFingerprints`` entry and no dedup.
+
+    Suppressed findings: by default (``show_suppressed=False``) any
+    finding stamped with ``metadata['suppressed_by']`` is filtered out
+    before SARIF assembly so the GitHub Security tab does not surface
+    alerts the user explicitly silenced. With ``show_suppressed=True``
+    they are included and each result gains a
+    ``properties.suppressed_by`` field carrying the reason
+    (``"inline"`` / ``"config"`` / ``"baseline"``) -- this mirrors
+    SARIF 2.1.0's own ``suppressions`` concept while keeping the data
+    inline with the result for tools that don't read top-level
+    ``suppressions`` arrays.
     """
+    findings = _filter_suppressed(findings, show_suppressed=show_suppressed)
     findings = sort_findings_canonical(findings)
     rules: dict[str, dict] = {}
     results: list[dict] = []
@@ -101,6 +175,10 @@ def findings_to_sarif(findings: list[Finding], scan: Scan) -> dict:
             result["fixes"] = [{
                 "description": {"text": finding.remediation},
             }]
+
+        suppressed_reason = _suppressed_reason(finding)
+        if show_suppressed and suppressed_reason is not None:
+            result.setdefault("properties", {})["suppressed_by"] = suppressed_reason
 
         results.append(result)
 
@@ -195,12 +273,27 @@ def _severity_score(severity: Severity) -> str:
     }.get(severity, "5.0")
 
 
-def findings_to_csv(findings: list[Finding]) -> str:
+def findings_to_csv(
+    findings: list[Finding], *, show_suppressed: bool = False
+) -> str:
     """Export findings as CSV string. Findings are sorted canonically so
     the output is byte-identical for the same logical input.
+
+    Suppressed findings: by default (``show_suppressed=False``) findings
+    stamped with ``metadata['suppressed_by']`` are filtered out and the
+    header is the legacy 9-column form -- byte-identical to the
+    pre-TS6 output. With ``show_suppressed=True`` a ``suppressed``
+    column is appended (10th column, blank for non-suppressed rows,
+    reason string for suppressed rows). The column is only present in
+    the True branch so existing CSV consumers that schema-validate the
+    header are not broken by the default behavior.
     """
+    findings = _filter_suppressed(findings, show_suppressed=show_suppressed)
     findings = sort_findings_canonical(findings)
-    lines = ["severity,scanner,title,file,line,rule_id,cwe,description,remediation"]
+    header = "severity,scanner,title,file,line,rule_id,cwe,description,remediation"
+    if show_suppressed:
+        header += ",suppressed"
+    lines = [header]
     for f in findings:
         row = [
             f.severity.value,
@@ -213,15 +306,34 @@ def findings_to_csv(findings: list[Finding]) -> str:
             f'"{f.description[:200]}"',
             f'"{(f.remediation or "")[:200]}"',
         ]
+        if show_suppressed:
+            row.append(_suppressed_reason(f) or "")
         lines.append(",".join(row))
     return "\n".join(lines)
 
 
-def findings_to_junit(findings: list[Finding], scan: Scan) -> str:
+def findings_to_junit(
+    findings: list[Finding],
+    scan: Scan,
+    *,
+    show_suppressed: bool = False,
+) -> str:
     """Export findings as JUnit XML for CI/CD test frameworks. Findings
     are sorted canonically so the output is byte-identical for the same
     logical input.
+
+    Suppressed findings: by default (``show_suppressed=False``) findings
+    stamped with ``metadata['suppressed_by']`` are filtered out before
+    the testsuite is built, so the ``tests=`` / ``failures=`` counts
+    reflect only the findings the user actually wants to see. With
+    ``show_suppressed=True`` they are included as regular ``testcase``
+    entries with a ``<system-out>SUPPRESSED:<reason></system-out>``
+    annotation; we explicitly do *not* use ``<skipped>`` because some
+    JUnit consumers (notably Jenkins) treat ``<skipped>`` as
+    "investigation needed" and we don't want that signal -- a
+    suppression is an intentional, audited mute.
     """
+    findings = _filter_suppressed(findings, show_suppressed=show_suppressed)
     findings = sort_findings_canonical(findings)
     suite = ET.Element("testsuite", {
         "name": "SecureScan",
@@ -244,7 +356,42 @@ def findings_to_junit(findings: list[Finding], scan: Scan) -> str:
         elif finding.severity == Severity.MEDIUM:
             ET.SubElement(tc, "system-out").text = finding.description
 
+        if show_suppressed:
+            reason = _suppressed_reason(finding)
+            if reason is not None:
+                ET.SubElement(tc, "system-out").text = f"SUPPRESSED:{reason}"
+
     return ET.tostring(suite, encoding="unicode", xml_declaration=True)
+
+
+def findings_to_json(
+    findings: list[Finding],
+    *,
+    show_suppressed: bool = False,
+    indent: int | None = 2,
+) -> str:
+    """Render findings as a deterministic JSON array string.
+
+    Findings are sorted canonically before serialisation so the output
+    is byte-identical for the same logical input. Each entry is
+    emitted via ``Finding.model_dump(mode="json")`` -- the
+    ``metadata.suppressed_by`` stamp travels through naturally for
+    callers that need it.
+
+    Suppressed findings: by default (``show_suppressed=False``)
+    findings stamped with ``metadata['suppressed_by']`` are filtered
+    out. With ``show_suppressed=True`` all findings are included; the
+    ``suppressed_by`` reason is already present in each entry's
+    ``metadata`` dict so no extra serialisation work is required.
+
+    Factored out of the inline ``json.dumps`` calls in ``cli.py`` so
+    every JSON-output path runs through the same filter / sort
+    pipeline (TS6).
+    """
+    findings = _filter_suppressed(findings, show_suppressed=show_suppressed)
+    findings = sort_findings_canonical(findings)
+    payload = [f.model_dump(mode="json") for f in findings]
+    return json.dumps(payload, indent=indent, default=str)
 
 
 def findings_to_pr_comment(
@@ -252,6 +399,7 @@ def findings_to_pr_comment(
     *,
     repo: str | None = None,
     sha: str | None = None,
+    show_suppressed: bool = False,
 ) -> str:
     """Render a flat finding list as a GitHub PR-comment Markdown body.
 
@@ -265,6 +413,13 @@ def findings_to_pr_comment(
     ``ChangeSet`` from base/head scans and calls ``render_pr_comment``
     directly, so the per-severity bucketing and new/fixed/unchanged
     summary table show real diff data instead of "everything is new".
+
+    The ``show_suppressed`` flag is forwarded to ``render_pr_comment``
+    as-is; the canonical sort happens there as well so filtering and
+    ordering stay consistent with the diff-mode and compare-mode
+    callers.
     """
     changeset = ChangeSet(new=sort_findings_canonical(findings))
-    return render_pr_comment(changeset, repo=repo, sha=sha)
+    return render_pr_comment(
+        changeset, repo=repo, sha=sha, show_suppressed=show_suppressed
+    )
