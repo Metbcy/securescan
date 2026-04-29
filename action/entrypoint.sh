@@ -73,10 +73,61 @@ if [[ -n "$fail_lower" && "$fail_lower" != "none" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 2b. Resolve pr-mode dispatch flags. Default `summary` keeps the v0.2.0
+#     single-comment behaviour. `inline` and `both` are opt-in and require
+#     a pull_request event payload (so we can read base.sha for the diff
+#     position translation that the github-review renderer feeds off).
+# ---------------------------------------------------------------------------
+pr_mode_lower="$(echo "${INPUT_PR_MODE:-summary}" | tr '[:upper:]' '[:lower:]')"
+case "$pr_mode_lower" in
+  summary|inline|both) ;;
+  *)
+    echo "::warning::unknown pr-mode '${INPUT_PR_MODE:-}'; falling back to 'summary'"
+    pr_mode_lower="summary"
+    ;;
+esac
+
+WANT_SUMMARY=false
+WANT_INLINE=false
+case "$pr_mode_lower" in
+  summary) WANT_SUMMARY=true ;;
+  inline)  WANT_INLINE=true ;;
+  both)    WANT_SUMMARY=true; WANT_INLINE=true ;;
+esac
+
+if [[ "$WANT_INLINE" == "true" && "${GITHUB_EVENT_NAME:-}" != "pull_request" ]]; then
+  echo "::warning::pr-mode='${pr_mode_lower}' requires a pull_request event (got '${GITHUB_EVENT_NAME:-}'); skipping inline review submission"
+  WANT_INLINE=false
+fi
+
+REVIEW_OUT="$OUT_DIR/review.json"
+
+# ---------------------------------------------------------------------------
 # 3. Run the diff. Capture exit code so SARIF upload + PR comment still happen
 #    when --fail-on-severity returns non-zero.
 # ---------------------------------------------------------------------------
 DIFF_EXIT=0
+
+# ---------------------------------------------------------------------------
+# 3a. Build the optional github-review args. Only used when WANT_INLINE=true.
+#     The renderer is gated on --repo / --sha / --base-sha by the CLI; we
+#     populate them from GITHUB_REPOSITORY / GITHUB_SHA / INPUT_BASE_REF.
+#     Suggestion blocks default on; --no-suggestions is appended when the
+#     action input is explicitly false.
+# ---------------------------------------------------------------------------
+review_event_upper="$(echo "${INPUT_REVIEW_EVENT:-COMMENT}" | tr '[:lower:]' '[:upper:]')"
+inline_sugg_lower="$(echo "${INPUT_INLINE_SUGGESTIONS:-true}" | tr '[:upper:]' '[:lower:]')"
+
+REVIEW_ARGS=(
+  --output github-review
+  --repo "${GITHUB_REPOSITORY:-}"
+  --sha "${GITHUB_SHA:-$INPUT_HEAD_REF}"
+  --base-sha "${INPUT_BASE_REF}"
+  --review-event "$review_event_upper"
+)
+if [[ "$inline_sugg_lower" != "true" ]]; then
+  REVIEW_ARGS+=(--no-suggestions)
+fi
 
 if [[ "$USE_IMAGE" == "true" ]]; then
   echo "Using container $IMAGE_REF"
@@ -112,6 +163,16 @@ if [[ "$USE_IMAGE" == "true" ]]; then
   if [[ "$sarif_exit" -ne 0 && "$DIFF_EXIT" -eq 0 ]]; then
     DIFF_EXIT="$sarif_exit"
   fi
+
+  if [[ "$WANT_INLINE" == "true" ]]; then
+    set +e
+    "${docker_common[@]}" "${REVIEW_ARGS[@]}" --output-file /output/review.json
+    review_exit=$?
+    set -e
+    if [[ "$review_exit" -ne 0 && "$DIFF_EXIT" -eq 0 ]]; then
+      DIFF_EXIT="$review_exit"
+    fi
+  fi
 else
   baseline_args_host=()
   if [[ -n "${INPUT_BASELINE:-}" ]]; then
@@ -140,16 +201,40 @@ else
   if [[ "$sarif_exit" -ne 0 && "$DIFF_EXIT" -eq 0 ]]; then
     DIFF_EXIT="$sarif_exit"
   fi
+
+  if [[ "$WANT_INLINE" == "true" ]]; then
+    set +e
+    "${bin_common[@]}" "${REVIEW_ARGS[@]}" --output-file "$REVIEW_OUT"
+    review_exit=$?
+    set -e
+    if [[ "$review_exit" -ne 0 && "$DIFF_EXIT" -eq 0 ]]; then
+      DIFF_EXIT="$review_exit"
+    fi
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Upsert the PR comment (marker-based) regardless of fail-on-severity exit.
+# 4. Post the PR feedback. `summary` (default) upserts the marker comment via
+#    post-pr-comment.sh; `inline` submits a GitHub Review via post-review.sh
+#    (added by IR7); `both` runs both in sequence. Each call is independently
+#    guarded so a missing/failed handler never blocks the other path or the
+#    SARIF upload that runs as a separate composite step.
 # ---------------------------------------------------------------------------
-if [[ "${INPUT_COMMENT_ON_PR:-true}" == "true" && "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+if [[ "$WANT_SUMMARY" == "true" \
+      && "${INPUT_COMMENT_ON_PR:-true}" == "true" \
+      && "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
   if [[ -x "$ACTION_DIR/post-pr-comment.sh" ]]; then
     "$ACTION_DIR/post-pr-comment.sh" || echo "::warning::post-pr-comment.sh failed (continuing)"
   else
     echo "::warning::post-pr-comment.sh not found at $ACTION_DIR (skipping comment)"
+  fi
+fi
+
+if [[ "$WANT_INLINE" == "true" ]]; then
+  if [[ -x "$ACTION_DIR/post-review.sh" ]]; then
+    "$ACTION_DIR/post-review.sh" || echo "::warning::post-review.sh failed (continuing)"
+  else
+    echo "::warning::post-review.sh not found at $ACTION_DIR (inline review submission requires IR7; skipping)"
   fi
 fi
 
