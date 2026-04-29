@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useSyncExternalStore } from "react";
 import {
   ArrowLeftRight,
+  GitCompare,
   History,
   LayoutDashboard,
   Menu,
@@ -23,6 +24,7 @@ const navItems = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "New Scan", href: "/scan", icon: ScanSearch },
   { label: "Compare", href: "/compare", icon: ArrowLeftRight },
+  { label: "Diff", href: "/diff", icon: GitCompare },
   { label: "History", href: "/history", icon: History },
   { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Scanners", href: "/scanners", icon: Settings },
