@@ -1,0 +1,50 @@
+[book]
+title = "SecureScan Documentation"
+authors = ["SecureScan contributors"]
+description = "Self-hosted security scanning orchestrator — operator, developer, and security-team reference."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Metbcy/securescan"
+git-repository-icon = "fa-github"
+edit-url-template = "https://github.com/Metbcy/securescan/edit/main/docs/{path}"
+additional-css = ["theme/securescan.css", "./theme/mdbook-admonish.css"]
+mathjax-support = false
+no-section-label = false
+additional-js = ["mermaid.min.js", "mermaid-init.js"]
+
+[output.html.search]
+enable = true
+limit-results = 30
+use-boolean-and = true
+boost-title = 2
+boost-hierarchy = 1
+boost-paragraph = 1
+expand = true
+heading-split-level = 3
+
+[output.html.fold]
+enable = true
+level = 1
+
+[output.html.print]
+enable = true
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"
+
+[preprocessor.admonish]
+command = "mdbook-admonish"
+assets_version = "3.1.0" # do not edit: managed by `mdbook-admonish install`
+
+[preprocessor.toc]
+command = "mdbook-toc"
+renderer = ["html"]
+marker = "<!-- toc -->"

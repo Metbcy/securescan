@@ -28,3 +28,6 @@ out/
 .DS_Store
 Thumbs.db
 frontend/.scratch/
+
+# mdBook build output
+docs/book/

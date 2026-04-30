@@ -38,6 +38,14 @@ upserted on every push to the PR branch via a comment marker, the SARIF
 re-uploads cleanly to GitHub's Security tab without false-new-alert
 noise, and the renderer is byte-identical for the same inputs.
 
+## Documentation
+
+Full documentation: **https://metbcy.github.io/securescan/**
+
+- [Quick start](https://metbcy.github.io/securescan/quick-start.html)
+- [API reference](https://metbcy.github.io/securescan/api/overview.html)
+- [Production checklist](https://metbcy.github.io/securescan/deployment/production-checklist.html)
+
 ## Install
 
 There are three supported install paths. Pick the one that matches how

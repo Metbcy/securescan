@@ -1,0 +1,52 @@
+/* SecureScan documentation — light theme touch-up.
+   The default mdBook navy palette is a good starting point; we just
+   nudge link / accent / heading colors slightly toward the OKLCH
+   moss-green hue from frontend/src/app/globals.css so the docs site
+   feels like part of the same product without re-implementing the
+   full design system. */
+
+:root {
+  /* Used in places where we want the SecureScan accent specifically
+     (e.g. inline `code` highlights, table heads). The OKLCH value is
+     dropped here so a sufficiently modern browser renders it; older
+     ones fall back to the navy theme defaults. */
+  --securescan-accent: oklch(0.72 0.16 155);
+  --securescan-accent-soft: oklch(0.32 0.06 155);
+  --securescan-sev-critical: oklch(0.58 0.18 25);
+  --securescan-sev-high: oklch(0.66 0.16 45);
+  --securescan-sev-medium: oklch(0.74 0.14 75);
+}
+
+/* Slightly tighter line-height on body copy (we publish a lot of lists
+   and code-block dense content; 1.6 leaves the page feeling sparse). */
+.content {
+  line-height: 1.55;
+}
+
+/* Inline code — accent-tinted so the eye can pick API names out of a
+   sentence without bolding them. */
+.content :not(pre) > code {
+  color: var(--securescan-accent);
+  background: rgba(108, 168, 132, 0.08);
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+}
+
+/* Table headers slightly bolder so the column structure shows on
+   information-dense reference pages (config keys, scope mappings). */
+.content table thead th {
+  font-weight: 600;
+  border-bottom: 2px solid var(--securescan-accent-soft);
+}
+
+/* Severity-tinted leftedge on admonitions when the title contains a
+   severity word — a small touch that matches the dashboard. */
+.admonish.warning > .admonish-title {
+  border-left-color: var(--securescan-sev-high);
+}
+.admonish.important > .admonish-title {
+  border-left-color: var(--securescan-sev-critical);
+}
+.admonish.tip > .admonish-title {
+  border-left-color: var(--securescan-accent);
+}
