@@ -920,19 +920,34 @@ def test_scan_command_accepts_no_suppress_flag(monkeypatch):
 
 
 def test_diff_command_help_lists_new_flags():
-    runner = CliRunner()
-    result = runner.invoke(app, ["diff", "--help"], terminal_width=200)
-    assert result.exit_code == 0
-    assert "--show-suppressed" in result.output
-    assert "--no-suppress" in result.output
+    """Verify diff registers --show-suppressed and --no-suppress.
+    Uses Click introspection rather than asserting on rendered help."""
+    import click
+    from typer.main import get_command
+
+    cli = get_command(app)
+    diff_cmd = cli.commands["diff"]  # type: ignore[union-attr]
+    opts: set[str] = set()
+    for param in diff_cmd.params:
+        if isinstance(param, click.Option):
+            opts.update(param.opts)
+    assert "--show-suppressed" in opts
+    assert "--no-suppress" in opts
 
 
 def test_compare_command_help_lists_new_flags():
-    runner = CliRunner()
-    result = runner.invoke(app, ["compare", "--help"], terminal_width=200)
-    assert result.exit_code == 0
-    assert "--show-suppressed" in result.output
-    assert "--no-suppress" in result.output
+    """Verify compare registers --show-suppressed and --no-suppress."""
+    import click
+    from typer.main import get_command
+
+    cli = get_command(app)
+    compare_cmd = cli.commands["compare"]  # type: ignore[union-attr]
+    opts: set[str] = set()
+    for param in compare_cmd.params:
+        if isinstance(param, click.Option):
+            opts.update(param.opts)
+    assert "--show-suppressed" in opts
+    assert "--no-suppress" in opts
 
 
 # ---------------------------------------------------------------------------
