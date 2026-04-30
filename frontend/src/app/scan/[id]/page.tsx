@@ -707,15 +707,8 @@ export default function ScanDetailPage() {
     return null;
   })();
 
-  // Scanners that are queued/running but not yet in scanners_run.
   const ran = scan.scanners_run ?? [];
   const skipped = scan.scanners_skipped ?? [];
-  const runningScanners =
-    scan.status === "running"
-      ? (scan.scan_types ?? []).filter(
-          (s) => !ran.includes(s) && !skipped.some((sk) => sk.name === s),
-        )
-      : [];
 
   const showStatLine = scan.status === "completed";
   const isFailed = scan.status === "failed";
@@ -875,59 +868,24 @@ export default function ScanDetailPage() {
         </>
       )}
 
-      {/* Running surface — partial scanner chips + spinner, no stat line yet. */}
+      {/* Running surface — single self-contained progress panel.
+       *
+       * Earlier versions also rendered a <StatLine> showing
+       * "Scanners X/Y done" and a <ScannerChipStrip> below it;
+       * both duplicated information already visible in the
+       * progress panel's grid + header. Dropping them removes
+       * a confusing "0/4" badge while the panel itself shows
+       * "Live progress · 4/14 scanners" with per-scanner state. */}
       {(scan.status === "running" || scan.status === "pending") && !isFailed && (
-        <>
-          <ScanProgressPanel
-            scanners={scannerProgress}
-            totalScanners={totalScanners ?? scan.scan_types?.length}
-          />
-          <StatLine
-            items={
-              [
-                {
-                  label: "Status",
-                  value: (
-                    <span className="inline-flex items-center gap-2 text-sev-medium">
-                      <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />
-                      {scan.status === "pending" ? "Queued" : "Running"}
-                    </span>
-                  ),
-                  trail: duration,
-                },
-                {
-                  label: "Scanners",
-                  value: (
-                    <span>
-                      <span className="tabular-nums">{ran.length}</span>
-                      {scan.scan_types && scan.scan_types.length > 0 && (
-                        <span className="text-muted">/{scan.scan_types.length}</span>
-                      )}
-                    </span>
-                  ),
-                  trail: "done",
-                },
-                ...(findings.length > 0
-                  ? [
-                      {
-                        label: "Partial findings",
-                        value: <span className="tabular-nums">{findings.length}</span>,
-                        trail: (
-                          <SeverityPillStrip
-                            counts={deriveSummaryFromFindings(findings)}
-                            size="xs"
-                          />
-                        ),
-                      },
-                    ]
-                  : []),
-              ] satisfies StatLineItem[]
-            }
-          />
-          <div className="-mt-2">
-            <ScannerChipStrip ran={ran} skipped={skipped} running={runningScanners} />
-          </div>
-        </>
+        <ScanProgressPanel
+          scanners={scannerProgress}
+          totalScanners={totalScanners ?? scan.scan_types?.length}
+          duration={duration ?? undefined}
+          partialSummary={
+            findings.length > 0 ? deriveSummaryFromFindings(findings) : null
+          }
+          partialFindings={findings.length}
+        />
       )}
 
       {/* AI Summary (rendered with restrained accent, not blue marketing). */}

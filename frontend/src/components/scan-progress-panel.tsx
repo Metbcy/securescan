@@ -1,4 +1,6 @@
 import { CheckCircle2, MinusCircle, XCircle } from "lucide-react";
+import { SeverityPillStrip } from "./severity-pill-strip";
+import type { ScanSummary } from "@/lib/api";
 
 export type ScannerProgressState =
   | "queued"
@@ -18,6 +20,13 @@ export interface ScannerProgress {
 interface ScanProgressPanelProps {
   scanners: Record<string, ScannerProgress>;
   totalScanners?: number;
+  /** Wall-clock duration string ("0:42") rendered in the panel header. */
+  duration?: string;
+  /** Pre-derived severity counts; rendered as a pill strip in the
+   * footer when ``findings > 0``. */
+  partialSummary?: ScanSummary | null;
+  /** Total partial findings count. */
+  partialFindings?: number;
 }
 
 function StateDot({ state }: { state: ScannerProgressState }) {
@@ -73,6 +82,9 @@ function StateDot({ state }: { state: ScannerProgressState }) {
 export function ScanProgressPanel({
   scanners,
   totalScanners,
+  duration,
+  partialSummary,
+  partialFindings,
 }: ScanProgressPanelProps) {
   const entries = Object.entries(scanners);
   const completed = entries.filter(
@@ -80,20 +92,26 @@ export function ScanProgressPanel({
       s.state === "complete" || s.state === "skipped" || s.state === "failed",
   ).length;
   const total = totalScanners ?? entries.length;
+  const showFindings = (partialFindings ?? 0) > 0;
 
   return (
     <div className="rounded-md border border-border bg-card p-3 mb-4">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <span className="text-sm font-medium">
           Live progress · <span className="tabular-nums">{completed}</span>/
           <span className="tabular-nums">{total}</span> scanners
         </span>
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-          <span
-            aria-hidden
-            className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"
-          />
-          streaming events
+        <span className="inline-flex items-center gap-3 text-xs text-muted">
+          {duration && (
+            <span className="tabular-nums">{duration} elapsed</span>
+          )}
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse"
+            />
+            streaming events
+          </span>
         </span>
       </div>
       {entries.length === 0 ? (
@@ -127,6 +145,14 @@ export function ScanProgressPanel({
             </li>
           ))}
         </ul>
+      )}
+      {showFindings && partialSummary && (
+        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-xs text-muted">
+            <span className="tabular-nums text-foreground">{partialFindings}</span> partial finding{partialFindings === 1 ? "" : "s"} so far
+          </span>
+          <SeverityPillStrip counts={partialSummary} size="xs" />
+        </div>
       )}
     </div>
   );

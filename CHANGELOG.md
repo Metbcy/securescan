@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.10.2] - 2026-04-30
+
+UX polish on the scan-detail page while a scan is running.
+
+### Changed
+
+- The running-state surface no longer renders the redundant
+  "Scanners X/Y done" `<StatLine>` row or the
+  `<ScannerChipStrip>` of scan types. Both duplicated information
+  already visible in the live progress panel — for example the
+  panel header reads "Live progress · 4/14 scanners" while the
+  StatLine simultaneously read "Scanners 0/4 done", which was
+  confusing on first look.
+- The `<ScanProgressPanel>` is now self-contained for the running
+  state: header shows elapsed wall-clock duration alongside the
+  "streaming events" indicator; footer shows partial-finding count
+  + severity pill strip when findings have already arrived. One
+  panel, all the answers.
+- The completed / failed / cancelled views are unchanged — they
+  still use `<StatLine>` + `<ScannerChipStrip>` because there's
+  no live panel competing for the same information.
+
 ## [0.10.1] - 2026-04-30
 
 A scanner-detection bug fix. Tools installed via `pip install` into
@@ -752,7 +774,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.2...HEAD
+[0.10.2]: https://github.com/Metbcy/securescan/releases/tag/v0.10.2
 [0.10.1]: https://github.com/Metbcy/securescan/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Metbcy/securescan/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Metbcy/securescan/releases/tag/v0.9.0
