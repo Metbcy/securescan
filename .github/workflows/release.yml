@@ -221,13 +221,23 @@ jobs:
         with:
           name: dist
           path: dist/
+      - name: Stage PyPI-only artifacts
+        # twine rejects anything in packages-dir that isn't a wheel or sdist,
+        # so the sigstore bundles (which ship via the GitHub Release page)
+        # must be filtered out before upload.
+        shell: bash
+        run: |
+          mkdir -p dist-pypi
+          cp dist/*.whl dist-pypi/
+          cp dist/*.tar.gz dist-pypi/
+          ls -la dist-pypi
       - name: Upload to PyPI via OIDC
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           # PyPI account is configured via Trusted Publishers — no
           # username/password/token. Sigstore bundles ship via
           # GitHub Release as before; PyPI does not host them.
-          packages-dir: dist/
+          packages-dir: dist-pypi/
           skip-existing: true   # idempotent on re-runs of the same tag
 
   # --------------------------------------------------------------------------
