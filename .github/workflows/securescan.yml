@@ -23,11 +23,28 @@ on:
         required: false
         default: true
         type: boolean
+  # Self-audit: run SecureScan against this repo on every push to main
+  # and weekly (Monday 06:00 UTC). Keeps the README "Security Audit"
+  # badge fresh and surfaces any new finding the project introduces in
+  # its own code.
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'action/**'
+  schedule:
+    # Mon 06:00 UTC. Catches CVEs in pinned dependencies that pop up
+    # between commits.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 jobs:
   scan:
+    name: Security audit
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v4
@@ -38,23 +55,44 @@ jobs:
 
       - name: Install SecureScan
         run: |
-          pip install git+https://github.com/Metbcy/securescan.git#subdirectory=backend
+          pip install ./backend
           pip install semgrep bandit
 
       - name: Run Security Scan
         run: |
+          # workflow_call paths use the caller's inputs; push/schedule/
+          # dispatch use these defaults. On the self-audit triggers we
+          # only fail the build on a CRITICAL finding so the badge
+          # stays a useful health signal — high/medium findings are
+          # surfaced in the SARIF upload instead.
+          SCAN_PATH="${{ inputs.scan_path || '.' }}"
+          SCAN_TYPES="${{ inputs.scan_types || 'code,dependency,iac,baseline' }}"
+          FAIL_ON="${{ inputs.fail_on_severity || 'critical' }}"
+
           TYPES=""
-          IFS=',' read -ra SCAN_TYPES <<< "${{ inputs.scan_types }}"
-          for type in "${SCAN_TYPES[@]}"; do
+          IFS=',' read -ra TYPE_ARR <<< "$SCAN_TYPES"
+          for type in "${TYPE_ARR[@]}"; do
             TYPES="$TYPES --type $type"
           done
-          securescan scan ${{ inputs.scan_path }} $TYPES \
+
+          # `|| true` so SARIF upload still runs even if scan fails
+          # the threshold; final exit reflects scanner exit only when
+          # we re-test below.
+          securescan scan "$SCAN_PATH" $TYPES \
             --output sarif \
             --output-file results.sarif \
-            --fail-on-severity ${{ inputs.fail_on_severity }} || true
+            --fail-on-severity "$FAIL_ON" || echo "SCAN_NONZERO=1" >> "$GITHUB_ENV"
 
       - name: Upload SARIF
-        if: inputs.upload_sarif && always()
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+
+      - name: Surface scanner exit
+        if: env.SCAN_NONZERO == '1'
+        run: |
+          echo "::warning::SecureScan found issues at or above the configured threshold."
+          # Re-fail the job so the badge reflects the threshold breach.
+          exit 1
+
