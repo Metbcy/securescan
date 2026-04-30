@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Optional
 import uuid
@@ -194,6 +194,37 @@ class ApiKeyCreated(ApiKeyView):
     key: str
 
 
+class NotificationSeverity(str, Enum):
+    """Severity bucket for an in-app notification.
+
+    Independent from the finding `Severity` enum on purpose -- a
+    notification's level reflects the *event* (scan failed, scanner
+    crashed) rather than a single finding's CVSS-ish band, and we
+    don't want a future renaming of one to cascade through the other.
+    """
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class Notification(BaseModel):
+    """In-app notification surfaced in the dashboard topbar bell.
+
+    Single-tenant by design for v0.9.0: there is no `user_id` -- every
+    browser session sees the same bell. Multi-user scoping is a future
+    feature; the table is structured so adding `user_id` later is a
+    pure additive migration.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    type: str
+    title: str
+    body: Optional[str] = None
+    link: Optional[str] = None
+    severity: NotificationSeverity = NotificationSeverity.INFO
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    read_at: Optional[datetime] = None
+
+
 class SBOMComponent(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     sbom_id: str
@@ -212,3 +243,91 @@ class SBOMDocument(BaseModel):
     format: str = "cyclonedx"
     components: list[SBOMComponent] = []
     created_at: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Outbound webhooks (BE-WEBHOOKS)
+# ---------------------------------------------------------------------------
+
+
+class WebhookEventType(str, Enum):
+    """Events that can trigger an outbound webhook delivery.
+
+    `webhook.test` is included so the synthetic ``POST /webhooks/{id}/test``
+    endpoint flows through the same dispatcher path as a real event -- it is
+    not emitted by the scan orchestrator. The other three are emitted from
+    ``_log_scan_event`` in ``api/scans.py``.
+    """
+    SCAN_COMPLETE = "scan.complete"
+    SCAN_FAILED = "scan.failed"
+    SCANNER_FAILED = "scanner.failed"
+    WEBHOOK_TEST = "webhook.test"
+
+
+def _validate_webhook_url(url: str) -> str:
+    """Reject anything that isn't an http(s) URL.
+
+    We use a manual prefix check instead of pydantic's ``HttpUrl`` so the
+    error surface stays as simple HTTPException 422s with a stable
+    message; ``HttpUrl`` also strips trailing slashes and re-emits the
+    URL, which would surprise admins comparing the saved value against
+    what they POSTed. Any other scheme (file://, ftp://, javascript:,
+    gopher://, ...) is refused -- the dispatcher would happily hand them
+    to httpx and we'd be one misconfigured webhook away from a SSRF.
+    """
+    if not isinstance(url, str):
+        raise ValueError("url must be a string")
+    lowered = url.strip().lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        raise ValueError("url must start with http:// or https://")
+    # Reject embedded control chars / whitespace that would break the
+    # outbound HTTP request line.
+    if any(ch.isspace() for ch in url) or "\x00" in url:
+        raise ValueError("url must not contain whitespace or null bytes")
+    return url.strip()
+
+
+class Webhook(BaseModel):
+    """An outbound webhook subscription. Secret is NEVER returned here."""
+    id: str
+    name: str
+    url: str
+    event_filter: list[WebhookEventType]
+    enabled: bool
+    created_at: datetime
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, v: str) -> str:
+        return _validate_webhook_url(v)
+
+
+class WebhookCreated(Webhook):
+    """Creation response. Includes the HMAC signing secret EXACTLY ONCE.
+
+    Subsequent ``GET /webhooks`` and ``GET /webhooks/{id}`` return the bare
+    :class:`Webhook` shape -- no secret. To rotate the secret a caller
+    must DELETE the webhook and recreate it; we deliberately do not
+    expose a rotate endpoint in v0.9.0 so the receiver-side reconcile
+    flow stays simple (one new id == one new secret).
+    """
+    secret: str
+
+
+class WebhookDelivery(BaseModel):
+    """A single delivery attempt row out of `webhook_deliveries`.
+
+    `status` is one of ``pending | delivering | succeeded | failed`` --
+    kept as a plain string (not an enum) so the dispatcher can write
+    new transient states in the future without a migration.
+    """
+    id: str
+    webhook_id: str
+    event: str
+    status: str
+    attempt: int
+    next_attempt_at: datetime
+    created_at: datetime
+    updated_at: datetime
+    response_code: Optional[int] = None
+    response_body: Optional[str] = None

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Search } from "lucide-react";
 import { ApiStatus } from "@/components/api-status";
+import { NotificationBell } from "@/components/notification-bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { fetchScan } from "@/lib/api";
 
@@ -15,6 +16,7 @@ const PAGE_LABELS: Record<string, string> = {
   "/diff": "Diff",
   "/sbom": "SBOM",
   "/scanners": "Scanners",
+  "/notifications": "Notifications",
 };
 
 function deriveLabel(pathname: string): string {
@@ -111,6 +113,7 @@ export function Topbar() {
         {/* Right: status, theme, avatar. */}
         <div className="flex items-center gap-2 shrink-0">
           <ApiStatus />
+          <NotificationBell />
           <ThemeToggle />
           <div
             aria-label="Account"

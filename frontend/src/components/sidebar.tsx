@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useSyncExternalStore } from "react";
 import {
   ArrowLeftRight,
+  Bell,
   GitCompare,
   History,
   KeyRound,
@@ -14,11 +15,12 @@ import {
   ScanSearch,
   Settings,
   Shield,
+  Webhook,
   X,
 } from "lucide-react";
 import { useState } from "react";
 
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.9.0";
 const RECENTS_STORAGE_KEY = "securescan:recent-scans";
 
 type NavGroup = "main" | "settings";
@@ -36,9 +38,11 @@ const navItems: NavItem[] = [
   { label: "Compare", href: "/compare", icon: ArrowLeftRight },
   { label: "Diff", href: "/diff", icon: GitCompare },
   { label: "History", href: "/history", icon: History },
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "SBOM", href: "/sbom", icon: Package },
   { label: "Scanners", href: "/scanners", icon: Settings },
   { label: "API keys", href: "/settings/keys", icon: KeyRound, group: "settings" },
+  { label: "Webhooks", href: "/settings/webhooks", icon: Webhook, group: "settings" },
 ];
 
 interface RecentScan {

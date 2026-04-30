@@ -10,6 +10,8 @@ from .models import (
     FindingComment,
     FindingState,
     FindingWithState,
+    Notification,
+    NotificationSeverity,
     SBOMComponent,
     SBOMDocument,
     Scan,
@@ -183,6 +185,83 @@ async def init_db() -> None:
         """)
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)"
+        )
+
+        # In-app notifications (BE-NOTIFY).
+        # Single-tenant: no user_id column -- every browser session sees
+        # the same bell. The composite (read_at, created_at DESC) index
+        # is tuned for the two hot queries: "give me unread, newest
+        # first" (the dropdown) and "how many unread?" (the polled
+        # badge count). NULL read_at sorts ahead of timestamps in
+        # SQLite by default, which is exactly what we want.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                link TEXT,
+                severity TEXT NOT NULL DEFAULT 'info',
+                created_at TEXT NOT NULL,
+                read_at TEXT
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notifications_unread "
+            "ON notifications(read_at, created_at DESC)"
+        )
+
+        # Outbound webhooks (BE-WEBHOOKS).
+        # `secret` is generated server-side at create time and exposed
+        # exactly once on the create response; only the hash-equivalent
+        # plaintext is kept here because we need it to sign each
+        # outbound delivery (HMAC-SHA256). `event_filter` is a JSON
+        # array of WebhookEventType values; an empty filter means the
+        # subscription matches NO events (deny-by-default).
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                secret TEXT NOT NULL,
+                event_filter TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+        """)
+
+        # Durable delivery queue. Every outbound HTTP attempt is
+        # represented by a row that transitions
+        # pending -> delivering -> succeeded | failed (with retries
+        # bouncing back to pending). On startup any stale `delivering`
+        # row (process killed mid-flight) is reset to `pending` by
+        # ``reset_stale_delivering_deliveries`` so retry resumes.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_deliveries (
+                id TEXT PRIMARY KEY,
+                webhook_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL,
+                attempt INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                response_code INTEGER,
+                response_body TEXT,
+                FOREIGN KEY (webhook_id) REFERENCES webhooks(id)
+            )
+        """)
+        # Hot path: dispatcher poll = "pending rows whose next_attempt_at
+        # has passed". Composite index lines that filter+sort up.
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending "
+            "ON webhook_deliveries(status, next_attempt_at)"
+        )
+        # Per-webhook delivery history (admin UI lists last 100).
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook "
+            "ON webhook_deliveries(webhook_id, created_at DESC)"
         )
 
         await db.commit()
@@ -846,5 +925,588 @@ async def has_unrevoked_api_key() -> bool:
         return row is not None
     except aiosqlite.OperationalError:
         return False
+    finally:
+        await db.close()
+
+
+# --- In-app notifications (BE-NOTIFY) ------------------------------------
+#
+# Single-tenant for v0.9.0: notifications are global, not per-user. The
+# bell icon in the topbar shows the same unread count to every browser
+# session. Multi-user scoping is a future feature; the table layout is
+# already shaped so adding `user_id` later is an additive migration.
+#
+# `created_at` and `read_at` are stored as ISO-8601 strings so they
+# compare lexicographically on the indexed (read_at, created_at DESC)
+# pair -- matching the two hot queries the API surfaces:
+#   * "newest unread first" (dropdown render)
+#   * "count(*) where read_at IS NULL" (polled badge)
+
+
+def _row_to_notification(row: aiosqlite.Row) -> Notification:
+    return Notification(
+        id=row["id"],
+        type=row["type"],
+        title=row["title"],
+        body=row["body"],
+        link=row["link"],
+        severity=NotificationSeverity(row["severity"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+        read_at=datetime.fromisoformat(row["read_at"]) if row["read_at"] else None,
+    )
+
+
+async def insert_notification(
+    *,
+    type: str,
+    title: str,
+    body: Optional[str] = None,
+    link: Optional[str] = None,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+) -> Notification:
+    """Persist a new notification and return the populated row.
+
+    `id` and `created_at` are server-assigned (UUIDv4 + UTC now) so
+    callers can't backdate or collide. `read_at` starts NULL.
+    """
+    notif = Notification(
+        type=type,
+        title=title,
+        body=body,
+        link=link,
+        severity=severity,
+    )
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO notifications
+               (id, type, title, body, link, severity, created_at, read_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+            (
+                notif.id,
+                notif.type,
+                notif.title,
+                notif.body,
+                notif.link,
+                notif.severity.value,
+                notif.created_at.isoformat(),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    return notif
+
+
+async def list_notifications(
+    unread_only: bool = False, limit: int = 50
+) -> list[Notification]:
+    """Return notifications, newest first.
+
+    `limit` is hard-capped at 200 in the API layer; this function
+    trusts its caller (the cap exists to bound payload size for the
+    polled dropdown, not for any safety reason at the DB level).
+    """
+    db = await _get_db()
+    try:
+        if unread_only:
+            cursor = await db.execute(
+                "SELECT * FROM notifications WHERE read_at IS NULL "
+                "ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM notifications "
+                "ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        rows = await cursor.fetchall()
+        return [_row_to_notification(row) for row in rows]
+    finally:
+        await db.close()
+
+
+async def get_notification(notification_id: str) -> Optional[Notification]:
+    """Look up a single notification by id, or None when missing."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM notifications WHERE id = ?", (notification_id,)
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_notification(row)
+    finally:
+        await db.close()
+
+
+async def mark_notification_read(notification_id: str) -> bool:
+    """Mark one notification read. Returns True iff a row changed.
+
+    `WHERE read_at IS NULL` makes a second call a no-op (rowcount=0)
+    so callers can distinguish "marked it just now" from "was already
+    read". The API layer uses that distinction to keep the PATCH
+    idempotent (200 either way) while still surfacing 404 for an
+    unknown id (checked separately).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE notifications SET read_at = ? "
+            "WHERE id = ? AND read_at IS NULL",
+            (datetime.utcnow().isoformat(), notification_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def mark_all_notifications_read() -> int:
+    """Mark every unread notification read. Returns the count modified.
+
+    A single UPDATE instead of N individual updates so the bell's
+    "mark all read" button is one round trip regardless of backlog
+    size.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE notifications SET read_at = ? WHERE read_at IS NULL",
+            (datetime.utcnow().isoformat(),),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
+async def count_unread_notifications() -> int:
+    """Return the number of unread notifications.
+
+    Polled by the dashboard topbar every 30s -- the
+    `idx_notifications_unread` index lets SQLite answer this from the
+    index alone (read_at IS NULL is a prefix match).
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM notifications WHERE read_at IS NULL"
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        await db.close()
+
+
+async def prune_old_notifications(older_than_days: int = 30) -> int:
+    """Delete read notifications older than the threshold.
+
+    Never touches unread rows, even if they are years old -- if the
+    user hasn't acknowledged a notification we'd rather keep showing
+    it than silently swallow it. Called once at startup (no recurring
+    schedule for v0.9.0); a busy deployment can re-run it manually
+    by hitting `/ready` (which calls `init_db`) and triggering the
+    startup hook on the next reload.
+
+    ISO-8601 strings compare lexicographically, so we subtract days
+    in Python and pass the cutoff string directly to SQLite -- avoids
+    a per-version reliance on sqlite's date() function.
+    """
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "DELETE FROM notifications "
+            "WHERE read_at IS NOT NULL AND read_at < ?",
+            (cutoff,),
+        )
+        await db.commit()
+        return cursor.rowcount
+    finally:
+        await db.close()
+
+
+
+# --- Outbound webhooks (BE-WEBHOOKS) -------------------------------------
+#
+# Two tables, one queue:
+#
+# * `webhooks`             - subscriptions. One row per (URL, event_filter)
+#                            tuple the operator wants to fan out to.
+# * `webhook_deliveries`   - the durable retry queue. Every event that
+#                            matches a subscription writes ONE row here
+#                            with status='pending'; the dispatcher worker
+#                            polls these and transitions them to
+#                            delivering -> succeeded | failed (or back
+#                            to pending with an updated next_attempt_at
+#                            on retry).
+#
+# Why a row before the HTTP call?
+#   Crash safety. If the process is terminated between "scan completed" and
+#   "POST /receiver" the row is already on disk in WAL mode; on next
+#   startup ``reset_stale_delivering_deliveries`` flips any 'delivering'
+#   rows back to 'pending' and the worker resumes. A bare
+#   ``asyncio.create_task`` would lose the delivery on restart.
+
+from .models import Webhook, WebhookDelivery, WebhookEventType
+
+
+def _row_to_webhook(row: aiosqlite.Row) -> Webhook:
+    return Webhook(
+        id=row["id"],
+        name=row["name"],
+        url=row["url"],
+        event_filter=[WebhookEventType(e) for e in json.loads(row["event_filter"])],
+        enabled=bool(row["enabled"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_delivery(row: aiosqlite.Row) -> WebhookDelivery:
+    return WebhookDelivery(
+        id=row["id"],
+        webhook_id=row["webhook_id"],
+        event=row["event"],
+        status=row["status"],
+        attempt=row["attempt"],
+        next_attempt_at=datetime.fromisoformat(row["next_attempt_at"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
+        response_code=row["response_code"],
+        response_body=row["response_body"],
+    )
+
+
+async def insert_webhook(
+    *,
+    id: str,
+    name: str,
+    url: str,
+    secret: str,
+    event_filter: list[str],
+    enabled: bool,
+    created_at: datetime,
+) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO webhooks
+               (id, name, url, secret, event_filter, enabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                id, name, url, secret,
+                json.dumps(event_filter),
+                1 if enabled else 0,
+                created_at.isoformat(),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_webhook_row(webhook_id: str) -> Optional[dict]:
+    """Return the raw row dict (including ``secret``) or None.
+
+    Public callers should prefer :func:`get_webhook` which strips the
+    secret. The dispatcher needs the secret to sign requests, so it
+    reads via this function.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM webhooks WHERE id = ?", (webhook_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def get_webhook(webhook_id: str) -> Optional[Webhook]:
+    row = await get_webhook_row(webhook_id)
+    if row is None:
+        return None
+    return Webhook(
+        id=row["id"],
+        name=row["name"],
+        url=row["url"],
+        event_filter=[
+            WebhookEventType(e) for e in json.loads(row["event_filter"])
+        ],
+        enabled=bool(row["enabled"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+async def list_webhooks(*, only_enabled: bool = False) -> list[Webhook]:
+    db = await _get_db()
+    try:
+        if only_enabled:
+            cursor = await db.execute(
+                "SELECT * FROM webhooks WHERE enabled = 1 "
+                "ORDER BY created_at DESC"
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM webhooks ORDER BY created_at DESC"
+            )
+        rows = await cursor.fetchall()
+        return [_row_to_webhook(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def update_webhook(
+    webhook_id: str,
+    *,
+    name: Optional[str] = None,
+    url: Optional[str] = None,
+    event_filter: Optional[list[str]] = None,
+    enabled: Optional[bool] = None,
+) -> Optional[Webhook]:
+    """Patch a webhook row. Secret is intentionally NOT exposed here.
+
+    Returns the post-update :class:`Webhook` or None if the id was not
+    found. No-op when every field is None (still re-fetches so the
+    caller sees the current state).
+    """
+    sets: list[str] = []
+    params: list = []
+    if name is not None:
+        sets.append("name = ?")
+        params.append(name)
+    if url is not None:
+        sets.append("url = ?")
+        params.append(url)
+    if event_filter is not None:
+        sets.append("event_filter = ?")
+        params.append(json.dumps(event_filter))
+    if enabled is not None:
+        sets.append("enabled = ?")
+        params.append(1 if enabled else 0)
+    if not sets:
+        return await get_webhook(webhook_id)
+    params.append(webhook_id)
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            f"UPDATE webhooks SET {', '.join(sets)} WHERE id = ?", params
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return None
+    finally:
+        await db.close()
+    return await get_webhook(webhook_id)
+
+
+async def delete_webhook(webhook_id: str) -> bool:
+    """Delete a webhook AND cascade-drop its delivery history.
+
+    SQLite does not enforce foreign keys by default in our connection,
+    so we issue both deletes ourselves inside one transaction.
+    Returns True iff the webhook row existed and was removed.
+    """
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT 1 FROM webhooks WHERE id = ?", (webhook_id,)
+        )
+        existed = await cursor.fetchone() is not None
+        if not existed:
+            return False
+        await db.execute(
+            "DELETE FROM webhook_deliveries WHERE webhook_id = ?",
+            (webhook_id,),
+        )
+        await db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def insert_webhook_delivery(
+    *,
+    id: str,
+    webhook_id: str,
+    event: str,
+    payload: str,
+    next_attempt_at: datetime,
+    created_at: datetime,
+) -> None:
+    """Persist a 'pending' delivery row -- the durability anchor.
+
+    Always writes status='pending', attempt=0; the worker advances
+    state from there via ``mark_delivery_delivering`` and
+    ``update_delivery_status``.
+    """
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO webhook_deliveries
+               (id, webhook_id, event, payload, status, attempt,
+                next_attempt_at, created_at, updated_at,
+                response_code, response_body)
+               VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, NULL, NULL)""",
+            (
+                id, webhook_id, event, payload,
+                next_attempt_at.isoformat(),
+                created_at.isoformat(),
+                created_at.isoformat(),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_pending_deliveries(*, limit: int = 20) -> list[dict]:
+    """Return up to ``limit`` rows ready to dispatch (oldest first).
+
+    "Ready" = status='pending' AND next_attempt_at <= now. Ordered by
+    created_at then next_attempt_at so retries of an old delivery jump
+    ahead of brand-new deliveries (FIFO over the original event time).
+    The dispatcher applies a per-webhook FIFO guard on top of this.
+    """
+    now_iso = datetime.utcnow().isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM webhook_deliveries "
+            "WHERE status = 'pending' AND next_attempt_at <= ? "
+            "ORDER BY created_at ASC, next_attempt_at ASC "
+            "LIMIT ?",
+            (now_iso, limit),
+        )
+        rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def get_webhook_delivery(delivery_id: str) -> Optional[dict]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM webhook_deliveries WHERE id = ?", (delivery_id,)
+        )
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+    finally:
+        await db.close()
+
+
+async def list_deliveries_for_webhook(
+    webhook_id: str, *, limit: int = 100
+) -> list[WebhookDelivery]:
+    """Last ``limit`` deliveries for a webhook, newest-first."""
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM webhook_deliveries WHERE webhook_id = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (webhook_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_delivery(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def mark_delivery_delivering(delivery_id: str) -> bool:
+    """Atomically claim a pending row (status='delivering').
+
+    Returns True iff this call performed the transition (the row was
+    still 'pending'). Used as a soft lock so two concurrent dispatcher
+    coroutines will not double-deliver -- the second one sees rowcount=0
+    and bails. Critical even with the in-process FIFO guard because a
+    row could appear in the poll batch a second time if the first
+    dispatch was scheduled but has not flipped status yet.
+    """
+    now_iso = datetime.utcnow().isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE webhook_deliveries "
+            "SET status = 'delivering', updated_at = ? "
+            "WHERE id = ? AND status = 'pending'",
+            (now_iso, delivery_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+    finally:
+        await db.close()
+
+
+async def update_delivery_status(
+    delivery_id: str,
+    *,
+    status: str,
+    attempt: Optional[int] = None,
+    next_attempt_at: Optional[datetime] = None,
+    response_code: Optional[int] = None,
+    response_body: Optional[str] = None,
+) -> None:
+    """Update a delivery row after a dispatch attempt.
+
+    Always bumps `updated_at`. `attempt` and `next_attempt_at` are only
+    written when not None (e.g. on terminal status they stay at their
+    last value, which is what the audit log wants).
+    """
+    sets = ["status = ?", "updated_at = ?"]
+    params: list = [status, datetime.utcnow().isoformat()]
+    if attempt is not None:
+        sets.append("attempt = ?")
+        params.append(attempt)
+    if next_attempt_at is not None:
+        sets.append("next_attempt_at = ?")
+        params.append(next_attempt_at.isoformat())
+    if response_code is not None:
+        sets.append("response_code = ?")
+        params.append(response_code)
+    if response_body is not None:
+        sets.append("response_body = ?")
+        # Spec caps the stored body at 2000 chars; enforce here so a
+        # forgetful caller cannot bloat the table with a 50MB error page.
+        params.append(response_body[:2000])
+    params.append(delivery_id)
+    db = await _get_db()
+    try:
+        await db.execute(
+            f"UPDATE webhook_deliveries SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def reset_stale_delivering_deliveries() -> int:
+    """Flip any 'delivering' rows back to 'pending' so retry resumes.
+
+    Called once at startup. A row in 'delivering' with no live worker
+    is the signature of a process restart mid-dispatch -- the receiver
+    may or may not have processed the request, but at-least-once
+    delivery means we re-send and let the receiver dedupe via
+    timestamp + signature. Returns the count of rows reset (useful in
+    tests).
+    """
+    now_iso = datetime.utcnow().isoformat()
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "UPDATE webhook_deliveries "
+            "SET status = 'pending', next_attempt_at = ?, updated_at = ? "
+            "WHERE status = 'delivering'",
+            (now_iso, now_iso),
+        )
+        await db.commit()
+        return cursor.rowcount
     finally:
         await db.close()

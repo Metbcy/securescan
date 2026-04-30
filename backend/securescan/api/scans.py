@@ -4,13 +4,16 @@ import json
 import logging
 import os
 import time
+import uuid
 from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel
 
-from ..auth import require_scope
+from .. import event_tokens
+from ..auth import Principal, require_api_key, require_scope
 from ..database import (
     delete_scan_cascade,
     get_findings,
@@ -18,6 +21,7 @@ from ..database import (
     get_scan,
     get_scan_summary,
     get_scans,
+    insert_notification,
     save_findings,
     save_scan,
 )
@@ -28,6 +32,7 @@ from ..fingerprint import populate_fingerprints
 from ..models import (
     Finding,
     FindingWithState,
+    NotificationSeverity,
     Scan,
     ScannerSkip,
     ScanRequest,
@@ -53,6 +58,17 @@ _scan_logger = logging.getLogger("securescan.scan")
 _SCAN_ERROR_TRUNCATE = 200
 
 
+# Outbound-webhook (BE-WEBHOOKS) event allow-list. Only these scan
+# events are surfaced to subscribers; per-scanner lifecycle noise
+# (scanner.start/complete/skipped, scan.start, scan.cancelled) stays
+# internal so the public webhook contract is small and stable.
+WEBHOOK_RELEVANT_EVENTS: frozenset[str] = frozenset({
+    "scan.complete",
+    "scan.failed",
+    "scanner.failed",
+})
+
+
 def _format_event_value(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.2f}"
@@ -76,6 +92,11 @@ def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
     blocking on ``await bus.publish`` would serialize logging behind
     the slowest subscriber. The bus's ``publish`` does not actually
     suspend, so the scheduled task drains in a single loop iteration.
+
+    For a small filtered subset of events we ALSO create a persistent
+    in-app notification (BE-NOTIFY) so the dashboard topbar bell can
+    surface them after the SSE stream has closed. See
+    ``_create_notification_for_event`` for the filtering rules.
     """
     parts = [f"{key}={_format_event_value(val)}" for key, val in fields.items()]
     parts.append(f"scan_id={scan_id}")
@@ -89,6 +110,159 @@ def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
         # Logging fired; SSE delivery just isn't relevant here.
         return
     asyncio.create_task(bus.publish(scan_id, event, dict(fields)))
+    try:
+        asyncio.create_task(
+            _create_notification_for_event(event, scan_id, dict(fields))
+        )
+    except RuntimeError:
+        # No running loop -- already short-circuited above, but the
+        # belt-and-braces try/except matches the agreed-on pattern in
+        # the spec so a future refactor that splits the two branches
+        # can't accidentally crash the synchronous logging path.
+        pass
+
+    # Outbound webhooks (BE-WEBHOOKS). For the small set of events
+    # that webhooks subscribe to, fan out to enabled subscriptions
+    # whose event_filter matches. Each match becomes one
+    # `webhook_deliveries` row in status='pending'; the dispatcher
+    # worker (started in main.py) drains them. We reuse the same
+    # "no running loop -> skip" pattern as the SSE/notification
+    # branches above so synchronous tests of the orchestrator stay
+    # side-effect-free.
+    if event in WEBHOOK_RELEVANT_EVENTS:
+        try:
+            asyncio.create_task(
+                _enqueue_webhook_deliveries(event, scan_id, dict(fields))
+            )
+        except RuntimeError:
+            pass
+
+
+# Cap for `body` text on `scan.failed` notifications. Stack traces from
+# scanner subprocesses can be huge; the dropdown only renders ~2 lines
+# of body text anyway.
+_NOTIF_BODY_TRUNCATE = 200
+_NOTIF_SCANNER_ERROR_TRUNCATE = 100
+
+
+async def _create_notification_for_event(
+    event: str, scan_id: str, fields: dict[str, Any]
+) -> None:
+    """Persist a notification for the small subset of events that warrant one.
+
+    Filtering rules (deliberately conservative -- the bell should
+    surface signal, not be a duplicate of the SSE feed):
+
+    * ``scan.complete`` — only when ``findings_count > 0``. Severity
+      is ``warning`` whenever findings were found, ``info`` otherwise.
+      Per spec we use the simple count-based rule rather than fetching
+      the scan summary to count critical/high (extra DB call per
+      event). When findings_count == 0 we don't notify at all, so
+      the ``info`` branch is structurally unreachable today; it's
+      kept for symmetry in case the filter is loosened later.
+    * ``scan.failed`` — always notify; severity ``error``.
+    * ``scanner.failed`` — always notify; severity ``warning``.
+    * Everything else (scan.start, scanner.start, scanner.complete,
+      scanner.skipped, scan.cancelled) — no notification. Those
+      events are loud on the SSE stream while the dashboard is open;
+      persisting them all would drown the bell.
+
+    Errors here are swallowed (logged-only) so a notification-write
+    failure can't break a live scan. The DB layer's exceptions would
+    otherwise propagate up the ``asyncio.create_task`` boundary as
+    unawaited exceptions and surface as test warnings.
+    """
+    try:
+        if event == "scan.complete":
+            findings_count = int(fields.get("findings_count", 0) or 0)
+            if findings_count <= 0:
+                return
+            target_path = fields.get("target") or fields.get("target_path") or ""
+            severity = (
+                NotificationSeverity.WARNING
+                if findings_count > 0
+                else NotificationSeverity.INFO
+            )
+            await insert_notification(
+                type="scan.complete",
+                title="Scan complete",
+                body=f"{findings_count} findings on {target_path}",
+                link=f"/scan/{scan_id}",
+                severity=severity,
+            )
+            return
+
+        if event == "scan.failed":
+            error = str(fields.get("error", "") or "")[:_NOTIF_BODY_TRUNCATE]
+            await insert_notification(
+                type="scan.failed",
+                title="Scan failed",
+                body=error or None,
+                link=f"/scan/{scan_id}",
+                severity=NotificationSeverity.ERROR,
+            )
+            return
+
+        if event == "scanner.failed":
+            scanner = fields.get("scanner", "scanner")
+            error = str(fields.get("error", "") or "")[:_NOTIF_SCANNER_ERROR_TRUNCATE]
+            await insert_notification(
+                type="scanner.failed",
+                title="Scanner failed",
+                body=f"{scanner} failed: {error}",
+                link=f"/scan/{scan_id}",
+                severity=NotificationSeverity.WARNING,
+            )
+            return
+        # All other events: silently ignored.
+    except Exception:
+        logger.exception(
+            "notifications: failed to persist for event=%s scan_id=%s",
+            event,
+            scan_id,
+        )
+
+
+async def _enqueue_webhook_deliveries(
+    event: str, scan_id: str, fields: dict[str, Any]
+) -> None:
+    """Persist one `webhook_deliveries` row per matching subscription.
+
+    For every enabled webhook whose `event_filter` includes ``event``,
+    insert a `pending` row whose payload is the original ``data`` dict
+    (the dispatcher will reshape per-receiver in
+    ``webhook_formatters.format_payload``). The ``scan_id`` is folded
+    into the data dict so receivers always see it without needing to
+    parse the event name.
+
+    Errors here are swallowed (logged-only): a webhook subscription
+    failing to enqueue must NEVER break the scan that triggered the
+    event. The dispatcher handles dispatch-time failures separately.
+    """
+    try:
+        from ..database import insert_webhook_delivery, list_webhooks
+
+        data = {"scan_id": scan_id, **fields}
+        payload_json = json.dumps(data)
+        now = datetime.utcnow()
+        webhooks = await list_webhooks(only_enabled=True)
+        for wh in webhooks:
+            if event not in {e.value for e in wh.event_filter}:
+                continue
+            await insert_webhook_delivery(
+                id=str(uuid.uuid4()),
+                webhook_id=wh.id,
+                event=event,
+                payload=payload_json,
+                next_attempt_at=now,
+                created_at=now,
+            )
+    except Exception:
+        logger.exception(
+            "webhooks: failed to enqueue for event=%s scan_id=%s",
+            event,
+            scan_id,
+        )
 
 
 router = APIRouter(prefix="/api/scans", tags=["scans"])
@@ -538,6 +712,54 @@ async def stream_scan_events(scan_id: str) -> StreamingResponse:
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
         },
+    )
+
+
+class EventTokenResponse(BaseModel):
+    token: str
+    expires_in: int
+
+
+@router.post(
+    "/{scan_id}/event-token",
+    response_model=EventTokenResponse,
+    dependencies=[Depends(require_scope("read"))],
+)
+async def create_event_token(
+    scan_id: str,
+    principal: Optional[Principal] = Depends(require_api_key),
+):
+    """Mint a short-lived signed token for the SSE ``/events`` stream.
+
+    EventSource can't send custom headers, so this endpoint trades an
+    authenticated POST for a token the FE then passes as
+    ``?event_token=...`` on the SSE GET. The token is bound to
+    ``(scan_id, key_id)`` and re-validated against the live key state
+    at connect time, so revocation takes effect immediately.
+
+    In dev mode (no auth configured) ``principal`` is None; we still
+    issue a token bound to ``"env"`` so the FE flow stays uniform
+    across dev and prod.
+    """
+    scan = await get_scan(scan_id)
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+
+    # Bind the token to the caller's identity so revocation propagates.
+    # In dev mode (principal None), use a "dev" sentinel — verification
+    # will accept this only while the system remains in dev mode; if
+    # credentials are added later, the token is invalidated.
+    if principal is None:
+        key_id = "dev"
+    else:
+        key_id = principal.id
+    token, expires_in = event_tokens.mint(scan_id, key_id)
+    response = EventTokenResponse(token=token, expires_in=expires_in)
+    # Don't cache; tokens are single-use-ish and shouldn't stick in
+    # proxies or access logs longer than necessary.
+    return JSONResponse(
+        content=response.model_dump(),
+        headers={"Cache-Control": "no-store"},
     )
 
 

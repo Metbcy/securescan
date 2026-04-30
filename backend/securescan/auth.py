@@ -44,6 +44,7 @@ from typing import Optional, Set
 from fastapi import HTTPException, Request, status
 from fastapi.security.utils import get_authorization_scheme_param
 
+from . import event_tokens
 from .api_keys import parse_key_id, verify_key
 from .database import (
     get_api_key_by_id,
@@ -126,6 +127,104 @@ def _attach_principal(request: Request, principal: Optional[Principal]) -> None:
         pass
 
 
+async def _authenticate_via_event_token(
+    request: Request, event_token: str
+) -> Principal:
+    """Validate an SSE event token and rehydrate the bound Principal.
+
+    Performed inside ``require_api_key`` (not as a separate dependency)
+    because every ``/api/*`` route is already wrapped in
+    ``Depends(require_api_key)`` at mount time — a downstream handler
+    check would never run, the request would 401 first.
+
+    Three layers of defense:
+
+    1. HMAC verify + expiry (``event_tokens.verify``).
+    2. The ``scan_id`` bound into the token must match the one in the
+       URL path. Stops a token minted for scan A being replayed
+       against scan B.
+    3. Rehydrate the principal from ``key_id``. If the bound DB key
+       was revoked, or the env-var key was unset, the connection is
+       refused — token TTL alone isn't enough because revocation
+       must take effect immediately.
+    """
+    payload = event_tokens.verify(event_token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired event token",
+        )
+
+    # The path is one of:
+    #   /api/scans/{scan_id}/events
+    #   /api/v1/scans/{scan_id}/events
+    # Walk back from "events" to grab the id segment positionally so we
+    # don't have to thread the path-param value through Starlette.
+    parts = request.url.path.rstrip("/").split("/")
+    if "events" not in parts:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid event token route",
+        )
+    events_idx = parts.index("events")
+    if events_idx == 0:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid event token route",
+        )
+    scan_id_from_url = parts[events_idx - 1]
+    if scan_id_from_url != payload.scan_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token does not match scan id",
+        )
+
+    # Rehydrate the principal so revocation is honored even if the
+    # token isn't yet expired.
+    if payload.key_id == "dev":
+        # Dev-mode token: minted when the system had no env-var key
+        # and no DB keys. Accept only if the system is STILL in dev
+        # mode (no creds configured). If credentials have since been
+        # added, reject the dev-mode token so it can't bypass auth.
+        env_key = get_configured_key()
+        if env_key is not None or await has_unrevoked_api_key():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Dev-mode token no longer valid (auth has been enabled)",
+            )
+        # Construct a synthetic dev principal with all scopes so the
+        # downstream require_scope checks pass (matches normal dev-mode
+        # passthrough behavior).
+        principal = Principal(
+            id="dev",
+            scopes=set(ENV_PRINCIPAL_SCOPES),
+            source="dev",
+        )
+    elif payload.key_id == "env":
+        if get_configured_key() is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Env-var key no longer configured",
+            )
+        principal = Principal(
+            id="env",
+            scopes=set(ENV_PRINCIPAL_SCOPES),
+            source="env",
+        )
+    else:
+        row = await get_api_key_by_id(payload.key_id)
+        if row is None or row["revoked_at"] is not None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Bound key is revoked or missing",
+            )
+        scopes = set(json.loads(row["scopes"]))
+        principal = Principal(id=payload.key_id, scopes=scopes, source="db")
+
+    _attach_principal(request, principal)
+    return principal
+
+
 async def require_api_key(request: Request) -> Optional[Principal]:
     """FastAPI dependency: enforce auth via env-var key OR DB-issued key.
 
@@ -145,6 +244,37 @@ async def require_api_key(request: Request) -> Optional[Principal]:
     provided = _extract_provided_key(request)
     auth_required = _bool_env(AUTH_REQUIRED_ENV, default=False)
     env_key = get_configured_key()
+
+    # SSE event-token path: EventSource can't send X-API-Key, so the
+    # mint endpoint hands the FE a short-lived signed token that
+    # travels in the query string. We accept it ONLY on the SSE
+    # ``/events`` route — checking the request path explicitly so a
+    # leaked token can't be replayed against any other endpoint.
+    #
+    # Path-spoofing note: ``request.url.path`` is the post-routing
+    # ASGI path that FastAPI/Starlette already used to dispatch this
+    # request, so a caller can't lie about being on the SSE route to
+    # win the check here while actually hitting a different handler.
+    # We additionally re-extract the scan_id from that path and
+    # require it to match the token's binding.
+    #
+    # Defensive against the minimal mock requests some unit tests use
+    # (only ``.headers`` is guaranteed there); a missing
+    # ``query_params``/``url`` short-circuits to "no event token".
+    event_token = None
+    is_sse_route = False
+    try:
+        event_token = (
+            request.query_params.get("event_token", "").strip() or None
+        )
+        is_sse_route = (
+            request.url.path.endswith("/events")
+            and "/scans/" in request.url.path
+        )
+    except AttributeError:
+        pass
+    if event_token is not None and is_sse_route:
+        return await _authenticate_via_event_token(request, event_token)
 
     # If the caller explicitly sent a key, validate it strictly. We do
     # NOT fall through to dev mode for a bogus / revoked key — that

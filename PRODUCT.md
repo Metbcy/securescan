@@ -45,3 +45,56 @@ When SecureScan finds a critical: the row goes coral, the count is in the page h
 ## Register
 
 **Product.** SecureScan is a tool. Design serves the product. Defaults to Restrained color, familiar patterns, system-ish fonts, predictable grids. Earned-familiarity bar.
+
+## Outbound webhooks (v0.9.0)
+
+SecureScan can fan out scan-lifecycle events to HTTP receivers (your incident-response server, Slack, Discord, an internal queue). Subscriptions are managed under `/api/v1/webhooks` with the `admin` scope.
+
+### Events
+
+- `scan.complete` — emitted when a scan finishes successfully.
+- `scan.failed` — emitted when the orchestrator fails a scan.
+- `scanner.failed` — emitted when an individual scanner crashes.
+- `webhook.test` — only emitted by `POST /webhooks/{id}/test`; useful for verifying receiver configuration without running a real scan.
+
+### Delivery contract
+
+Each webhook gets the literal bytes:
+
+```
+POST <your-url>
+Content-Type: application/json
+User-Agent: SecureScan-Webhook/0.9
+X-SecureScan-Event: scan.complete
+X-SecureScan-Webhook-Id: <subscription-id>
+X-SecureScan-Signature: t=<unix-seconds>,v1=<hex-hmac-sha256>
+
+{"event":"scan.complete","data":{...},"delivered_at":"2025-..."}
+```
+
+For `hooks.slack.com` and `discord.com/api/webhooks` URLs the body is reshaped to the receiver's expected format (Slack blocks, Discord embed). For everything else the generic `{event, data, delivered_at}` shape is used.
+
+### Verifying signatures
+
+The `v1` signature is `hmac_sha256(secret, f"{t}.{raw_body}".encode("utf-8"))`. **Sign the literal request body bytes, not parsed JSON** — the dispatcher uses `json.dumps(payload, separators=(",", ":"))` so the body is whitespace-free; any re-serialization breaks the signature. Reject requests where `t` is more than 5 minutes old to defeat replays.
+
+Python receiver-side example:
+
+```python
+import hmac, hashlib
+
+def verify(secret: str, header: str, raw_body: bytes) -> bool:
+    parts = dict(p.split("=", 1) for p in header.split(","))
+    expected = hmac.new(
+        secret.encode(),
+        f"{parts['t']}.".encode() + raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, parts["v1"])
+```
+
+### Durability and retry
+
+Every outbound delivery is persisted to the SQLite `webhook_deliveries` table BEFORE the HTTP call. A backend restart resumes any in-flight retries on startup. Retry policy: full-jitter exponential backoff capped at 5 minutes between attempts, max delivery age 30 minutes. Past max age the delivery is marked `failed`.
+
+Receivers must be idempotent — at-least-once delivery is the contract. Use the `(t, v1)` pair plus the event-specific `data` (e.g. `scan_id`) to dedupe.

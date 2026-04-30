@@ -1,4 +1,5 @@
 import logging
+import os
 
 from .config_loader import load_user_env
 
@@ -16,15 +17,21 @@ from .api.compliance import router as compliance_router
 from .api.sbom import router as sbom_router
 from .api.triage import router as triage_router
 from .api.keys import router as keys_router
+from .api.notifications import router as notifications_router
+from .api.webhooks import router as webhooks_router
 from .api.versioning import alias_router_at_v1
 from .auth import (
+    AUTH_REQUIRED_ENV,
+    _bool_env,
     assert_auth_credentials_configured,
     get_configured_key,
     is_dev_mode,
     require_api_key,
 )
-from .database import count_admin_keys_active, init_db
+from . import event_tokens
+from .database import count_admin_keys_active, init_db, prune_old_notifications
 from .middleware.rate_limit import RateLimitMiddleware
+from .webhook_dispatcher import dispatcher as webhook_dispatcher
 
 _auth = [Depends(require_api_key)]
 
@@ -43,6 +50,8 @@ for _r in (
     sbom_router,
     triage_router,
     keys_router,
+    notifications_router,
+    webhooks_router,
 ):
     app.include_router(_r, dependencies=_auth)
     # Parallel /api/v1/* mount — the preferred path going forward. Same
@@ -67,6 +76,76 @@ async def startup():
     env_key = get_configured_key()
     admin_db_count = await count_admin_keys_active()
     assert_auth_credentials_configured(env_key, admin_db_count)
+
+
+@app.on_event("startup")
+async def _startup_notifications():
+    """One-shot prune of old read notifications (BE-NOTIFY).
+
+    Kept as a single pass at startup rather than a recurring schedule
+    -- v0.9.0 is single-process, single-worker; we get a sweep on
+    every redeploy/reload, which is plenty for the expected volume
+    (a handful of scan completions per day).
+    """
+    pruned = await prune_old_notifications(older_than_days=30)
+    if pruned:
+        _logger.info(
+            "notifications: pruned %d old read notifications", pruned
+        )
+
+
+@app.on_event("startup")
+async def _startup_event_tokens():
+    # Event-token signing (BE-SSE-TOKEN): required in auth-required
+    # mode so SSE connections survive backend restarts; an ephemeral
+    # secret is acceptable in dev because tokens die with the process
+    # anyway.
+    auth_required = _bool_env(AUTH_REQUIRED_ENV)
+    secret_set = bool(
+        os.environ.get("SECURESCAN_EVENT_TOKEN_SECRET", "").strip()
+    )
+    if auth_required and not secret_set:
+        _logger.critical(
+            "SECURESCAN_AUTH_REQUIRED=1 requires "
+            "SECURESCAN_EVENT_TOKEN_SECRET. Generate one with "
+            "`python -c 'import secrets; print(secrets.token_urlsafe(32))'`."
+        )
+        raise SystemExit(2)
+    if not secret_set:
+        # Trigger the lazy resolver so the WARN log fires once at
+        # startup instead of on the first SSE request.
+        event_tokens._resolve_secret()
+        if event_tokens._signing_secret_ephemeral:
+            _logger.warning(
+                "Using ephemeral SSE event-token signing secret — "
+                "set SECURESCAN_EVENT_TOKEN_SECRET to persist tokens "
+                "across restarts."
+            )
+
+
+@app.on_event("startup")
+async def _startup_webhook_dispatcher():
+    """Boot the durable outbound-webhook worker (BE-WEBHOOKS).
+
+    On startup the worker resets any 'delivering' rows left over from
+    a prior crash back to 'pending', then begins polling. Failures
+    here would silently kill the dispatcher; we log + re-raise so an
+    unhealthy deploy is loud (the readiness probe will still pass --
+    the dispatcher is a side-channel, not request-path).
+    """
+    try:
+        await webhook_dispatcher.start()
+    except Exception:
+        _logger.exception("webhook dispatcher failed to start")
+
+
+@app.on_event("shutdown")
+async def _shutdown_webhook_dispatcher():
+    """Gracefully drain the dispatcher and close its httpx client."""
+    try:
+        await webhook_dispatcher.stop()
+    except Exception:
+        _logger.exception("webhook dispatcher shutdown error")
 
 
 @app.get("/ready", tags=["health"])

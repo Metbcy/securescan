@@ -29,7 +29,7 @@ import {
   fetchScan,
   fetchScanSummary,
   getScanEventsUrl,
-  scanEventsAvailable,
+  mintScanEventToken,
   startScan,
 } from "@/lib/api";
 import type { Finding, Scan, ScanSummary } from "@/lib/api";
@@ -299,14 +299,25 @@ export default function ScanDetailPage() {
    * still call `load(false, false)` once after a terminal event so the
    * findings table + summary repopulate without a manual refresh.
    *
+   * v0.9.0 auth flow:
+   *   - Mint a short-lived `event_token` (POST /scans/{id}/event-token)
+   *     and pass it as a query param. EventSource can't send headers,
+   *     so this is how authenticated deployments authorise the stream.
+   *   - Schedule re-mint+reconnect at half the token's TTL (minus 5s of
+   *     headroom) so the new connection is established before the old
+   *     token expires. Native browser auto-reconnect would otherwise
+   *     keep retrying with the SAME (now-expired) URL forever.
+   *   - On EventSource error, close and re-mint once before falling
+   *     back to polling.
+   *
+   * Compatibility:
+   *   - Pre-v0.9 backends 404 the mint endpoint. We detect that and
+   *     fall through to the v0.7-style headerless EventSource (which
+   *     works in dev mode without a token).
+   *
    * Fallback policy:
-   *   - If `NEXT_PUBLIC_SECURESCAN_API_KEY` is set, EventSource cannot send
-   *     it, so the backend will reject the connection. Skip SSE entirely
-   *     and poll like before.
-   *   - If the EventSource constructor throws or the stream errors out
-   *     once open, close the EventSource FIRST and only then start the
-   *     2s poll. Never run both in parallel — the browser auto-reconnects
-   *     EventSource on transport errors and we'd otherwise burn requests.
+   *   - If both the mint AND the headerless EventSource constructor
+   *     fail, drop to a 2s status poll. Never run both in parallel.
    */
   useEffect(() => {
     const scanId = scan?.id;
@@ -319,6 +330,16 @@ export default function ScanDetailPage() {
 
     let es: EventSource | null = null;
     let pollFallback: ReturnType<typeof setInterval> | null = null;
+    let rotateTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+    // One-shot retry guard: an EventSource error triggers a single re-mint
+    // before we drop to polling. The flag is cleared whenever we receive a
+    // real event (so a long-lived connection that errors hours later still
+    // gets a fresh retry) and is set just before we call connect() from
+    // onerror. This is what enforces the "single re-mint on error before
+    // fallback" design point — without it, a persistent 401 from /events
+    // would mint+reconnect in a tight loop.
+    let errorRetryUsed = false;
 
     const startPollFallback = () => {
       if (pollFallback) return;
@@ -327,7 +348,18 @@ export default function ScanDetailPage() {
       }, 2000);
     };
 
+    const clearAllTimers = () => {
+      if (rotateTimer) {
+        clearTimeout(rotateTimer);
+        rotateTimer = null;
+      }
+    };
+
     const handle = (e: MessageEvent, eventName: string) => {
+      // A real event reached us → the connection is healthy. Clear the
+      // error-retry guard so we get another single-shot retry if the
+      // connection later degrades.
+      errorRetryUsed = false;
       let data: { [k: string]: unknown } = {};
       try {
         data = JSON.parse(e.data);
@@ -397,25 +429,14 @@ export default function ScanDetailPage() {
             es.close();
             es = null;
           }
+          clearAllTimers();
           // Final refresh: pulls findings + summary now that scan is done.
           void load(true, false);
           break;
       }
     };
 
-    if (scanEventsAvailable()) {
-      try {
-        es = new EventSource(getScanEventsUrl(scanId));
-      } catch {
-        es = null;
-        startPollFallback();
-      }
-    } else {
-      // API-key auth blocks EventSource — go straight to polling.
-      startPollFallback();
-    }
-
-    if (es) {
+    const attachListeners = (source: EventSource) => {
       const eventNames = [
         "scan.start",
         "scanner.start",
@@ -427,22 +448,104 @@ export default function ScanDetailPage() {
         "scan.cancelled",
       ] as const;
       for (const name of eventNames) {
-        es.addEventListener(name, (e) => handle(e as MessageEvent, name));
+        source.addEventListener(name, (e) => handle(e as MessageEvent, name));
       }
-      es.onerror = () => {
-        // CRITICAL: close EventSource before falling back. The browser
-        // auto-reconnects on transport errors, so leaving it open while
-        // polling would run two recovery loops in parallel.
+    };
+
+    // Connect (or reconnect) with a freshly-minted token. Schedules the
+    // next rotation at half the token's TTL so we never serve a request
+    // with an about-to-expire token.
+    const connect = async (): Promise<void> => {
+      if (cancelled) return;
+
+      // Close any existing ES first to avoid double connections.
+      if (es) {
+        es.close();
+        es = null;
+      }
+      clearAllTimers();
+
+      let url: string;
+      let ttl_ms: number;
+
+      try {
+        // In dev mode (no API key), the mint endpoint still works — the
+        // token is bound to "env" but the /events handler accepts it.
+        // We always mint, regardless of auth state, so the FE flow is
+        // uniform. (If the mint endpoint isn't available — pre-v0.9
+        // backend — fall back to a header-less EventSource.)
+        const tokenResp = await mintScanEventToken(scanId);
+        url = `${getScanEventsUrl(scanId)}?event_token=${encodeURIComponent(tokenResp.token)}`;
+        ttl_ms = tokenResp.expires_in * 1000;
+      } catch (err) {
+        // 404 from the mint endpoint = pre-v0.9 backend.
+        // 401 = auth required and we don't have it; falling back to
+        // polling won't help either, but it's the v0.7/v0.8 behavior.
+        if (err instanceof Error && err.message.includes("404")) {
+          // Old backend; try the headerless URL.
+          url = getScanEventsUrl(scanId);
+          ttl_ms = 0; // never rotate
+        } else {
+          startPollFallback();
+          return;
+        }
+      }
+
+      if (cancelled) return;
+
+      try {
+        es = new EventSource(url);
+      } catch {
+        startPollFallback();
+        return;
+      }
+
+      attachListeners(es);
+
+      es.onerror = async () => {
+        // Try a single re-mint+reconnect on error before giving up.
+        // Native EventSource's auto-reconnect would keep retrying with
+        // the SAME (now-expired) URL; we explicitly close and re-mint.
         if (es) {
           es.close();
           es = null;
         }
-        startPollFallback();
+        clearAllTimers();
+
+        if (cancelled) return;
+
+        // Persistent failure (e.g. backend rejecting freshly-minted
+        // tokens with 401): one retry already used and it failed too.
+        // Drop to polling rather than hammer the mint endpoint.
+        if (errorRetryUsed) {
+          startPollFallback();
+          return;
+        }
+        errorRetryUsed = true;
+
+        try {
+          await connect();
+        } catch {
+          startPollFallback();
+        }
       };
-    }
+
+      // Schedule rotation at half-life. Subtract 5s to give the new
+      // connection time to establish before the old token expires.
+      if (ttl_ms > 10_000) {
+        const rotateIn = Math.max(5_000, Math.floor(ttl_ms / 2) - 5_000);
+        rotateTimer = setTimeout(() => {
+          void connect();
+        }, rotateIn);
+      }
+    };
+
+    void connect();
 
     return () => {
+      cancelled = true;
       clearInterval(labelTick);
+      clearAllTimers();
       if (es) {
         es.close();
         es = null;

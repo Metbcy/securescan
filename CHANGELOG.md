@@ -9,6 +9,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.9.0] - 2026-04-29
+
+A workflow / observability release: dashboards now have a
+**notification bell**, operators can issue **outbound webhooks** to
+Slack, Discord, or any HTTP receiver with HMAC-signed deliveries and
+a durable retry queue, and the v0.7.0 SSE live-progress stream now
+works in **authenticated deployments** via short-lived signed event
+tokens (the v0.8.0 deferral is closed).
+
+### Added
+
+- **SSE event tokens.** New `POST /api/v1/scans/{id}/event-token`
+  (read scope) returns a 5-minute HMAC-signed token bound to
+  `scan_id` + the caller's `key_id`. The SSE endpoint
+  `GET /api/v1/scans/{id}/events` now accepts `?event_token=…` as
+  an alternative to `X-API-Key` so EventSource can authenticate.
+  Token verification rehydrates the principal at connect time so a
+  revoked DB key invalidates outstanding tokens immediately. Frontend
+  rotates tokens at half-life with a single re-mint on error before
+  falling back to polling. Signing secret from
+  `SECURESCAN_EVENT_TOKEN_SECRET`; required when
+  `SECURESCAN_AUTH_REQUIRED=1`.
+- **Outbound webhooks.** `POST /api/v1/webhooks` (admin) creates
+  durable subscriptions to scan lifecycle events. Each delivery is
+  persisted in `webhook_deliveries` BEFORE the HTTP call, so a
+  backend restart resumes any pending retries. Retry policy: full-
+  jitter exponential backoff capped at 5 minutes, max delivery age
+  30 minutes. Payloads are HMAC-SHA256 signed via
+  `X-SecureScan-Signature: t=<unix-ts>,v1=<hex-hmac>` over
+  `f"{t}.{raw_body}"` (Stripe-style; documented in PRODUCT.md).
+  FIFO ordering per webhook (different webhooks dispatch
+  concurrently). Slack and Discord URLs auto-detected and reshaped;
+  generic JSON otherwise. New `/settings/webhooks` page lists
+  webhooks with a delivery log drawer that auto-refreshes every 5s.
+  `POST /webhooks/{id}/test` fires a synthetic event through the
+  exact dispatcher path so users can verify receivers end-to-end.
+- **In-app notifications.** New `notifications` table; bell icon in
+  the topbar with unread count badge (poll every 30s); 360px popover
+  showing 10 most recent with severity dots. Notifications are
+  auto-created on `scan.complete` (only when `findings_count > 0` —
+  successful zero-finding scans don't spam the bell), `scan.failed`,
+  `scanner.failed`. New `/notifications` page lists everything with
+  All / Unread / Read filter chips. Read notifications older than
+  30 days are pruned at backend startup.
+
+### Changed
+
+- `_log_scan_event` now triggers three side-effects per emission: the
+  v0.6.1 logger line, the v0.7.0 ScanEventBus publish, and (new) two
+  side-effect hooks for webhook enqueue + notification create. Hooks
+  run via `asyncio.create_task` and swallow DB errors so a failed
+  side-effect can't break a live scan.
+- `require_api_key` now accepts `?event_token=` for the SSE route
+  specifically. The path-match check makes a leaked token only usable
+  on `/scans/{id}/events`; any other route falls through to strict
+  `X-API-Key` validation.
+
+### Bug fixed during integration
+
+- Dev-mode SSE event tokens were being minted with `key_id="env"`,
+  then verification rejected them because no env-var was actually
+  configured. Tokens minted in dev mode now use a `"dev"` sentinel
+  that's accepted only while the system remains in dev mode; if
+  credentials are added later, dev-mode tokens are invalidated.
+  Regression test in `test_sse.py::test_dev_mode_token_round_trips`
+  and `test_dev_mode_token_invalidated_when_auth_enabled`.
+
+### Tests
+
+- 790 → 863 (+73): 9 event-token unit + 12 SSE token integration
+  (including 2 dev-mode regression), 31 webhooks, 21 notifications.
+
+### Deployment notes
+
+- The webhook dispatcher runs as an asyncio task on the same uvicorn
+  worker as the API. Single-worker constraint from v0.7.0 still
+  applies (multi-worker pubsub backplane is a future feature).
+- HMAC verification reference (Python):
+  ```python
+  import hmac, hashlib
+  ts, _, sig = request.headers["X-SecureScan-Signature"].partition("v1=")
+  ts = ts.split("=")[1].rstrip(",")
+  expected = hmac.new(
+      secret.encode(), f"{ts}.".encode() + body, hashlib.sha256
+  ).hexdigest()
+  assert hmac.compare_digest(expected, sig)
+  ```
+
 ## [0.8.0] - 2026-04-29
 
 A production-readiness release: API authentication is no longer a
@@ -590,7 +678,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Metbcy/securescan/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Metbcy/securescan/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Metbcy/securescan/releases/tag/v0.7.0
 [0.6.1]: https://github.com/Metbcy/securescan/releases/tag/v0.6.1
