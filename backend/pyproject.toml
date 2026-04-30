@@ -4,7 +4,7 @@ version = "0.9.0"
 description = "Diff-aware security scanning with multi-tool orchestration, deterministic SARIF, and PR-comment rendering."
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [{name = "Metbcy"}]
 keywords = ["security", "sast", "dast", "sbom", "sarif", "ci"]
 classifiers = [
@@ -13,7 +13,7 @@ classifiers = [
     "Environment :: Web Environment",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

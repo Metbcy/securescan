@@ -7,7 +7,7 @@
 [![CI](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml)
 [![Container](https://github.com/Metbcy/securescan/actions/workflows/container.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/container.yml)
 [![PyPI](https://img.shields.io/pypi/v/securescan.svg)](https://pypi.org/project/securescan/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 
 > **What's new in v0.6.0**
 >
