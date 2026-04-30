@@ -1,9 +1,9 @@
 """License scanner — checks dependency licenses for compliance issues."""
 import asyncio
 import json
-import shutil
 from pathlib import Path
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 
 # Licenses that may cause issues in commercial/proprietary projects
@@ -29,10 +29,10 @@ class LicenseScanner(BaseScanner):
 
     async def is_available(self) -> bool:
         # Works if either pip-licenses (Python) or license-checker (npm) is available
-        return shutil.which("pip-licenses") is not None or self._has_package_json_support()
+        return find_tool("pip-licenses") is not None or self._has_package_json_support()
 
     def _has_package_json_support(self) -> bool:
-        return shutil.which("npx") is not None
+        return find_tool("npx") is not None
 
     @property
     def install_hint(self) -> str:
@@ -43,20 +43,23 @@ class LicenseScanner(BaseScanner):
         target = Path(target_path)
 
         # Check Python licenses
-        if shutil.which("pip-licenses"):
+        if find_tool("pip-licenses"):
             findings.extend(await self._scan_python(target, scan_id))
 
         # Check npm licenses
-        if target.is_dir() and (target / "package.json").exists() and shutil.which("npx"):
+        if target.is_dir() and (target / "package.json").exists() and find_tool("npx"):
             findings.extend(await self._scan_npm(target, scan_id))
 
         return findings
 
     async def _scan_python(self, target: Path, scan_id: str) -> list[Finding]:
         findings = []
+        pip_licenses_bin = find_tool("pip-licenses")
+        if pip_licenses_bin is None:
+            return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                "pip-licenses", "--format=json", "--with-license-file", "--no-license-path",
+                pip_licenses_bin, "--format=json", "--with-license-file", "--no-license-path",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -91,9 +94,12 @@ class LicenseScanner(BaseScanner):
 
     async def _scan_npm(self, target: Path, scan_id: str) -> list[Finding]:
         findings = []
+        npx_bin = find_tool("npx")
+        if npx_bin is None:
+            return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                "npx", "--yes", "license-checker", "--json", "--start", str(target),
+                npx_bin, "--yes", "license-checker", "--json", "--start", str(target),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

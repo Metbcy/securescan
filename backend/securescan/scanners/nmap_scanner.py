@@ -7,6 +7,8 @@ detected service name.
 import asyncio
 import re
 import shutil
+
+from .discovery import find_tool
 import tempfile
 import os
 from pathlib import Path
@@ -92,7 +94,7 @@ class NmapScanner(BaseScanner):
         return "Install nmap: https://nmap.org/download.html"
 
     async def is_available(self) -> bool:
-        return bool(shutil.which("nmap"))
+        return find_tool("nmap") is not None
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         target_host: Optional[str] = kwargs.get("target_host")
@@ -118,7 +120,10 @@ class NmapScanner(BaseScanner):
         with tempfile.TemporaryDirectory() as tmpdir:
             xml_path = os.path.join(tmpdir, "nmap_output.xml")
             # Build the argument list - NO shell=True, args never concatenated into a string
-            cmd: list[str] = ["nmap", "-sV", "-oX", xml_path, target_host]
+            nmap_bin = find_tool("nmap")
+            if nmap_bin is None:
+                return []
+            cmd: list[str] = [nmap_bin, "-sV", "-oX", xml_path, target_host]
             if settings.nmap_extra_args:
                 cmd.extend(settings.nmap_extra_args.split())
 

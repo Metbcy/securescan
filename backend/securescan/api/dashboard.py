@@ -100,7 +100,13 @@ INSTALLABLE_SCANNERS = {
 
 @router.get("/status", dependencies=[Depends(require_scope("read"))])
 async def scanner_status():
-    """Return availability status for all registered scanners."""
+    """Return availability status for all registered scanners.
+
+    Each call performs a LIVE check (no caching). The response carries
+    `checked_at` so the dashboard can show "Last refreshed Xs ago" and
+    users know the manual-refresh button is doing fresh work.
+    """
+    from datetime import datetime, timezone
     statuses = []
     for scanner in ALL_SCANNERS:
         available, message = await scanner.check_or_warn()
@@ -115,7 +121,10 @@ async def scanner_status():
             "install_hint": scanner.install_hint if not available else None,
             "installable": installable,
         })
-    return {"scanners": statuses}
+    return {
+        "scanners": statuses,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.post("/install/{scanner_name}", dependencies=[Depends(require_scope("admin"))])

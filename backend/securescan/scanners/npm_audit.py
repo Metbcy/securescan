@@ -1,9 +1,9 @@
 """npm audit scanner — checks npm dependencies for known vulnerabilities."""
 import asyncio
 import json
-import shutil
 from pathlib import Path
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 
 SEVERITY_MAP = {
@@ -27,7 +27,7 @@ class NpmAuditScanner(BaseScanner):
     ]
 
     async def is_available(self) -> bool:
-        return shutil.which("npm") is not None
+        return find_tool("npm") is not None
 
     @property
     def install_hint(self) -> str:
@@ -36,6 +36,10 @@ class NpmAuditScanner(BaseScanner):
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings = []
         target = Path(target_path)
+
+        npm_bin = find_tool("npm")
+        if npm_bin is None:
+            return findings
 
         # Find package.json files (but skip node_modules)
         pkg_dirs = []
@@ -53,7 +57,7 @@ class NpmAuditScanner(BaseScanner):
 
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "npm", "audit", "--json",
+                    npm_bin, "audit", "--json",
                     cwd=str(pkg_dir),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,

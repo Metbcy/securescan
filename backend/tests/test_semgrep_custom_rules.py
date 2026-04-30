@@ -9,6 +9,7 @@ right ``--config`` flags.
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -230,13 +231,20 @@ def test_kwargs_path_works_through_base_scanner_interface(captured_argv, tmp_pat
 
 
 def test_argv_starts_with_semgrep_scan_json(captured_argv, tmp_path):
-    """Guard the unchanged prefix: ``semgrep scan --json ...``."""
+    """Guard the unchanged prefix: ``<resolved-semgrep-path> scan --json ...``.
+
+    v0.10.1+: argv[0] is now the absolute path (resolved via
+    `find_tool`) so the same backend that runs out of a venv finds
+    pip-installed semgrep. The structural prefix `[bin, "scan", "--json"]`
+    is unchanged.
+    """
 
     scanner = SemgrepScanner()
     asyncio.run(scanner.scan(str(tmp_path), scan_id="t"))
 
     argv = captured_argv[0]
-    assert argv[:3] == ["semgrep", "scan", "--json"]
+    assert os.path.basename(argv[0]) == "semgrep"
+    assert argv[1:3] == ["scan", "--json"]
     # target_path is the last positional
     assert argv[-1] == str(tmp_path)
 
@@ -252,4 +260,5 @@ def test_target_path_is_last_with_custom_rules(captured_argv, tmp_path):
 
     argv = captured_argv[0]
     assert argv[-1] == str(tmp_path)
-    assert argv[:3] == ["semgrep", "scan", "--json"]
+    assert os.path.basename(argv[0]) == "semgrep"
+    assert argv[1:3] == ["scan", "--json"]

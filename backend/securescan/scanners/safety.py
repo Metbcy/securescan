@@ -1,8 +1,8 @@
 """Safety scanner — checks Python dependencies for known vulnerabilities."""
 import asyncio
-import shutil
 from pathlib import Path
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 
 class SafetyScanner(BaseScanner):
@@ -17,7 +17,7 @@ class SafetyScanner(BaseScanner):
     ]
     
     async def is_available(self) -> bool:
-        return shutil.which("safety") is not None
+        return find_tool("safety") is not None
     
     @property
     def install_hint(self) -> str:
@@ -26,6 +26,9 @@ class SafetyScanner(BaseScanner):
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings = []
         target = Path(target_path)
+        safety_bin = find_tool("safety")
+        if safety_bin is None:
+            return findings
         
         # Find requirements files
         req_files = []
@@ -40,7 +43,7 @@ class SafetyScanner(BaseScanner):
         for req_file in req_files:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "safety", "check", "--file", str(req_file), "--json", "--output", "json",
+                    safety_bin, "check", "--file", str(req_file), "--json", "--output", "json",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

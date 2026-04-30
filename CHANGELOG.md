@@ -9,6 +9,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.10.1] - 2026-04-30
+
+A scanner-detection bug fix. Tools installed via `pip install` into
+the same Python venv that runs the SecureScan backend (e.g.
+`./venv/bin/bandit`) were being shown as "Not installed" on the
+Scanners page and silently skipped during scans, even though the
+binary was right next to `./venv/bin/python` — because
+`shutil.which()` only searches the system `PATH`, which doesn't
+include the venv's `bin/`.
+
+### Fixed
+
+- New `securescan.scanners.discovery.find_tool()` helper resolves
+  binaries via PATH first, then falls back to the directory
+  containing `sys.executable` (i.e. the running Python's `bin/`).
+  All scanners (`bandit`, `semgrep`, `safety`, `checkov`, `trivy`,
+  `nmap`, `npm-audit`, `license-checker`) now use this helper for
+  both `is_available()` and the actual subprocess invocation, so
+  tools installed in the backend venv are auto-discovered.
+- Bug regression test: `find_tool` deliberately does NOT
+  `Path.resolve()` `sys.executable`, because doing so would walk the
+  symlink chain `venv/bin/python` → `python3` → `/usr/bin/python3`
+  and miss the venv's own `bin/`. Pinned by
+  `test_find_tool_does_not_resolve_symlinks`.
+
+### Added
+
+- `GET /api/v1/dashboard/status` now returns a `checked_at` timestamp
+  alongside the scanner list. The Scanners page surfaces this next to
+  the "Refresh status" button as `· Xs ago` so users can confirm their
+  manual refresh actually did fresh work. The button label flips to
+  `Checking…` while the request is in flight.
+
+### Tests
+
+- 790 → 870 (+80 since v0.10.0): 7 new for `find_tool` /
+  `tool_command_or_module`, and the existing scanner test suites all
+  still pass after migrating off `shutil.which`.
+
 ## [0.10.0] - 2026-04-30
 
 A non-feature minor release: full product documentation website,
@@ -713,7 +752,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/Metbcy/securescan/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Metbcy/securescan/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Metbcy/securescan/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Metbcy/securescan/releases/tag/v0.8.0

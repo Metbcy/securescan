@@ -1,10 +1,10 @@
 import asyncio
 import json
-import shutil
 import sys
 from pathlib import Path
 
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 from ..config import settings
 
@@ -23,7 +23,7 @@ class SemgrepScanner(BaseScanner):
     ]
 
     async def is_available(self) -> bool:
-        return shutil.which("semgrep") is not None
+        return find_tool("semgrep") is not None
 
     @property
     def install_hint(self) -> str:
@@ -58,6 +58,13 @@ class SemgrepScanner(BaseScanner):
             config_args = ["--config", "auto"]
 
         argv = ["semgrep", "scan", "--json", *config_args, target_path]
+
+        # Resolve the semgrep path here too (in case it lives in our venv
+        # rather than on PATH). Defensive: skip cleanly if missing.
+        semgrep_bin = find_tool("semgrep")
+        if semgrep_bin is None:
+            return []
+        argv[0] = semgrep_bin
 
         findings: list[Finding] = []
         try:

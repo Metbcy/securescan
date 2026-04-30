@@ -11,7 +11,7 @@ import {
   Search,
   Wand2,
 } from "lucide-react";
-import { fetchScannerStatus, installScanner } from "@/lib/api";
+import { fetchScannerStatusEnvelope, installScanner } from "@/lib/api";
 import type { ScannerStatus } from "@/lib/api";
 
 type Status = "available" | "not_installed" | "misconfigured" | "disabled";
@@ -125,6 +125,7 @@ function relativeTime(iso: string): string {
 
 export default function ScannersPage() {
   const [scanners, setScanners] = useState<ScannerWithExtras[]>([]);
+  const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -139,8 +140,9 @@ export default function ScannersPage() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const data = (await fetchScannerStatus()) as ScannerWithExtras[];
-      setScanners(data);
+      const envelope = await fetchScannerStatusEnvelope();
+      setScanners(envelope.scanners as ScannerWithExtras[]);
+      setCheckedAt(envelope.checked_at);
     } catch {
       setError("Failed to load scanner status. Is the backend running?");
     } finally {
@@ -250,6 +252,7 @@ export default function ScannersPage() {
         onRefresh={handleRefresh}
         refreshing={loading && scanners.length > 0}
         bulkBusy={bulkProgress !== null}
+        checkedAt={checkedAt}
       />
 
       {loading && scanners.length === 0 ? (
@@ -309,6 +312,7 @@ function StatusLegend({
   onRefresh,
   refreshing,
   bulkBusy,
+  checkedAt,
 }: {
   query: string;
   onQuery: (v: string) => void;
@@ -318,6 +322,7 @@ function StatusLegend({
   onRefresh: () => void;
   refreshing: boolean;
   bulkBusy: boolean;
+  checkedAt: string | null;
 }) {
   const statuses: Status[] = [
     "available",
@@ -325,6 +330,16 @@ function StatusLegend({
     "misconfigured",
     "disabled",
   ];
+  // Tick once a second while idle so "X seconds ago" stays accurate
+  // without re-fetching.
+  const [, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!checkedAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [checkedAt]);
+
+  const checkedLabel = checkedAt ? relativeTime(checkedAt) : null;
   return (
     <div className="sticky top-14 z-10 -mx-4 md:-mx-8 px-4 md:px-8 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75 border-b border-border">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3 py-3">
@@ -384,6 +399,7 @@ function StatusLegend({
             type="button"
             onClick={onRefresh}
             disabled={refreshing || bulkBusy}
+            title={checkedLabel ? `Last checked ${checkedLabel}` : undefined}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <RefreshCw
@@ -391,7 +407,10 @@ function StatusLegend({
               strokeWidth={1.5}
               className={refreshing ? "animate-spin" : ""}
             />
-            Refresh status
+            {refreshing ? "Checking…" : "Refresh status"}
+            {checkedLabel && !refreshing ? (
+              <span className="text-muted ml-1 font-normal">· {checkedLabel}</span>
+            ) : null}
           </button>
         </div>
       </div>

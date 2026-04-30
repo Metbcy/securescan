@@ -1,9 +1,9 @@
 """Checkov IaC security scanner."""
 import asyncio
 import json
-import shutil
 
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 from ..config import settings
 
@@ -22,7 +22,7 @@ class CheckovScanner(BaseScanner):
     ]
 
     async def is_available(self) -> bool:
-        return shutil.which("checkov") is not None
+        return find_tool("checkov") is not None
 
     @property
     def install_hint(self) -> str:
@@ -30,9 +30,12 @@ class CheckovScanner(BaseScanner):
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
+        checkov_bin = find_tool("checkov")
+        if checkov_bin is None:
+            return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                "checkov", "-d", target_path, "-o", "json", "--quiet", "--compact",
+                checkov_bin, "-d", target_path, "-o", "json", "--quiet", "--compact",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

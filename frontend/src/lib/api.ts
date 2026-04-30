@@ -175,11 +175,30 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
   return res.json();
 }
 
+export interface ScannerStatusResponse {
+  scanners: ScannerStatus[];
+  /** ISO 8601 server-side timestamp of when this fresh check ran. */
+  checked_at: string | null;
+}
+
 export async function fetchScannerStatus(): Promise<ScannerStatus[]> {
   const res = await apiFetch(`${API_BASE}/dashboard/status`, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch status");
   const data = await res.json();
   return data.scanners ?? data;
+}
+
+/** v0.10.1+: returns the full envelope including `checked_at` so the UI
+ * can show "Last refreshed Xs ago" and confirm manual refresh did fresh
+ * work. Falls back gracefully when the backend is pre-v0.10.1. */
+export async function fetchScannerStatusEnvelope(): Promise<ScannerStatusResponse> {
+  const res = await apiFetch(`${API_BASE}/dashboard/status`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch status");
+  const data = await res.json();
+  return {
+    scanners: data.scanners ?? data,
+    checked_at: data.checked_at ?? null,
+  };
 }
 
 export async function startScan(

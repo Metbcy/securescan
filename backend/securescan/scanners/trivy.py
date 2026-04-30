@@ -1,8 +1,8 @@
 import asyncio
 import json
-import shutil
 
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 from ..config import settings
 
@@ -20,7 +20,7 @@ class TrivyScanner(BaseScanner):
     ]
 
     async def is_available(self) -> bool:
-        return shutil.which("trivy") is not None
+        return find_tool("trivy") is not None
 
     @property
     def install_hint(self) -> str:
@@ -28,9 +28,12 @@ class TrivyScanner(BaseScanner):
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
+        trivy_bin = find_tool("trivy")
+        if trivy_bin is None:
+            return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                "trivy", "fs", "--format", "json", "--scanners", "vuln", target_path,
+                trivy_bin, "fs", "--format", "json", "--scanners", "vuln", target_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

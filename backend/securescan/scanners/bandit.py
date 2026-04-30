@@ -1,9 +1,9 @@
 import asyncio
 import json
 import os
-import shutil
 
 from .base import BaseScanner
+from .discovery import find_tool
 from ..models import Finding, ScanType, Severity
 from ..config import settings
 
@@ -22,7 +22,7 @@ class BanditScanner(BaseScanner):
     ]
 
     async def is_available(self) -> bool:
-        return shutil.which("bandit") is not None
+        return find_tool("bandit") is not None
 
     @property
     def install_hint(self) -> str:
@@ -40,9 +40,16 @@ class BanditScanner(BaseScanner):
         if not has_python:
             return findings
 
+        bandit_bin = find_tool("bandit")
+        if bandit_bin is None:
+            # Defensive: orchestrator skips scanners whose is_available()
+            # is False, so this branch is only reachable if bandit was
+            # uninstalled between the availability check and the scan.
+            return findings
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "bandit", "-r", target_path, "-f", "json", "--quiet",
+                bandit_bin, "-r", target_path, "-f", "json", "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
