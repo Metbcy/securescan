@@ -22,15 +22,14 @@ Install `sigstore`:
 pip install sigstore
 ```
 
-Download the artifact + bundle from the GitHub Release page (the
-`*.sigstore.json` is **not** on PyPI — `twine` doesn't recognize
-sigstore bundles):
+Download the wheel and its sigstore bundle from the GitHub Release
+page (both ship as Release assets):
 
 ```bash
-gh release download v0.9.0 \
+gh release download v0.10.2 \
   --repo Metbcy/securescan \
-  --pattern 'securescan-0.9.0-py3-none-any.whl' \
-  --pattern 'securescan-0.9.0-py3-none-any.whl.sigstore.json'
+  --pattern 'securescan-0.10.2-py3-none-any.whl' \
+  --pattern 'securescan-0.10.2-py3-none-any.whl.sigstore.json'
 ```
 
 Verify:

@@ -37,12 +37,26 @@ The image follows the release schedule documented in
 [Release process](./reference/release-process.md). All tags from
 `v0.2.0` onward are signed.
 
-## 2. PyPI (`pip` / `pipx`)
+## 2. Wheel from a GitHub Release
+
+The signed wheel + sdist for every tagged release are attached to the
+[GitHub Releases page](https://github.com/Metbcy/securescan/releases).
+Install directly from the release URL:
 
 ```bash
-pip install securescan
-# or, isolated:
-pipx install securescan
+# Pick the release you want.
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+
+# Or, isolated, via pipx:
+pipx install --pip-args=--no-deps \
+  https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+```
+
+```admonish note
+SecureScan is **not currently published to PyPI**. The release pipeline
+has a dormant `publish-pypi` job that activates once a `PYPI_TOKEN`
+secret is configured on the repo. Until then, install from the
+GitHub Release URL or build from source (see §4).
 ```
 
 The wheel only ships SecureScan itself. The underlying scanner CLIs
@@ -69,20 +83,24 @@ container instead.
 ### Verify the wheel signature
 
 Every tagged release is signed with sigstore-python. To verify the
-exact wheel you just installed:
+wheel you just downloaded:
 
 ```bash
-pip download securescan==0.9.0 --no-deps -d ./out
+# Download both the wheel and its sigstore bundle.
+RELEASE=v0.10.2
+gh release download $RELEASE -R Metbcy/securescan \
+  -p 'securescan-*.whl' -p 'securescan-*.whl.sigstore.json'
+
 pip install sigstore
 sigstore verify identity \
-  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+  --cert-identity "https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/${RELEASE}" \
   --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --bundle ./out/securescan-0.9.0-py3-none-any.whl.sigstore.json \
-  ./out/securescan-0.9.0-py3-none-any.whl
+  --bundle securescan-${RELEASE#v}-py3-none-any.whl.sigstore.json \
+  securescan-${RELEASE#v}-py3-none-any.whl
 ```
 
-The `*.sigstore.json` bundles ship as GitHub Release assets — they are
-not on PyPI because `twine` does not recognize them.
+The `*.sigstore.json` bundles ship as GitHub Release assets next to
+the wheel.
 
 ## 3. GitHub Action (CI/CD)
 

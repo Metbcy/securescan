@@ -80,13 +80,26 @@ Fails the whole release before spending time on builds if the metadata is out of
   signature attests the `(digest, identity)` pair, not the tag, so
   re-pointing a tag never changes what was signed.
 
-### 4. Publish-pypi
+### 4. Publish-pypi (currently dormant)
 
-- Uploads the signed wheel + sdist to PyPI via `twine`.
-- Gated on the `PYPI_TOKEN` secret being configured on the repo. If
-  missing, the job is skipped (the GitHub release step still runs).
-- Note: PyPI does not host the `*.sigstore.json` bundles. They are
-  attached to the GitHub Release instead.
+```admonish warning
+**SecureScan is not currently published to PyPI.** This job exists
+in `.github/workflows/release.yml` and runs on every tag, but its
+upload steps are skipped because the `PYPI_TOKEN` repo secret is
+not configured. Until a token is provisioned, the wheel ships only
+via the GitHub Release page (see step 5).
+```
+
+- Uploads the signed wheel + sdist to PyPI via `twine` **once
+  enabled**.
+- Gated on the `PYPI_TOKEN` secret. If missing, the job's first step
+  emits a `::warning::`, the upload steps are skipped, and the rest
+  of the release pipeline continues normally.
+- To activate: generate a PyPI API token, add it as the `PYPI_TOKEN`
+  secret under repo Settings → Secrets and variables → Actions, and
+  re-tag (or re-run the workflow against an existing tag).
+- Note: PyPI does not host the `*.sigstore.json` bundles even when
+  active. They are attached to the GitHub Release instead.
 
 ### 5. Publish-release
 

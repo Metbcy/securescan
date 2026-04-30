@@ -704,8 +704,10 @@ unchanged; the new surfaces are opt-in.
   and uploads SARIF.
 - Multi-arch container image published to `ghcr.io/Metbcy/securescan` with
   all 14 scanners pre-installed and pinned for reproducible CI runs.
-- PyPI distribution: `pip install securescan` and `pipx install securescan`
-  for runners that already have scanner binaries on PATH.
+- Wheel + sdist distribution attached to every tagged GitHub Release
+  (note: PyPI publishing is wired up in CI but currently disabled —
+  the `PYPI_TOKEN` repo secret has not been provisioned, so install
+  goes through the GitHub Release URL).
 - cosign-signed container images and sigstore-python-signed wheels on every
   tagged release, with verification examples in the README.
 - Per-finding stable fingerprints

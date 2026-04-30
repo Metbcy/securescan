@@ -55,7 +55,8 @@ serialization contract on top. See
 
 - Source: [github.com/Metbcy/securescan](https://github.com/Metbcy/securescan)
 - Container image: `ghcr.io/metbcy/securescan`
-- PyPI: [`pip install securescan`](https://pypi.org/project/securescan/)
+- Wheel + sdist + sigstore bundles: attached to every
+  [GitHub Release](https://github.com/Metbcy/securescan/releases)
 - Changelog: [reference/changelog](./reference/changelog.md)
 - Release process: [reference/release-process](./reference/release-process.md)
 

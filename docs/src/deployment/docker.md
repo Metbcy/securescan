@@ -177,14 +177,20 @@ a separate container and point SecureScan at it via
 
 ## Container vs wheel
 
-| Concern                         | Container                              | Wheel (`pip install`)                              |
+| Concern                         | Container                              | Wheel (GitHub Release)                             |
 | ------------------------------- | -------------------------------------- | -------------------------------------------------- |
 | Reproducible scanner versions   | ✅ pinned at image build               | ❌ depends on host                                  |
-| Easy install                    | ✅ `docker run`                        | ✅ `pip install securescan`                        |
-| Easy upgrade                    | ✅ image bump                          | ✅ `pip install -U securescan`                     |
-| Smaller install                 | ❌ ~600MB                              | ✅ ~10MB plus whatever scanners you `pip install`  |
+| Easy install                    | ✅ `docker run`                        | ✅ `pip install <release-url>`                      |
+| Easy upgrade                    | ✅ image bump                          | ✅ `pip install <new-release-url>`                 |
+| Smaller install                 | ❌ ~600MB                              | ✅ ~10MB plus whatever scanners you install        |
 | Run ZAP / nmap                  | Need separate ZAP; nmap inside         | Run on host                                        |
 | Signed artifact                 | ✅ cosign                              | ✅ sigstore-python (`*.sigstore.json` bundle)      |
+
+```admonish note
+SecureScan is **not currently on PyPI**, so the wheel install path
+goes through the GitHub Release URL. See [Install §2](../install.md)
+for the exact command.
+```
 
 The GitHub Action picks the right one for you: tries the wheel
 first, falls back to the container if scanner binaries are missing.

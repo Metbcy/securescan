@@ -82,12 +82,11 @@ jobs:
 The action's full input/output reference lives in
 [`action/README.md`](./action/README.md).
 
-### PyPI (`pip` / `pipx`)
+### Wheel from a GitHub Release
 
 ```bash
-pip install securescan
-# or, isolated:
-pipx install securescan
+# Pick the release you want — see https://github.com/Metbcy/securescan/releases
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
 ```
 
 The wheel only ships SecureScan itself. The underlying scanner CLIs
@@ -567,7 +566,7 @@ sigstore verify identity \
 ```
 
 The matching `*.sigstore.json` bundles ship as GitHub Release assets
-(not on PyPI — twine doesn't recognise them).
+alongside the wheel.
 
 ### Container image (cosign keyless)
 
