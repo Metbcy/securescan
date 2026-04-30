@@ -31,3 +31,4 @@ frontend/.scratch/
 
 # mdBook build output
 docs/book/
+.coverage
