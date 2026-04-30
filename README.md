@@ -8,6 +8,53 @@
 [![Security Audit](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 
+## Dashboard
+
+A self-hosted dashboard sits in front of every scan, finding, scanner,
+SBOM, and webhook. The screenshots below are the live local
+deployment scanning real targets (`/home/amirb/quantsense`,
+`/home/amirb/Documents/securescan/backend`).
+
+### Overview
+
+Risk-score trend across all scans, the latest scan summary with its
+top findings, and severity totals at a glance.
+
+![Overview](./docs/images/dashboard-overview.png)
+
+### Live scan progress
+
+Every scan streams its lifecycle events over SSE — per-scanner state
+(queued / running / complete / skipped / failed), per-scanner duration
+and finding count, and elapsed wall-clock time, all in a single panel
+that updates as the scan runs.
+
+![Live scan progress](./docs/images/dashboard-live-progress.png)
+
+### Scan detail
+
+Risk score, severity breakdown, all 11 scanners that ran, and a
+findings table with severity + triage-status filters. Each finding
+expands to show the rule, file, snippet, remediation, and per-finding
+comment thread.
+
+![Scan detail with findings](./docs/images/dashboard-scan-findings.png)
+
+### History
+
+Sortable, filterable list of every scan with the scanners that ran,
+finding counts, and risk scores. Click a row for the full detail.
+
+![Scan history](./docs/images/dashboard-history.png)
+
+### Scanners
+
+All 14 supported scanners with per-scanner availability, version, and
+one-click install for the pip-installable ones. The "Refresh status"
+control re-checks the host and shows when the last check ran.
+
+![Scanner inventory](./docs/images/dashboard-scanners.png)
+
 > **What's new in v0.6.0**
 >
 > - **Refined dashboard.** End-to-end UI redesign — OKLCH tokens,
