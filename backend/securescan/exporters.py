@@ -172,14 +172,14 @@ def findings_to_sarif(
             result["partialFingerprints"] = {"securescan/v1": fp}
 
         if finding.remediation:
-            # SARIF 2.1.0: a `fix` object MUST include `artifactChanges`
-            # (an array, possibly empty). GitHub's SARIF validator rejects
-            # the upload otherwise. We have a remediation description but
-            # no concrete patch to apply, so emit an empty array.
-            result["fixes"] = [{
-                "description": {"text": finding.remediation},
-                "artifactChanges": [],
-            }]
+            # SARIF 2.1.0's `fix` object describes a CONCRETE
+            # machine-applicable patch — it requires `artifactChanges`
+            # with `replacements` pointing at file regions and the new
+            # text. We don't synthesize patches; `finding.remediation`
+            # is human-readable advice. Encode it as a property instead
+            # of a `fix` so GitHub's SARIF validator accepts the upload
+            # and the Code Scanning UI still surfaces the text.
+            result.setdefault("properties", {})["remediation"] = finding.remediation
 
         suppressed_reason = _suppressed_reason(finding)
         if show_suppressed and suppressed_reason is not None:
