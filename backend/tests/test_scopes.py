@@ -6,6 +6,7 @@ critical defense: every new ``/api/*`` route must declare an explicit
 allowlist. A failure here means a route shipped without scope
 enforcement -- a security regression.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,16 +21,17 @@ from securescan import auth
 from securescan.database import init_db, insert_api_key, set_db_path
 from securescan.main import app
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
     """Fresh DB + cleared auth env vars per test (reset path on teardown
     so the global `_db_path` doesn't leak into sibling test modules)."""
     from securescan.config import settings as _settings
+
     db_path = str(tmp_path / "scopes.db")
     original = _settings.database_path
     set_db_path(db_path)
@@ -48,15 +50,14 @@ def client(temp_db) -> TestClient:
 async def _seed_key(name: str, scopes: list[str]) -> str:
     """Insert a fresh key with the given scopes; return the plaintext."""
     gk = ak.generate_key()
-    await insert_api_key(
-        gk.id, name, gk.key_hash, gk.prefix, scopes, datetime.utcnow()
-    )
+    await insert_api_key(gk.id, name, gk.key_hash, gk.prefix, scopes, datetime.utcnow())
     return gk.full
 
 
 # ---------------------------------------------------------------------------
 # Per-scope behavior
 # ---------------------------------------------------------------------------
+
 
 def test_read_scope_can_get_scans(temp_db, client):
     full = asyncio.run(_seed_key("reader", ["read"]))
@@ -159,19 +160,21 @@ def test_dev_mode_passes_through_scope_checks(temp_db, client):
 # Add to this list ONLY with a comment explaining why. Default-deny is
 # the right policy: forgetting Depends(require_scope(...)) on a new
 # route should fail this test, not silently ship.
-PUBLIC_ALLOWLIST = frozenset({
-    "/",                          # root banner
-    "/health",                    # k8s liveness probe
-    "/ready",                     # k8s readiness probe
-    "/openapi.json",              # FastAPI default
-    "/docs",                      # FastAPI default
-    "/docs/oauth2-redirect",      # FastAPI default
-    "/redoc",                     # FastAPI default
-    # /me lets any authenticated DB key introspect itself, regardless
-    # of scope. Documented in api/keys.py.
-    "/api/keys/me",
-    "/api/v1/keys/me",
-})
+PUBLIC_ALLOWLIST = frozenset(
+    {
+        "/",  # root banner
+        "/health",  # k8s liveness probe
+        "/ready",  # k8s readiness probe
+        "/openapi.json",  # FastAPI default
+        "/docs",  # FastAPI default
+        "/docs/oauth2-redirect",  # FastAPI default
+        "/redoc",  # FastAPI default
+        # /me lets any authenticated DB key introspect itself, regardless
+        # of scope. Documented in api/keys.py.
+        "/api/keys/me",
+        "/api/v1/keys/me",
+    }
+)
 
 
 def _route_has_scope_dependency(route: APIRoute) -> bool:

@@ -17,15 +17,12 @@ it may land on different workers. The README documents the
 single-worker constraint; a multi-process backplane (Redis pubsub) is
 a future feature explicitly out of scope here.
 """
+
 from __future__ import annotations
 
 import asyncio
-from typing import Optional
 
-
-TERMINAL: frozenset[str] = frozenset(
-    {"scan.complete", "scan.failed", "scan.cancelled"}
-)
+TERMINAL: frozenset[str] = frozenset({"scan.complete", "scan.failed", "scan.cancelled"})
 
 
 class ScanEventBus:
@@ -184,7 +181,7 @@ class ScanEventBus:
     def has_replay(self, scan_id: str) -> bool:
         return bool(self._replay.get(scan_id))
 
-    def reset(self, scan_id: Optional[str] = None) -> None:
+    def reset(self, scan_id: str | None = None) -> None:
         """Test helper: clear all bus state (or just one scan_id).
 
         Cancellation of any in-flight cleanup tasks is best-effort —

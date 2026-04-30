@@ -1,4 +1,5 @@
 """Tests for optional API key auth (PG4)."""
+
 from __future__ import annotations
 
 import importlib
@@ -27,6 +28,7 @@ def app_client(monkeypatch):
 # ---------------------------------------------------------------------------
 # Helpers / unit-level tests
 # ---------------------------------------------------------------------------
+
 
 def test_dev_mode_when_env_unset(monkeypatch):
     monkeypatch.delenv(auth.ENV_VAR, raising=False)
@@ -60,6 +62,7 @@ async def test_require_api_key_returns_none_in_dev_mode(monkeypatch):
 # ---------------------------------------------------------------------------
 # End-to-end tests via FastAPI TestClient
 # ---------------------------------------------------------------------------
+
 
 def test_dev_mode_request_passes_without_header(monkeypatch, app_client):
     monkeypatch.delenv(auth.ENV_VAR, raising=False)
@@ -150,9 +153,9 @@ def test_compare_digest_used_for_constant_time(monkeypatch, app_client):
     """Verify secrets.compare_digest is used (timing-safe comparison),
     not raw == on the user-provided key."""
     monkeypatch.setenv(auth.ENV_VAR, "secret")
-    with patch("securescan.auth.secrets.compare_digest", wraps=__import__(
-        "secrets"
-    ).compare_digest) as spy:
+    with patch(
+        "securescan.auth.secrets.compare_digest", wraps=__import__("secrets").compare_digest
+    ) as spy:
         res = app_client.get("/api/scans", headers={"X-API-Key": "secret"})
         assert res.status_code != 401
         spy.assert_called()

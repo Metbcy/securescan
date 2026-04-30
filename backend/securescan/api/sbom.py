@@ -1,13 +1,11 @@
 """SBOM API endpoints."""
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import require_scope
 from ..database import get_all_sboms, get_sbom, get_sboms_for_scan, save_sbom
-from ..models import SBOMDocument
 from ..sbom import SBOMGenerator
 
 logger = logging.getLogger(__name__)
@@ -19,7 +17,7 @@ router = APIRouter(prefix="/api/sbom", tags=["sbom"])
 async def generate_sbom(
     target_path: str = Query(..., description="Path to the project directory"),
     format: str = Query("cyclonedx", description="Export format: cyclonedx or spdx"),
-    scan_id: Optional[str] = Query(None, description="Linked scan ID"),
+    scan_id: str | None = Query(None, description="Linked scan ID"),
 ):
     """Generate an SBOM for the given target path, save it to the database, and return the result."""
     if format not in ("cyclonedx", "spdx"):

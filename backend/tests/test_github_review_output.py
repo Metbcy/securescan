@@ -20,6 +20,7 @@ tests pin:
 * byte-identical output across two invocations against a frozen
   base+head, mirroring v0.2.0/v0.3.0's determinism contract.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,6 @@ from typer.testing import CliRunner
 
 from securescan.cli import app
 from securescan.render_review import MARKER_REVIEW, MARKER_REVIEW_COMPARE
-
 
 # ----------------------------- fixtures -----------------------------------
 
@@ -657,9 +657,7 @@ def test_github_review_resolves_base_sha_from_base_ref_in_diff(tmp_path):
     base_snap = repo / "base.json"
     head_snap = repo / "head.json"
     _write_snapshot(base_snap, [])
-    _write_snapshot(
-        head_snap, [_finding_dict(file_path="src/app.py", line_start=5)]
-    )
+    _write_snapshot(head_snap, [_finding_dict(file_path="src/app.py", line_start=5)])
 
     runner = CliRunner()
     env = {
@@ -696,10 +694,7 @@ def test_github_review_resolves_base_sha_from_base_ref_in_diff(tmp_path):
 
 
 @pytest.mark.skipif(
-    subprocess.run(
-        ["git", "--version"], capture_output=True
-    ).returncode
-    != 0,
+    subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
     reason="git not available on this host",
 )
 def test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode(tmp_path):

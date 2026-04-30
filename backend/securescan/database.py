@@ -1,6 +1,6 @@
 import json
+import re
 from datetime import datetime
-from typing import Optional
 
 import aiosqlite
 
@@ -21,10 +21,64 @@ from .models import (
     ScanType,
     Severity,
     TriageStatus,
+    Webhook,
+    WebhookDelivery,
+    WebhookEventType,
 )
 from .scoring import calculate_risk_score
 
 _db_path: str = settings.database_path
+
+
+# SQLite (and Postgres) identifiers can technically be quoted to allow
+# arbitrary characters, but quoting `{col}` inside an f-string still
+# wouldn't make user-supplied input safe — quoting can be escaped.
+# The only correct fix for dynamic DDL is an identifier ALLOWLIST.
+_SQL_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+
+
+def _safe_ident(name: str) -> str:
+    """Validate ``name`` as a safe SQL identifier and return it unchanged.
+
+    Raises ValueError on anything that doesn't match the allowlist.
+    Used to gate any DDL f-string in this module so a future refactor
+    that reroutes the column source from a literal list to e.g. a
+    request body can't introduce SQL injection.
+    """
+    if not isinstance(name, str) or not _SQL_IDENT_RE.fullmatch(name):
+        raise ValueError(f"unsafe SQL identifier: {name!r}")
+    return name
+
+
+# Multiple known phrasings of "duplicate column" across SQLite versions.
+# As of SQLite 3.x, the message is "duplicate column name: <col>".
+# Pin a tuple of known prefixes; if a future SQLite uses a new phrasing,
+# the test suite will catch the regression.
+_DUPLICATE_COLUMN_PHRASES = (
+    "duplicate column name",
+    "duplicate column",
+)
+
+
+def _is_duplicate_column(exc: BaseException) -> bool:
+    """Return True iff ``exc`` represents 'column already exists'.
+
+    Checks both the message text (current sqlite phrasings) and the
+    SQLite extended error code if it's exposed on the exception. Any
+    other OperationalError (e.g., a column-type typo, missing table)
+    is NOT a duplicate-column situation and must be re-raised by the
+    caller so we don't silently swallow real schema corruption.
+    """
+    msg = str(exc).lower()
+    if any(phrase in msg for phrase in _DUPLICATE_COLUMN_PHRASES):
+        return True
+    # aiosqlite/sqlite3 may expose `sqlite_errorcode` on Python 3.11+.
+    # SQLITE_ERROR (1) covers most syntax/constraint failures; we want
+    # to be more specific. SQLite uses a generic SQLITE_ERROR for
+    # duplicate column rather than a dedicated code, so we rely on
+    # the message check above. This branch is just a hook for future
+    # versions that might expose a more specific code.
+    return False
 
 
 def set_db_path(path: str) -> None:
@@ -80,32 +134,38 @@ async def init_db() -> None:
         # Migration: add compliance_tags column if not present
         try:
             await db.execute("ALTER TABLE findings ADD COLUMN compliance_tags TEXT DEFAULT '[]'")
-        except Exception:
-            pass  # Column already exists
+        except aiosqlite.OperationalError as e:
+            if not _is_duplicate_column(e):
+                raise
 
         # Migration: add fingerprint column to existing DBs (forward-only).
         # Empty default lets old rows coexist; the diff classifier (SS4) will
         # recompute the fingerprint on read when it is empty.
         try:
             await db.execute("ALTER TABLE findings ADD COLUMN fingerprint TEXT DEFAULT ''")
-        except Exception:
-            pass  # Column already exists
+        except aiosqlite.OperationalError as e:
+            if not _is_duplicate_column(e):
+                raise
 
         # Migration: add target_url and target_host columns to scans
         for col in ["target_url", "target_host"]:
+            safe = _safe_ident(col)
             try:
-                await db.execute(f"ALTER TABLE scans ADD COLUMN {col} TEXT")
-            except Exception:
-                pass  # Column already exists
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT")
+            except aiosqlite.OperationalError as e:
+                if not _is_duplicate_column(e):
+                    raise
 
         # Migration: add scanners_run + scanners_skipped JSON columns to scans
         # (PG2). Idempotent ALTER TABLE matches the v0.3 fingerprint pattern --
         # forward-only, default '[]' so old rows decode as empty lists.
         for col in ["scanners_run", "scanners_skipped"]:
+            safe = _safe_ident(col)
             try:
-                await db.execute(f"ALTER TABLE scans ADD COLUMN {col} TEXT DEFAULT '[]'")
-            except Exception:
-                pass  # Column already exists
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT DEFAULT '[]'")
+            except aiosqlite.OperationalError as e:
+                if not _is_duplicate_column(e):
+                    raise
 
         # Triage state + comments (BE-TRIAGE). Fingerprint is the cross-scan
         # primary key -- see fingerprint.py. Orphan rows (rule renamed / file
@@ -136,9 +196,7 @@ async def init_db() -> None:
         )
         # Performance: existing get_findings does WHERE scan_id = ? but
         # findings has no scan_id index. Idempotent so it's safe to add now.
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id)")
 
         # SBOM tables
         await db.execute("""
@@ -183,9 +241,7 @@ async def init_db() -> None:
                 revoked_at TEXT
             )
         """)
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)"
-        )
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)")
 
         # In-app notifications (BE-NOTIFY).
         # Single-tenant: no user_id column -- every browser session sees
@@ -344,9 +400,7 @@ def _row_to_scan(row: aiosqlite.Row) -> Scan:
     if "scanners_run" in keys and row["scanners_run"]:
         scanners_run = json.loads(row["scanners_run"])
     if "scanners_skipped" in keys and row["scanners_skipped"]:
-        scanners_skipped = [
-            ScannerSkip(**entry) for entry in json.loads(row["scanners_skipped"])
-        ]
+        scanners_skipped = [ScannerSkip(**entry) for entry in json.loads(row["scanners_skipped"])]
     return Scan(
         id=row["id"],
         target_path=row["target_path"],
@@ -387,7 +441,7 @@ def _row_to_finding(row: aiosqlite.Row) -> Finding:
     )
 
 
-async def get_scan(scan_id: str) -> Optional[Scan]:
+async def get_scan(scan_id: str) -> Scan | None:
     db = await _get_db()
     try:
         cursor = await db.execute("SELECT * FROM scans WHERE id = ?", (scan_id,))
@@ -435,9 +489,9 @@ async def delete_scan_cascade(scan_id: str) -> bool:
 
 async def get_findings(
     scan_id: str,
-    severity: Optional[str] = None,
-    scan_type: Optional[str] = None,
-    compliance: Optional[str] = None,
+    severity: str | None = None,
+    scan_type: str | None = None,
+    compliance: str | None = None,
 ) -> list[Finding]:
     db = await _get_db()
     try:
@@ -460,7 +514,7 @@ async def get_findings(
         await db.close()
 
 
-async def get_scan_summary(scan_id: str) -> Optional[ScanSummary]:
+async def get_scan_summary(scan_id: str) -> ScanSummary | None:
     db = await _get_db()
     try:
         cursor = await db.execute("SELECT * FROM scans WHERE id = ?", (scan_id,))
@@ -556,7 +610,7 @@ async def upsert_finding_state(state: FindingState) -> None:
         await db.close()
 
 
-async def get_finding_state(fingerprint: str) -> Optional[FindingState]:
+async def get_finding_state(fingerprint: str) -> FindingState | None:
     db = await _get_db()
     try:
         cursor = await db.execute(
@@ -630,8 +684,7 @@ async def list_finding_comments(fingerprint: str) -> list[FindingComment]:
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "SELECT * FROM finding_comments WHERE fingerprint = ? "
-            "ORDER BY created_at ASC, id ASC",
+            "SELECT * FROM finding_comments WHERE fingerprint = ? ORDER BY created_at ASC, id ASC",
             (fingerprint,),
         )
         rows = await cursor.fetchall()
@@ -649,9 +702,7 @@ async def delete_finding_comment(comment_id: str) -> bool:
     """
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "DELETE FROM finding_comments WHERE id = ?", (comment_id,)
-        )
+        cursor = await db.execute("DELETE FROM finding_comments WHERE id = ?", (comment_id,))
         await db.commit()
         return cursor.rowcount > 0
     finally:
@@ -660,9 +711,9 @@ async def delete_finding_comment(comment_id: str) -> bool:
 
 async def get_findings_with_state(
     scan_id: str,
-    severity: Optional[str] = None,
-    scan_type: Optional[str] = None,
-    compliance: Optional[str] = None,
+    severity: str | None = None,
+    scan_type: str | None = None,
+    compliance: str | None = None,
 ) -> list[FindingWithState]:
     """Return a scan's findings enriched with their triage state.
 
@@ -677,19 +728,16 @@ async def get_findings_with_state(
     )
     if not findings:
         return []
-    states = await get_finding_states_bulk(
-        [f.fingerprint for f in findings if f.fingerprint]
-    )
+    states = await get_finding_states_bulk([f.fingerprint for f in findings if f.fingerprint])
     enriched: list[FindingWithState] = []
     for f in findings:
         state = states.get(f.fingerprint) if f.fingerprint else None
-        enriched.append(
-            FindingWithState(**f.model_dump(), state=state)
-        )
+        enriched.append(FindingWithState(**f.model_dump(), state=state))
     return enriched
 
 
 # --- SBOM persistence ---
+
 
 async def save_sbom(doc: SBOMDocument) -> None:
     db = await _get_db()
@@ -701,14 +749,23 @@ async def save_sbom(doc: SBOMDocument) -> None:
         for comp in doc.components:
             await db.execute(
                 "INSERT OR REPLACE INTO sbom_components (id, sbom_id, name, version, type, purl, license, supplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (comp.id, comp.sbom_id, comp.name, comp.version, comp.type, comp.purl, comp.license, comp.supplier),
+                (
+                    comp.id,
+                    comp.sbom_id,
+                    comp.name,
+                    comp.version,
+                    comp.type,
+                    comp.purl,
+                    comp.license,
+                    comp.supplier,
+                ),
             )
         await db.commit()
     finally:
         await db.close()
 
 
-async def get_sbom(sbom_id: str) -> Optional[SBOMDocument]:
+async def get_sbom(sbom_id: str) -> SBOMDocument | None:
     db = await _get_db()
     try:
         cursor = await db.execute("SELECT * FROM sbom_documents WHERE id = ?", (sbom_id,))
@@ -754,17 +811,21 @@ async def get_sboms_for_scan(scan_id: str) -> list[SBOMDocument]:
         results = []
         for doc_row in doc_rows:
             doc_row = dict(doc_row)
-            cursor = await db.execute("SELECT * FROM sbom_components WHERE sbom_id = ?", (doc_row["id"],))
+            cursor = await db.execute(
+                "SELECT * FROM sbom_components WHERE sbom_id = ?", (doc_row["id"],)
+            )
             comp_rows = await cursor.fetchall()
             components = [SBOMComponent(**dict(c)) for c in comp_rows]
-            results.append(SBOMDocument(
-                id=doc_row["id"],
-                scan_id=doc_row["scan_id"],
-                target_path=doc_row["target_path"],
-                format=doc_row["format"],
-                components=components,
-                created_at=datetime.fromisoformat(doc_row["created_at"]),
-            ))
+            results.append(
+                SBOMDocument(
+                    id=doc_row["id"],
+                    scan_id=doc_row["scan_id"],
+                    target_path=doc_row["target_path"],
+                    format=doc_row["format"],
+                    components=components,
+                    created_at=datetime.fromisoformat(doc_row["created_at"]),
+                )
+            )
         return results
     finally:
         await db.close()
@@ -807,7 +868,7 @@ async def insert_api_key(
         await db.close()
 
 
-async def get_api_key_by_id(id: str) -> Optional[dict]:
+async def get_api_key_by_id(id: str) -> dict | None:
     """Return the row dict for ``id`` or None when not found."""
     db = await _get_db()
     try:
@@ -832,13 +893,10 @@ async def list_api_keys(include_revoked: bool = True) -> list[dict]:
     db = await _get_db()
     try:
         if include_revoked:
-            cursor = await db.execute(
-                "SELECT * FROM api_keys ORDER BY created_at DESC"
-            )
+            cursor = await db.execute("SELECT * FROM api_keys ORDER BY created_at DESC")
         else:
             cursor = await db.execute(
-                "SELECT * FROM api_keys WHERE revoked_at IS NULL "
-                "ORDER BY created_at DESC"
+                "SELECT * FROM api_keys WHERE revoked_at IS NULL ORDER BY created_at DESC"
             )
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
@@ -855,8 +913,7 @@ async def revoke_api_key(id: str) -> bool:
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "UPDATE api_keys SET revoked_at = ? "
-            "WHERE id = ? AND revoked_at IS NULL",
+            "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
             (datetime.utcnow().isoformat(), id),
         )
         await db.commit()
@@ -898,8 +955,7 @@ async def count_admin_keys_active() -> int:
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "SELECT COUNT(*) FROM api_keys "
-            "WHERE revoked_at IS NULL AND scopes LIKE '%\"admin\"%'"
+            "SELECT COUNT(*) FROM api_keys WHERE revoked_at IS NULL AND scopes LIKE '%\"admin\"%'"
         )
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
@@ -918,9 +974,7 @@ async def has_unrevoked_api_key() -> bool:
     """
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT 1 FROM api_keys WHERE revoked_at IS NULL LIMIT 1"
-        )
+        cursor = await db.execute("SELECT 1 FROM api_keys WHERE revoked_at IS NULL LIMIT 1")
         row = await cursor.fetchone()
         return row is not None
     except aiosqlite.OperationalError:
@@ -960,8 +1014,8 @@ async def insert_notification(
     *,
     type: str,
     title: str,
-    body: Optional[str] = None,
-    link: Optional[str] = None,
+    body: str | None = None,
+    link: str | None = None,
     severity: NotificationSeverity = NotificationSeverity.INFO,
 ) -> Notification:
     """Persist a new notification and return the populated row.
@@ -998,9 +1052,7 @@ async def insert_notification(
     return notif
 
 
-async def list_notifications(
-    unread_only: bool = False, limit: int = 50
-) -> list[Notification]:
+async def list_notifications(unread_only: bool = False, limit: int = 50) -> list[Notification]:
     """Return notifications, newest first.
 
     `limit` is hard-capped at 200 in the API layer; this function
@@ -1017,8 +1069,7 @@ async def list_notifications(
             )
         else:
             cursor = await db.execute(
-                "SELECT * FROM notifications "
-                "ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM notifications ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             )
         rows = await cursor.fetchall()
@@ -1027,13 +1078,11 @@ async def list_notifications(
         await db.close()
 
 
-async def get_notification(notification_id: str) -> Optional[Notification]:
+async def get_notification(notification_id: str) -> Notification | None:
     """Look up a single notification by id, or None when missing."""
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT * FROM notifications WHERE id = ?", (notification_id,)
-        )
+        cursor = await db.execute("SELECT * FROM notifications WHERE id = ?", (notification_id,))
         row = await cursor.fetchone()
         if row is None:
             return None
@@ -1054,8 +1103,7 @@ async def mark_notification_read(notification_id: str) -> bool:
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "UPDATE notifications SET read_at = ? "
-            "WHERE id = ? AND read_at IS NULL",
+            "UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL",
             (datetime.utcnow().isoformat(), notification_id),
         )
         await db.commit()
@@ -1092,9 +1140,7 @@ async def count_unread_notifications() -> int:
     """
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM notifications WHERE read_at IS NULL"
-        )
+        cursor = await db.execute("SELECT COUNT(*) FROM notifications WHERE read_at IS NULL")
         row = await cursor.fetchone()
         return int(row[0]) if row else 0
     finally:
@@ -1116,19 +1162,18 @@ async def prune_old_notifications(older_than_days: int = 30) -> int:
     a per-version reliance on sqlite's date() function.
     """
     from datetime import timedelta
+
     cutoff = (datetime.utcnow() - timedelta(days=older_than_days)).isoformat()
     db = await _get_db()
     try:
         cursor = await db.execute(
-            "DELETE FROM notifications "
-            "WHERE read_at IS NOT NULL AND read_at < ?",
+            "DELETE FROM notifications WHERE read_at IS NOT NULL AND read_at < ?",
             (cutoff,),
         )
         await db.commit()
         return cursor.rowcount
     finally:
         await db.close()
-
 
 
 # --- Outbound webhooks (BE-WEBHOOKS) -------------------------------------
@@ -1151,8 +1196,6 @@ async def prune_old_notifications(older_than_days: int = 30) -> int:
 #   startup ``reset_stale_delivering_deliveries`` flips any 'delivering'
 #   rows back to 'pending' and the worker resumes. A bare
 #   ``asyncio.create_task`` would lose the delivery on restart.
-
-from .models import Webhook, WebhookDelivery, WebhookEventType
 
 
 def _row_to_webhook(row: aiosqlite.Row) -> Webhook:
@@ -1198,7 +1241,10 @@ async def insert_webhook(
                (id, name, url, secret, event_filter, enabled, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                id, name, url, secret,
+                id,
+                name,
+                url,
+                secret,
                 json.dumps(event_filter),
                 1 if enabled else 0,
                 created_at.isoformat(),
@@ -1209,7 +1255,7 @@ async def insert_webhook(
         await db.close()
 
 
-async def get_webhook_row(webhook_id: str) -> Optional[dict]:
+async def get_webhook_row(webhook_id: str) -> dict | None:
     """Return the raw row dict (including ``secret``) or None.
 
     Public callers should prefer :func:`get_webhook` which strips the
@@ -1218,16 +1264,14 @@ async def get_webhook_row(webhook_id: str) -> Optional[dict]:
     """
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT * FROM webhooks WHERE id = ?", (webhook_id,)
-        )
+        cursor = await db.execute("SELECT * FROM webhooks WHERE id = ?", (webhook_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
     finally:
         await db.close()
 
 
-async def get_webhook(webhook_id: str) -> Optional[Webhook]:
+async def get_webhook(webhook_id: str) -> Webhook | None:
     row = await get_webhook_row(webhook_id)
     if row is None:
         return None
@@ -1235,9 +1279,7 @@ async def get_webhook(webhook_id: str) -> Optional[Webhook]:
         id=row["id"],
         name=row["name"],
         url=row["url"],
-        event_filter=[
-            WebhookEventType(e) for e in json.loads(row["event_filter"])
-        ],
+        event_filter=[WebhookEventType(e) for e in json.loads(row["event_filter"])],
         enabled=bool(row["enabled"]),
         created_at=datetime.fromisoformat(row["created_at"]),
     )
@@ -1248,13 +1290,10 @@ async def list_webhooks(*, only_enabled: bool = False) -> list[Webhook]:
     try:
         if only_enabled:
             cursor = await db.execute(
-                "SELECT * FROM webhooks WHERE enabled = 1 "
-                "ORDER BY created_at DESC"
+                "SELECT * FROM webhooks WHERE enabled = 1 ORDER BY created_at DESC"
             )
         else:
-            cursor = await db.execute(
-                "SELECT * FROM webhooks ORDER BY created_at DESC"
-            )
+            cursor = await db.execute("SELECT * FROM webhooks ORDER BY created_at DESC")
         rows = await cursor.fetchall()
         return [_row_to_webhook(r) for r in rows]
     finally:
@@ -1264,11 +1303,11 @@ async def list_webhooks(*, only_enabled: bool = False) -> list[Webhook]:
 async def update_webhook(
     webhook_id: str,
     *,
-    name: Optional[str] = None,
-    url: Optional[str] = None,
-    event_filter: Optional[list[str]] = None,
-    enabled: Optional[bool] = None,
-) -> Optional[Webhook]:
+    name: str | None = None,
+    url: str | None = None,
+    event_filter: list[str] | None = None,
+    enabled: bool | None = None,
+) -> Webhook | None:
     """Patch a webhook row. Secret is intentionally NOT exposed here.
 
     Returns the post-update :class:`Webhook` or None if the id was not
@@ -1294,9 +1333,7 @@ async def update_webhook(
     params.append(webhook_id)
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            f"UPDATE webhooks SET {', '.join(sets)} WHERE id = ?", params
-        )
+        cursor = await db.execute(f"UPDATE webhooks SET {', '.join(sets)} WHERE id = ?", params)
         await db.commit()
         if cursor.rowcount == 0:
             return None
@@ -1314,9 +1351,7 @@ async def delete_webhook(webhook_id: str) -> bool:
     """
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT 1 FROM webhooks WHERE id = ?", (webhook_id,)
-        )
+        cursor = await db.execute("SELECT 1 FROM webhooks WHERE id = ?", (webhook_id,))
         existed = await cursor.fetchone() is not None
         if not existed:
             return False
@@ -1355,7 +1390,10 @@ async def insert_webhook_delivery(
                 response_code, response_body)
                VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, NULL, NULL)""",
             (
-                id, webhook_id, event, payload,
+                id,
+                webhook_id,
+                event,
+                payload,
                 next_attempt_at.isoformat(),
                 created_at.isoformat(),
                 created_at.isoformat(),
@@ -1390,12 +1428,10 @@ async def list_pending_deliveries(*, limit: int = 20) -> list[dict]:
         await db.close()
 
 
-async def get_webhook_delivery(delivery_id: str) -> Optional[dict]:
+async def get_webhook_delivery(delivery_id: str) -> dict | None:
     db = await _get_db()
     try:
-        cursor = await db.execute(
-            "SELECT * FROM webhook_deliveries WHERE id = ?", (delivery_id,)
-        )
+        cursor = await db.execute("SELECT * FROM webhook_deliveries WHERE id = ?", (delivery_id,))
         row = await cursor.fetchone()
         return dict(row) if row else None
     finally:
@@ -1448,10 +1484,10 @@ async def update_delivery_status(
     delivery_id: str,
     *,
     status: str,
-    attempt: Optional[int] = None,
-    next_attempt_at: Optional[datetime] = None,
-    response_code: Optional[int] = None,
-    response_body: Optional[str] = None,
+    attempt: int | None = None,
+    next_attempt_at: datetime | None = None,
+    response_code: int | None = None,
+    response_body: str | None = None,
 ) -> None:
     """Update a delivery row after a dispatch attempt.
 

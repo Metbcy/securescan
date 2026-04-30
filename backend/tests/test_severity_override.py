@@ -10,6 +10,7 @@ Pinned contract:
     stamp + count. Rationale: user-pinned == audit data, even if the
     pinned value matches the current one. (See module docstring.)
 """
+
 from __future__ import annotations
 
 from securescan.config_file import SecureScanConfig

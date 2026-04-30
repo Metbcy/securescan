@@ -24,7 +24,6 @@ Design choices worth flagging
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict
@@ -69,10 +68,10 @@ class SecureScanConfig(BaseModel):
     severity_overrides: dict[str, Severity] = {}
     ignored_rules: list[str] = []
     semgrep_rules: list[Path] = []
-    fail_on_severity: Optional[Severity] = None
-    ai: Optional[bool] = None
+    fail_on_severity: Severity | None = None
+    ai: bool | None = None
 
-    def resolve_paths(self, base: Path) -> "SecureScanConfig":
+    def resolve_paths(self, base: Path) -> SecureScanConfig:
         """Return a copy with ``semgrep_rules`` resolved against ``base``.
 
         Absolute paths are kept verbatim. Relative paths are joined onto

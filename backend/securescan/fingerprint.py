@@ -21,6 +21,7 @@ available, the fallback context is "" so two findings with the same scanner
 + file + rule + cwe still collide stably (which is what we want for the diff
 classifier when scanners do not give us a code snippet).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +59,7 @@ def _strip_comments(line: str) -> str:
     return line
 
 
-def normalized_line_context(finding: "Finding") -> str:
+def normalized_line_context(finding: Finding) -> str:
     """Return a fuzzy, stable representation of the finding's code context.
 
     A line that is moved up or down, re-indented, or annotated with a trailing
@@ -84,7 +85,7 @@ def normalized_line_context(finding: "Finding") -> str:
     return joined
 
 
-def fingerprint(finding: "Finding") -> str:
+def fingerprint(finding: Finding) -> str:
     """Return a 64-char hex sha256 fingerprint of a finding.
 
     See module docstring for the hash recipe and rationale.
@@ -100,7 +101,7 @@ def fingerprint(finding: "Finding") -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def populate_fingerprints(findings: list["Finding"]) -> None:
+def populate_fingerprints(findings: list[Finding]) -> None:
     """Mutate findings in place, setting `fingerprint` on each one.
 
     Only findings whose `fingerprint` is empty are touched, so this is

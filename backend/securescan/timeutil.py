@@ -5,6 +5,7 @@ runs can pin the wall clock by setting ``SECURESCAN_FAKE_NOW`` to an ISO
 8601 timestamp (e.g. ``2026-01-01T00:00:00``). This is intentionally
 opt-in so live scans still record real wall-clock times.
 """
+
 from __future__ import annotations
 
 import os

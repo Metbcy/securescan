@@ -1,4 +1,5 @@
 """Tests for compliance mapping engine."""
+
 import json
 import tempfile
 from pathlib import Path
@@ -110,14 +111,18 @@ def test_multiple_framework_tags():
     """A finding can match controls across multiple frameworks."""
     d = Path(tempfile.mkdtemp())
     fw1 = {
-        "framework": "FW1", "version": "1", "controls": {
+        "framework": "FW1",
+        "version": "1",
+        "controls": {
             "FW1-A": {"name": "A", "cwes": ["CWE-89"], "keywords": [], "rule_ids": {}},
-        }
+        },
     }
     fw2 = {
-        "framework": "FW2", "version": "1", "controls": {
+        "framework": "FW2",
+        "version": "1",
+        "controls": {
             "FW2-X": {"name": "X", "cwes": ["CWE-89"], "keywords": [], "rule_ids": {}},
-        }
+        },
     }
     (d / "fw1.json").write_text(json.dumps(fw1))
     (d / "fw2.json").write_text(json.dumps(fw2))

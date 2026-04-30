@@ -11,6 +11,7 @@ plumbing relies on:
   ``suggestion`` block -- a one-click commit on it would rewrite the
   finding's source line with literal YAML.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -97,25 +98,19 @@ def test_inline_ignore_includes_securescan_marker():
 
 
 def test_inline_ignore_uses_python_hash_for_py():
-    out = build_inline_ignore_suggestion(
-        _make_finding(file_path="src/app.py")
-    )
+    out = build_inline_ignore_suggestion(_make_finding(file_path="src/app.py"))
     assert out is not None
     assert "# securescan: ignore RULE-001" in out
 
 
 def test_inline_ignore_uses_double_slash_for_js():
-    out = build_inline_ignore_suggestion(
-        _make_finding(file_path="src/app.js")
-    )
+    out = build_inline_ignore_suggestion(_make_finding(file_path="src/app.js"))
     assert out is not None
     assert "// securescan: ignore RULE-001" in out
 
 
 def test_inline_ignore_uses_double_dash_for_sql():
-    out = build_inline_ignore_suggestion(
-        _make_finding(file_path="migrations/up.sql")
-    )
+    out = build_inline_ignore_suggestion(_make_finding(file_path="migrations/up.sql"))
     assert out is not None
     assert "-- securescan: ignore RULE-001" in out
 
@@ -142,9 +137,7 @@ def test_inline_ignore_returns_none_when_no_file_path():
 
 
 def test_inline_ignore_indent_is_preserved():
-    out = build_inline_ignore_suggestion(
-        _make_finding(file_path="src/app.py"), indent="    "
-    )
+    out = build_inline_ignore_suggestion(_make_finding(file_path="src/app.py"), indent="    ")
     assert out is not None
     assert "    # securescan: ignore RULE-001" in out
 
@@ -162,9 +155,7 @@ def test_inline_ignore_output_parseable_by_ts2(tmp_path: Path) -> None:
     """Round-trip: the comment SecureScan suggests must be one TS2
     can parse on the next scan, otherwise the one-click commit would
     silently fail to suppress anything."""
-    out = build_inline_ignore_suggestion(
-        _make_finding(file_path="src/app.py", rule_id="MY-RULE")
-    )
+    out = build_inline_ignore_suggestion(_make_finding(file_path="src/app.py", rule_id="MY-RULE"))
     assert out is not None
     # Extract the suggestion's body line (the first non-fence line
     # inside the ``suggestion`` block).
@@ -220,25 +211,19 @@ def test_severity_pin_includes_rule_id_and_new_severity():
 
 
 def test_severity_pin_default_demotion_critical_to_high():
-    out = build_severity_pin_suggestion(
-        _make_finding(severity=Severity.CRITICAL)
-    )
+    out = build_severity_pin_suggestion(_make_finding(severity=Severity.CRITICAL))
     assert out is not None
     assert "RULE-001: high" in out
 
 
 def test_severity_pin_default_demotion_high_to_medium():
-    out = build_severity_pin_suggestion(
-        _make_finding(severity=Severity.HIGH)
-    )
+    out = build_severity_pin_suggestion(_make_finding(severity=Severity.HIGH))
     assert out is not None
     assert "RULE-001: medium" in out
 
 
 def test_severity_pin_default_demotion_info_stays_info():
-    out = build_severity_pin_suggestion(
-        _make_finding(severity=Severity.INFO)
-    )
+    out = build_severity_pin_suggestion(_make_finding(severity=Severity.INFO))
     assert out is not None
     assert "RULE-001: info" in out
 

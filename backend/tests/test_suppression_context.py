@@ -12,6 +12,7 @@ These tests pin down:
   ``fingerprint``) so the resolver matches the "NEVER raise" promise
   the rest of ``suppression.py`` already makes
 """
+
 from __future__ import annotations
 
 import json
@@ -26,7 +27,6 @@ from securescan.suppression import (
     IgnoreMap,
     SuppressionContext,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test helpers
@@ -119,9 +119,7 @@ def test_from_paths_with_baseline_flat_list_shape(tmp_path: Path) -> None:
     assert ctx.baseline_fingerprints == frozenset({"fp-flat"})
 
 
-def test_from_paths_missing_baseline_warns_and_continues(
-    tmp_path: Path, capsys
-) -> None:
+def test_from_paths_missing_baseline_warns_and_continues(tmp_path: Path, capsys) -> None:
     missing = tmp_path / "does-not-exist.json"
 
     ctx = SuppressionContext.from_paths(baseline_path=missing)
@@ -132,9 +130,7 @@ def test_from_paths_missing_baseline_warns_and_continues(
     assert str(missing) in captured.err
 
 
-def test_from_paths_malformed_baseline_warns_and_continues(
-    tmp_path: Path, capsys
-) -> None:
+def test_from_paths_malformed_baseline_warns_and_continues(tmp_path: Path, capsys) -> None:
     malformed = tmp_path / "broken.json"
     malformed.write_text("{not json at all,,,")
 
@@ -312,9 +308,7 @@ def test_apply_stamps_suppressed_by_metadata(tmp_path: Path) -> None:
         config=SecureScanConfig(ignored_rules=["RULE-B"]),
         baseline_fingerprints=frozenset({"fp-c"}),
     )
-    inline_f = _make_finding(
-        rule_id="RULE-A", file_path=str(src), line_start=1, fingerprint="fp-a"
-    )
+    inline_f = _make_finding(rule_id="RULE-A", file_path=str(src), line_start=1, fingerprint="fp-a")
     config_f = _make_finding(rule_id="RULE-B", fingerprint="fp-b")
     baseline_f = _make_finding(rule_id="RULE-D", fingerprint="fp-c")
     live_f = _make_finding(rule_id="RULE-LIVE", fingerprint="fp-live")

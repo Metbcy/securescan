@@ -13,6 +13,7 @@ The canonical key is intentionally built from fields that already exist
 on ``Finding`` today; SS2 is adding a stable ``fingerprint`` field in
 parallel and may chain it on as a tiebreaker post-merge if useful.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -37,7 +38,7 @@ def severity_rank(sev: Severity) -> int:
     return _SEVERITY_RANK.get(sev, -1)
 
 
-def _canonical_key(f: "Finding") -> tuple:
+def _canonical_key(f: Finding) -> tuple:
     """Sort key: severity desc, then file, line, rule_id, title (all asc)."""
     return (
         -severity_rank(f.severity),
@@ -48,7 +49,7 @@ def _canonical_key(f: "Finding") -> tuple:
     )
 
 
-def sort_findings_canonical(findings: list["Finding"]) -> list["Finding"]:
+def sort_findings_canonical(findings: list[Finding]) -> list[Finding]:
     """Return a new list of findings ordered by the canonical key.
 
     Order: severity desc (critical first), then file_path asc, then

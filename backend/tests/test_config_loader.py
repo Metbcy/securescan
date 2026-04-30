@@ -4,6 +4,7 @@ Each test uses ``monkeypatch`` so HOME, XDG_CONFIG_HOME, and the keys
 under test are scoped to the test — nothing leaks into the rest of the
 suite.
 """
+
 from __future__ import annotations
 
 import os

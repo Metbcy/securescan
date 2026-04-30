@@ -56,6 +56,7 @@ files, unreadable files, binary blobs, ``None`` arguments — every
 failure mode degrades to "no suppression", because a parser that crashes
 the scan is worse than one that occasionally misses a directive.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,11 +68,51 @@ from pathlib import Path
 # Recognised comment prefixes.  We deliberately keep this small and
 # extensible: most languages use one of these three styles.
 _COMMENT_PREFIXES: dict[str, tuple[str, ...]] = {
-    "#":  ("py", "rb", "sh", "bash", "zsh", "yml", "yaml", "toml", "ini",
-           "cfg", "conf", "tf", "tfvars", "dockerfile", "pl", "pm", "r"),
-    "//": ("js", "mjs", "cjs", "ts", "jsx", "tsx", "go", "java", "kt",
-           "kts", "rs", "c", "cc", "cpp", "cxx", "h", "hpp", "hh", "swift",
-           "scala", "groovy", "dart", "cs", "php"),
+    "#": (
+        "py",
+        "rb",
+        "sh",
+        "bash",
+        "zsh",
+        "yml",
+        "yaml",
+        "toml",
+        "ini",
+        "cfg",
+        "conf",
+        "tf",
+        "tfvars",
+        "dockerfile",
+        "pl",
+        "pm",
+        "r",
+    ),
+    "//": (
+        "js",
+        "mjs",
+        "cjs",
+        "ts",
+        "jsx",
+        "tsx",
+        "go",
+        "java",
+        "kt",
+        "kts",
+        "rs",
+        "c",
+        "cc",
+        "cpp",
+        "cxx",
+        "h",
+        "hpp",
+        "hh",
+        "swift",
+        "scala",
+        "groovy",
+        "dart",
+        "cs",
+        "php",
+    ),
     "--": ("sql", "lua", "hs", "elm", "ada"),
 }
 _ALL_PREFIXES: tuple[str, ...] = tuple(_COMMENT_PREFIXES.keys())
@@ -176,17 +217,11 @@ def parse_file_ignores(path: Path) -> list[IgnoreMark]:
         for match in _IGNORE_RE.finditer(line):
             directive = match.group(1).lower()
             raw_ids = match.group(2)
-            ids = frozenset(
-                token.strip()
-                for token in raw_ids.split(",")
-                if token.strip()
-            )
+            ids = frozenset(token.strip() for token in raw_ids.split(",") if token.strip())
             if not ids:
                 continue
 
-            target_line = (
-                line_no + 1 if directive == "ignore-next-line" else line_no
-            )
+            target_line = line_no + 1 if directive == "ignore-next-line" else line_no
             marks.append(
                 IgnoreMark(
                     file=path,
@@ -253,10 +288,8 @@ class IgnoreMap:
         return [
             mark
             for mark in marks
-            if mark.target_line == line
-            and ("*" in mark.rule_ids or rule_id in mark.rule_ids)
+            if mark.target_line == line and ("*" in mark.rule_ids or rule_id in mark.rule_ids)
         ]
-
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +414,7 @@ class SuppressionContext:
         config: SecureScanConfig | None = None,
         baseline_path: Path | None = None,
         no_suppress: bool = False,
-    ) -> "SuppressionContext":
+    ) -> SuppressionContext:
         """Build a context from the common CLI input shape.
 
         ``config=None`` is shorthand for "no config file present" and
@@ -447,9 +480,7 @@ class SuppressionContext:
 
         return None
 
-    def apply(
-        self, findings: list[Finding]
-    ) -> tuple[list[Finding], list[Finding]]:
+    def apply(self, findings: list[Finding]) -> tuple[list[Finding], list[Finding]]:
         """Partition ``findings`` into ``(kept, suppressed)``.
 
         Each suppressed finding gets ``metadata['suppressed_by']`` set

@@ -9,6 +9,7 @@ they carry; they don't depend on the textual layout of the message
 beyond the leading event token, so the formatter helper can evolve
 without breaking them.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,6 @@ from securescan.models import (
     ScanType,
     Severity,
 )
-
 
 _SCAN_LOGGER = "securescan.scan"
 
@@ -130,8 +130,16 @@ def test_scan_lifecycle_emits_start_per_scanner_and_complete(tmp_path, monkeypat
     assert started_names == {"alpha", "bravo"}
     assert completed_names == {"alpha", "bravo"}
     for name in ("alpha", "bravo"):
-        s_idx = next(i for i, r in enumerate(records) if r.getMessage().startswith("scanner.start") and r.scanner == name)
-        c_idx = next(i for i, r in enumerate(records) if r.getMessage().startswith("scanner.complete") and r.scanner == name)
+        s_idx = next(
+            i
+            for i, r in enumerate(records)
+            if r.getMessage().startswith("scanner.start") and r.scanner == name
+        )
+        c_idx = next(
+            i
+            for i, r in enumerate(records)
+            if r.getMessage().startswith("scanner.complete") and r.scanner == name
+        )
         assert s_idx < c_idx, f"{name}: start must precede complete"
 
     # The unavailable one logs scanner.skipped with a reason.
@@ -218,7 +226,9 @@ def test_scan_cancelled_before_start_emits_cancelled_event(tmp_path, monkeypatch
         # Pre-cancelled: _run_scan should short-circuit and emit scan.cancelled.
         from securescan.models import ScanStatus
 
-        scan = Scan(target_path=str(target), scan_types=[ScanType.CODE], status=ScanStatus.CANCELLED)
+        scan = Scan(
+            target_path=str(target), scan_types=[ScanType.CODE], status=ScanStatus.CANCELLED
+        )
         await save_scan(scan)
         with caplog.at_level(logging.INFO, logger=_SCAN_LOGGER):
             await _run_scan(scan.id)

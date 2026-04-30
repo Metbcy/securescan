@@ -1,6 +1,6 @@
 [project]
 name = "securescan"
-version = "0.10.2"
+version = "0.10.3"
 description = "Diff-aware security scanning with multi-tool orchestration, deterministic SARIF, and PR-comment rendering."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -37,17 +37,18 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "httpx>=0.28.0",
     "jinja2>=3.1.0",
-    "weasyprint>=62.0",
     "defusedxml>=0.7.1",
     "PyYAML>=6.0",
     "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
+pdf = ["weasyprint>=62.0"]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
     "ruff>=0.9.0",
+    "weasyprint>=62.0",
 ]
 
 [project.urls]
@@ -73,3 +74,50 @@ packages = [
 
 [tool.setuptools.package-data]
 securescan = ["data/**/*", "templates/**/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [
+    "venv",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort
+    "UP",     # pyupgrade — modernizes typing imports
+    "B",      # flake8-bugbear
+    "ASYNC",  # async pitfalls
+]
+# Bandit (S) deliberately NOT in `select`. The codebase's subprocess
+# hygiene was independently audited as good (every `create_subprocess_exec`
+# uses arg-list passing, no shell=True). Adding S would flag every call
+# (S603/S607 in particular) without surfacing a real risk. Reconsider only
+# if the codebase ever introduces shell=True.
+ignore = [
+    "E501",  # line length — let the formatter handle it
+    "B008",  # FastAPI uses `= Depends(...)` in defaults; not a real bug
+    # ASYNC240 fires on every `Path.exists()`/`os.path.isdir()` call inside
+    # `async def`. Fixing the existing 24 sites requires either
+    # `aiofiles`/`anyio.Path` (new dep) or `await asyncio.to_thread(...)`
+    # wrappers — both are behaviour-changing refactors that don't belong
+    # in a lint-bring-up PR. TODO(v0.11): re-enable and migrate.
+    "ASYNC240",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can do whatever they want.
+"tests/**/*.py" = ["B", "ASYNC"]
+# CLI module-init re-exports for back-compat — wildcard imports are fine.
+"securescan/cli/__init__.py" = ["F401", "F403"]
+# main.py must call `load_user_env()` before any module that instantiates
+# Settings is imported (Settings reads env at class-body time). The late
+# imports below `load_user_env()` are the documented pattern.
+"securescan/main.py" = ["E402"]

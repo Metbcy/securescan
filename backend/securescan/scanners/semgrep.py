@@ -3,10 +3,10 @@ import json
 import sys
 from pathlib import Path
 
+from ..config import settings
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
-from ..config import settings
 
 
 class SemgrepScanner(BaseScanner):
@@ -82,39 +82,45 @@ class SemgrepScanner(BaseScanner):
                 results = data.get("results", [])
                 for r in results:
                     severity = self._map_severity(r.get("extra", {}).get("severity", "INFO"))
-                    findings.append(Finding(
-                        scan_id=scan_id,
-                        scanner=self.name,
-                        scan_type=self.scan_type,
-                        severity=severity,
-                        title=r.get("check_id", "Unknown rule"),
-                        description=r.get("extra", {}).get("message", "No description"),
-                        file_path=r.get("path"),
-                        line_start=r.get("start", {}).get("line"),
-                        line_end=r.get("end", {}).get("line"),
-                        rule_id=r.get("check_id"),
-                        cwe=self._extract_cwe(r),
-                        remediation=r.get("extra", {}).get("fix"),
-                        metadata=r.get("extra", {}).get("metadata", {}),
-                    ))
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=severity,
+                            title=r.get("check_id", "Unknown rule"),
+                            description=r.get("extra", {}).get("message", "No description"),
+                            file_path=r.get("path"),
+                            line_start=r.get("start", {}).get("line"),
+                            line_end=r.get("end", {}).get("line"),
+                            rule_id=r.get("check_id"),
+                            cwe=self._extract_cwe(r),
+                            remediation=r.get("extra", {}).get("fix"),
+                            metadata=r.get("extra", {}).get("metadata", {}),
+                        )
+                    )
         except asyncio.TimeoutError:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.HIGH,
-                title="INCOMPLETE SCAN: Semgrep scan timed out",
-                description=f"Scan timed out after {settings.scan_timeout}s",
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.HIGH,
+                    title="INCOMPLETE SCAN: Semgrep scan timed out",
+                    description=f"Scan timed out after {settings.scan_timeout}s",
+                )
+            )
         except Exception as e:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Semgrep scan error",
-                description=str(e),
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.INFO,
+                    title="Semgrep scan error",
+                    description=str(e),
+                )
+            )
         return findings
 
     @staticmethod

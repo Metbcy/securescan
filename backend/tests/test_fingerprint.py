@@ -11,6 +11,7 @@ the PR-comment upsert (SS7). The contract these tests pin down:
 - populate_fingerprints is idempotent and skips already-populated rows.
 - The DB migration is forward-only and can be re-run safely.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,7 @@ import os
 
 import aiosqlite
 
-from securescan.database import init_db, save_findings, get_findings, set_db_path
+from securescan.database import get_findings, init_db, save_findings, set_db_path
 from securescan.fingerprint import fingerprint, normalized_line_context, populate_fingerprints
 from securescan.models import Finding, ScanType, Severity
 

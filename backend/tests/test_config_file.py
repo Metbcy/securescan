@@ -141,11 +141,7 @@ def test_resolve_paths_makes_semgrep_rules_absolute(tmp_path):
     abs_path.parent.mkdir(parents=True)
     abs_path.touch()
 
-    config = parse_config(
-        f"semgrep_rules:\n"
-        f"  - rules/local.yml\n"
-        f"  - {abs_path}\n"
-    )
+    config = parse_config(f"semgrep_rules:\n  - rules/local.yml\n  - {abs_path}\n")
 
     resolved = config.resolve_paths(tmp_path)
 
@@ -187,9 +183,7 @@ def test_ai_explicit_false_in_config():
 def test_load_config_idempotent(tmp_path):
     root = _make_isolated_root(tmp_path)
     (root / ".securescan.yml").write_text(
-        "scan_types: [code]\n"
-        "ignored_rules: [SEMGREP-XYZ]\n"
-        "fail_on_severity: high\n"
+        "scan_types: [code]\nignored_rules: [SEMGREP-XYZ]\nfail_on_severity: high\n"
     )
 
     first, first_path = load_config(root)

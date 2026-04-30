@@ -1,19 +1,23 @@
-from datetime import datetime
 import asyncio
 import json
 import logging
 import os
 import time
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from .. import event_tokens
+from ..ai import AIEnricher
 from ..auth import Principal, require_api_key, require_scope
+from ..compliance import ComplianceMapper
+from ..config import settings
 from ..database import (
     delete_scan_cascade,
     get_findings,
@@ -25,8 +29,7 @@ from ..database import (
     save_findings,
     save_scan,
 )
-from ..compliance import ComplianceMapper
-from ..dedup import deduplicate_findings, dedup_key
+from ..dedup import dedup_key, deduplicate_findings
 from ..events import TERMINAL, bus
 from ..fingerprint import populate_fingerprints
 from ..models import (
@@ -39,11 +42,9 @@ from ..models import (
     ScanStatus,
     ScanSummary,
 )
-from ..scanners import get_scanners_for_types
-from ..config import settings
 from ..reports import ReportGenerator
+from ..scanners import get_scanners_for_types
 from ..scoring import build_summary
-from ..ai import AIEnricher
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,13 @@ _SCAN_ERROR_TRUNCATE = 200
 # events are surfaced to subscribers; per-scanner lifecycle noise
 # (scanner.start/complete/skipped, scan.start, scan.cancelled) stays
 # internal so the public webhook contract is small and stable.
-WEBHOOK_RELEVANT_EVENTS: frozenset[str] = frozenset({
-    "scan.complete",
-    "scan.failed",
-    "scanner.failed",
-})
+WEBHOOK_RELEVANT_EVENTS: frozenset[str] = frozenset(
+    {
+        "scan.complete",
+        "scan.failed",
+        "scanner.failed",
+    }
+)
 
 
 def _format_event_value(value: Any) -> str:
@@ -111,9 +114,7 @@ def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
         return
     asyncio.create_task(bus.publish(scan_id, event, dict(fields)))
     try:
-        asyncio.create_task(
-            _create_notification_for_event(event, scan_id, dict(fields))
-        )
+        asyncio.create_task(_create_notification_for_event(event, scan_id, dict(fields)))
     except RuntimeError:
         # No running loop -- already short-circuited above, but the
         # belt-and-braces try/except matches the agreed-on pattern in
@@ -131,9 +132,7 @@ def _log_scan_event(event: str, *, scan_id: str, **fields: Any) -> None:
     # side-effect-free.
     if event in WEBHOOK_RELEVANT_EVENTS:
         try:
-            asyncio.create_task(
-                _enqueue_webhook_deliveries(event, scan_id, dict(fields))
-            )
+            asyncio.create_task(_enqueue_webhook_deliveries(event, scan_id, dict(fields)))
         except RuntimeError:
             pass
 
@@ -145,9 +144,7 @@ _NOTIF_BODY_TRUNCATE = 200
 _NOTIF_SCANNER_ERROR_TRUNCATE = 100
 
 
-async def _create_notification_for_event(
-    event: str, scan_id: str, fields: dict[str, Any]
-) -> None:
+async def _create_notification_for_event(event: str, scan_id: str, fields: dict[str, Any]) -> None:
     """Persist a notification for the small subset of events that warrant one.
 
     Filtering rules (deliberately conservative -- the bell should
@@ -179,9 +176,7 @@ async def _create_notification_for_event(
                 return
             target_path = fields.get("target") or fields.get("target_path") or ""
             severity = (
-                NotificationSeverity.WARNING
-                if findings_count > 0
-                else NotificationSeverity.INFO
+                NotificationSeverity.WARNING if findings_count > 0 else NotificationSeverity.INFO
             )
             await insert_notification(
                 type="scan.complete",
@@ -223,9 +218,7 @@ async def _create_notification_for_event(
         )
 
 
-async def _enqueue_webhook_deliveries(
-    event: str, scan_id: str, fields: dict[str, Any]
-) -> None:
+async def _enqueue_webhook_deliveries(event: str, scan_id: str, fields: dict[str, Any]) -> None:
     """Persist one `webhook_deliveries` row per matching subscription.
 
     For every enabled webhook whose `event_filter` includes ``event``,
@@ -278,7 +271,7 @@ def validate_target_path(path: str) -> str:
     if not os.path.isdir(normalized) and not os.path.isfile(normalized):
         raise ValueError(f"Path is not a file or directory: {path}")
     # Prevent scanning sensitive system directories
-    sensitive = ['/etc/shadow', '/root/.ssh', '/proc', '/sys']
+    sensitive = ["/etc/shadow", "/root/.ssh", "/proc", "/sys"]
     for s in sensitive:
         if normalized.startswith(s):
             raise ValueError(f"Scanning system path not allowed: {path}")
@@ -322,11 +315,13 @@ async def _run_scan(scan_id: str) -> None:
             if not await scanner.is_available():
                 install_hint = getattr(scanner, "install_hint", None)
                 reason = "not installed" if install_hint else "unavailable"
-                scanners_skipped.append(ScannerSkip(
-                    name=scanner.name,
-                    reason=reason,
-                    install_hint=install_hint,
-                ))
+                scanners_skipped.append(
+                    ScannerSkip(
+                        name=scanner.name,
+                        reason=reason,
+                        install_hint=install_hint,
+                    )
+                )
                 _log_scan_event(
                     "scanner.skipped",
                     scan_id=scan.id,
@@ -468,7 +463,7 @@ async def create_scan(request: ScanRequest):
     try:
         validated_path = validate_target_path(request.target_path)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     scan = Scan(
         target_path=validated_path,
@@ -507,17 +502,16 @@ async def delete_scan(scan_id: str) -> Response:
     if scan.status in {ScanStatus.PENDING, ScanStatus.RUNNING}:
         raise HTTPException(
             status_code=409,
-            detail=(
-                f"Cannot delete scan in '{scan.status.value}' state; "
-                "cancel it first"
-            ),
+            detail=(f"Cannot delete scan in '{scan.status.value}' state; cancel it first"),
         )
 
     await delete_scan_cascade(scan_id)
     return Response(status_code=204)
 
 
-@router.post("/{scan_id}/cancel", response_model=Scan, dependencies=[Depends(require_scope("write"))])
+@router.post(
+    "/{scan_id}/cancel", response_model=Scan, dependencies=[Depends(require_scope("write"))]
+)
 async def cancel_scan(scan_id: str):
     """Cancel an active scan."""
     scan = await get_scan(scan_id)
@@ -614,7 +608,9 @@ async def generate_report(
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="securescan-report-{scan_id[:8]}.pdf"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="securescan-report-{scan_id[:8]}.pdf"'
+            },
         )
     else:
         html = generator.generate_html(scan, findings_list, summary_data, compliance_coverage)
@@ -639,7 +635,7 @@ def _sse_format(event: str, payload: dict) -> bytes:
     keeps the body on one line (no embedded ``\\n``) which is required
     for SSE multi-line semantics not to apply.
     """
-    return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode()
 
 
 _TERMINAL_STATUSES = {ScanStatus.COMPLETED, ScanStatus.FAILED, ScanStatus.CANCELLED}
@@ -692,9 +688,7 @@ async def stream_scan_events(scan_id: str) -> StreamingResponse:
 
             while True:
                 try:
-                    event, payload = await asyncio.wait_for(
-                        q.get(), timeout=_SSE_KEEPALIVE_SECONDS
-                    )
+                    event, payload = await asyncio.wait_for(q.get(), timeout=_SSE_KEEPALIVE_SECONDS)
                 except asyncio.TimeoutError:
                     yield b": keepalive\n\n"
                     continue
@@ -727,7 +721,7 @@ class EventTokenResponse(BaseModel):
 )
 async def create_event_token(
     scan_id: str,
-    principal: Optional[Principal] = Depends(require_api_key),
+    principal: Principal | None = Depends(require_api_key),
 ):
     """Mint a short-lived signed token for the SSE ``/events`` stream.
 
@@ -763,12 +757,16 @@ async def create_event_token(
     )
 
 
-@router.get("/{scan_id}/findings", response_model=list[FindingWithState], dependencies=[Depends(require_scope("read"))])
+@router.get(
+    "/{scan_id}/findings",
+    response_model=list[FindingWithState],
+    dependencies=[Depends(require_scope("read"))],
+)
 async def list_findings(
     scan_id: str,
-    severity: Optional[str] = None,
-    scan_type: Optional[str] = None,
-    compliance: Optional[str] = None,
+    severity: str | None = None,
+    scan_type: str | None = None,
+    compliance: str | None = None,
 ):
     """Get findings for a scan, optionally filtered by severity, scan_type, or compliance tag.
 
@@ -787,7 +785,9 @@ async def list_findings(
     )
 
 
-@router.get("/{scan_id}/summary", response_model=ScanSummary, dependencies=[Depends(require_scope("read"))])
+@router.get(
+    "/{scan_id}/summary", response_model=ScanSummary, dependencies=[Depends(require_scope("read"))]
+)
 async def read_scan_summary(scan_id: str):
     """Get summary statistics for a scan."""
     summary = await get_scan_summary(scan_id)

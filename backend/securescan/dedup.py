@@ -1,4 +1,5 @@
 """Deduplicate findings across multiple scanners."""
+
 from .models import Finding, Severity
 
 

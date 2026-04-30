@@ -1,20 +1,19 @@
 """Tests for the Nmap network scanner."""
+
 import asyncio
 from unittest.mock import patch
 
-import pytest
-
+from securescan.models import ScanType, Severity
 from securescan.scanners.nmap_scanner import (
     NmapScanner,
-    _validate_target,
     _port_severity,
+    _validate_target,
 )
-from securescan.models import ScanType, Severity
-
 
 # ---------------------------------------------------------------------------
 # Basic properties
 # ---------------------------------------------------------------------------
+
 
 def test_scanner_name():
     scanner = NmapScanner()
@@ -30,16 +29,17 @@ def test_scanner_type():
 # Availability
 # ---------------------------------------------------------------------------
 
+
 def test_available_when_nmap_found():
     scanner = NmapScanner()
-    with patch("securescan.scanners.nmap_scanner.shutil.which", return_value="/usr/bin/nmap"):
+    with patch("securescan.scanners.discovery.shutil.which", return_value="/usr/bin/nmap"):
         result = asyncio.run(scanner.is_available())
     assert result is True
 
 
 def test_not_available_when_nmap_missing():
     scanner = NmapScanner()
-    with patch("securescan.scanners.nmap_scanner.shutil.which", return_value=None):
+    with patch("securescan.scanners.discovery.shutil.which", return_value=None):
         result = asyncio.run(scanner.is_available())
     assert result is False
 
@@ -47,6 +47,7 @@ def test_not_available_when_nmap_missing():
 # ---------------------------------------------------------------------------
 # No target_host -> empty list
 # ---------------------------------------------------------------------------
+
 
 def test_no_target_host_returns_empty():
     scanner = NmapScanner()
@@ -63,6 +64,7 @@ def test_none_target_host_returns_empty():
 # ---------------------------------------------------------------------------
 # Target validation
 # ---------------------------------------------------------------------------
+
 
 def test_valid_ipv4():
     assert _validate_target("192.168.1.1") is True
@@ -95,6 +97,7 @@ def test_invalid_target_spaces():
 # ---------------------------------------------------------------------------
 # Port severity classification
 # ---------------------------------------------------------------------------
+
 
 def test_high_risk_ftp_port():
     assert _port_severity(21, "ftp") == Severity.HIGH

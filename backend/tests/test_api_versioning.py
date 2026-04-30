@@ -1,4 +1,5 @@
 """Tests for the /api/v1 versioning alias and deprecation headers (FEAT2)."""
+
 from __future__ import annotations
 
 from email.utils import parsedate_to_datetime
@@ -20,6 +21,7 @@ def client() -> TestClient:
 # ---------------------------------------------------------------------------
 # Legacy /api/* paths
 # ---------------------------------------------------------------------------
+
 
 def test_legacy_scans_path_still_works(client: TestClient) -> None:
     res = client.get("/api/scans")
@@ -52,6 +54,7 @@ def test_legacy_path_sunset_header_is_valid_http_date(client: TestClient) -> Non
 # ---------------------------------------------------------------------------
 # Versioned /api/v1/* paths
 # ---------------------------------------------------------------------------
+
 
 def test_v1_scans_path_works(client: TestClient) -> None:
     res = client.get("/api/v1/scans")
@@ -91,6 +94,7 @@ def test_v1_alias_covers_other_routers(client: TestClient) -> None:
 # Non-/api paths
 # ---------------------------------------------------------------------------
 
+
 def test_health_has_no_deprecation_headers(client: TestClient) -> None:
     res = client.get("/health")
     assert res.status_code == 200
@@ -107,6 +111,7 @@ def test_root_has_no_deprecation_headers(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 # OpenAPI: both paths must be discoverable
 # ---------------------------------------------------------------------------
+
 
 def test_openapi_lists_both_legacy_and_v1_paths(client: TestClient) -> None:
     res = client.get("/openapi.json")

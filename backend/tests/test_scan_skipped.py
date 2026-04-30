@@ -10,6 +10,7 @@ Pin the PG2 contract:
 - Both fields are sorted alphabetically -- determinism contract.
 - The DB migration is idempotent (can be re-run safely on an existing DB).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -201,9 +202,7 @@ def test_scan_records_skipped_scanners_when_unavailable(tmp_path, monkeypatch):
     target.mkdir()
 
     available = _StubScanner("bandit", available=True)
-    skipped_with_hint = _StubScanner(
-        "semgrep", available=False, install_hint="pip install semgrep"
-    )
+    skipped_with_hint = _StubScanner("semgrep", available=False, install_hint="pip install semgrep")
     skipped_no_hint = _StubScanner("mystery", available=False)
     _install_stub_scanners(monkeypatch, [skipped_with_hint, available, skipped_no_hint])
 

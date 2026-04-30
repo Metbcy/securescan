@@ -1,16 +1,26 @@
 """License scanner — checks dependency licenses for compliance issues."""
+
 import asyncio
 import json
 from pathlib import Path
+
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
 
 # Licenses that may cause issues in commercial/proprietary projects
 COPYLEFT_LICENSES = {
-    "GPL-2.0", "GPL-3.0", "AGPL-3.0", "LGPL-2.1", "LGPL-3.0",
-    "GPL-2.0-only", "GPL-3.0-only", "AGPL-3.0-only",
-    "GPL-2.0-or-later", "GPL-3.0-or-later", "AGPL-3.0-or-later",
+    "GPL-2.0",
+    "GPL-3.0",
+    "AGPL-3.0",
+    "LGPL-2.1",
+    "LGPL-3.0",
+    "GPL-2.0-only",
+    "GPL-3.0-only",
+    "AGPL-3.0-only",
+    "GPL-2.0-or-later",
+    "GPL-3.0-or-later",
+    "AGPL-3.0-or-later",
 }
 
 UNKNOWN_WARNING = {"UNKNOWN", "UNLICENSED", ""}
@@ -59,7 +69,10 @@ class LicenseScanner(BaseScanner):
             return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                pip_licenses_bin, "--format=json", "--with-license-file", "--no-license-path",
+                pip_licenses_bin,
+                "--format=json",
+                "--with-license-file",
+                "--no-license-path",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -71,23 +84,31 @@ class LicenseScanner(BaseScanner):
                 pkg_name = pkg.get("Name", "unknown")
 
                 if any(cl in license_name for cl in COPYLEFT_LICENSES):
-                    findings.append(Finding(
-                        scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                        severity=Severity.MEDIUM,
-                        title=f"Copyleft license: {pkg_name} ({license_name})",
-                        description=f"Package '{pkg_name}' uses {license_name}, a copyleft license that may require you to open-source your code if distributed.",
-                        rule_id="licenses/copyleft",
-                        remediation=f"Review the license terms for '{pkg_name}'. Consider using an alternative package with a permissive license (MIT, Apache-2.0, BSD).",
-                    ))
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=Severity.MEDIUM,
+                            title=f"Copyleft license: {pkg_name} ({license_name})",
+                            description=f"Package '{pkg_name}' uses {license_name}, a copyleft license that may require you to open-source your code if distributed.",
+                            rule_id="licenses/copyleft",
+                            remediation=f"Review the license terms for '{pkg_name}'. Consider using an alternative package with a permissive license (MIT, Apache-2.0, BSD).",
+                        )
+                    )
                 elif license_name in UNKNOWN_WARNING:
-                    findings.append(Finding(
-                        scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                        severity=Severity.LOW,
-                        title=f"Unknown license: {pkg_name}",
-                        description=f"Package '{pkg_name}' has no recognized license. This may pose legal risks.",
-                        rule_id="licenses/unknown",
-                        remediation=f"Check the source repository for '{pkg_name}' to determine its license.",
-                    ))
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=Severity.LOW,
+                            title=f"Unknown license: {pkg_name}",
+                            description=f"Package '{pkg_name}' has no recognized license. This may pose legal risks.",
+                            rule_id="licenses/unknown",
+                            remediation=f"Check the source repository for '{pkg_name}' to determine its license.",
+                        )
+                    )
         except Exception:
             pass
         return findings
@@ -99,7 +120,12 @@ class LicenseScanner(BaseScanner):
             return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                npx_bin, "--yes", "license-checker", "--json", "--start", str(target),
+                npx_bin,
+                "--yes",
+                "license-checker",
+                "--json",
+                "--start",
+                str(target),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -112,14 +138,18 @@ class LicenseScanner(BaseScanner):
                     license_name = ", ".join(license_name)
 
                 if any(cl in license_name for cl in COPYLEFT_LICENSES):
-                    findings.append(Finding(
-                        scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                        severity=Severity.MEDIUM,
-                        title=f"Copyleft license: {pkg_key} ({license_name})",
-                        description=f"npm package '{pkg_key}' uses {license_name}.",
-                        rule_id="licenses/copyleft-npm",
-                        remediation=f"Review license terms or find an alternative with a permissive license.",
-                    ))
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=Severity.MEDIUM,
+                            title=f"Copyleft license: {pkg_key} ({license_name})",
+                            description=f"npm package '{pkg_key}' uses {license_name}.",
+                            rule_id="licenses/copyleft-npm",
+                            remediation="Review license terms or find an alternative with a permissive license.",
+                        )
+                    )
         except Exception:
             pass
         return findings

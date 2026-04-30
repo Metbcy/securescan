@@ -1,11 +1,12 @@
 """Checkov IaC security scanner."""
+
 import asyncio
 import json
 
+from ..config import settings
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
-from ..config import settings
 
 
 class CheckovScanner(BaseScanner):
@@ -35,7 +36,13 @@ class CheckovScanner(BaseScanner):
             return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                checkov_bin, "-d", target_path, "-o", "json", "--quiet", "--compact",
+                checkov_bin,
+                "-d",
+                target_path,
+                "-o",
+                "json",
+                "--quiet",
+                "--compact",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -63,41 +70,51 @@ class CheckovScanner(BaseScanner):
                             or check.get("severity")
                         )
                         guideline = check.get("guideline", "")
-                        findings.append(Finding(
-                            scan_id=scan_id,
-                            scanner=self.name,
-                            scan_type=self.scan_type,
-                            severity=severity,
-                            title=check.get("check_id", "Unknown") + ": " + check.get("check_name", "Unknown check"),
-                            description=check.get("check_name", "No description"),
-                            file_path=check.get("file_path"),
-                            line_start=check.get("file_line_range", [None])[0],
-                            line_end=check.get("file_line_range", [None, None])[1] if len(check.get("file_line_range", [])) > 1 else None,
-                            rule_id=check.get("check_id"),
-                            remediation=guideline if guideline else None,
-                            metadata={
-                                "check_type": check_block.get("check_type", ""),
-                                "resource": check.get("resource", ""),
-                            },
-                        ))
+                        findings.append(
+                            Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=severity,
+                                title=check.get("check_id", "Unknown")
+                                + ": "
+                                + check.get("check_name", "Unknown check"),
+                                description=check.get("check_name", "No description"),
+                                file_path=check.get("file_path"),
+                                line_start=check.get("file_line_range", [None])[0],
+                                line_end=check.get("file_line_range", [None, None])[1]
+                                if len(check.get("file_line_range", [])) > 1
+                                else None,
+                                rule_id=check.get("check_id"),
+                                remediation=guideline if guideline else None,
+                                metadata={
+                                    "check_type": check_block.get("check_type", ""),
+                                    "resource": check.get("resource", ""),
+                                },
+                            )
+                        )
         except asyncio.TimeoutError:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.HIGH,
-                title="INCOMPLETE SCAN: Checkov scan timed out",
-                description=f"Scan timed out after {settings.scan_timeout}s",
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.HIGH,
+                    title="INCOMPLETE SCAN: Checkov scan timed out",
+                    description=f"Scan timed out after {settings.scan_timeout}s",
+                )
+            )
         except Exception as e:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Checkov scan error",
-                description=str(e),
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.INFO,
+                    title="Checkov scan error",
+                    description=str(e),
+                )
+            )
         return findings
 
     @staticmethod

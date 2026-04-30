@@ -4,21 +4,19 @@ Runs ``nmap -sV -oX`` via asyncio subprocess (no shell=True) and parses the
 XML output with defusedxml.  Risk classification is based on port number and
 detected service name.
 """
-import asyncio
-import re
-import shutil
 
-from .discovery import find_tool
-import tempfile
+import asyncio
 import os
+import re
+import tempfile
 from pathlib import Path
-from typing import Optional
 
 import defusedxml.ElementTree as ET
 
-from .base import BaseScanner
-from ..models import Finding, ScanType, Severity
 from ..config import settings
+from ..models import Finding, ScanType, Severity
+from .base import BaseScanner
+from .discovery import find_tool
 
 # ---------------------------------------------------------------------------
 # Risk-classification tables
@@ -26,24 +24,24 @@ from ..config import settings
 
 # Ports that are inherently high-risk regardless of service name
 _HIGH_RISK_PORTS: set[int] = {
-    21,     # FTP (plaintext credentials)
-    23,     # Telnet
-    5900,   # VNC (often unauthenticated)
-    6379,   # Redis (commonly unauthenticated)
+    21,  # FTP (plaintext credentials)
+    23,  # Telnet
+    5900,  # VNC (often unauthenticated)
+    6379,  # Redis (commonly unauthenticated)
     27017,  # MongoDB (often unauthenticated)
     11211,  # Memcached (amplification attacks)
 }
 
 # Database and Windows management ports - medium risk
 _MEDIUM_RISK_PORTS: set[int] = {
-    3306,   # MySQL
-    5432,   # PostgreSQL
-    1433,   # MSSQL
-    1521,   # Oracle
-    135,    # MS-RPC
-    139,    # NetBIOS
-    445,    # SMB
-    3389,   # RDP
+    3306,  # MySQL
+    5432,  # PostgreSQL
+    1433,  # MSSQL
+    1521,  # Oracle
+    135,  # MS-RPC
+    139,  # NetBIOS
+    445,  # SMB
+    3389,  # RDP
 }
 
 # Service names that are inherently insecure (plaintext protocols)
@@ -97,7 +95,7 @@ class NmapScanner(BaseScanner):
         return find_tool("nmap") is not None
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
-        target_host: Optional[str] = kwargs.get("target_host")
+        target_host: str | None = kwargs.get("target_host")
         if not target_host:
             return []
 
@@ -195,7 +193,9 @@ class NmapScanner(BaseScanner):
                     version = service_el.get("version", "")
 
                 severity = _port_severity(port_num, service_name)
-                display_service = " ".join(filter(None, [service_name, product, version])) or "unknown"
+                display_service = (
+                    " ".join(filter(None, [service_name, product, version])) or "unknown"
+                )
 
                 title = f"Open port {port_num}/{protocol}: {display_service}"
                 description = (

@@ -19,12 +19,12 @@ semgrep, checkov), we additionally fall back to ``python -m <tool>``
 via :func:`tool_command_or_module` so the scanner can still execute
 even when only the module is available (no console script).
 """
+
 from __future__ import annotations
 
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _venv_bin_dir() -> Path:
@@ -42,7 +42,7 @@ def _venv_bin_dir() -> Path:
     return Path(sys.executable).parent
 
 
-def find_tool(name: str) -> Optional[str]:
+def find_tool(name: str) -> str | None:
     """Return the absolute path to ``name`` if installed, else ``None``.
 
     Search order:
@@ -64,7 +64,7 @@ def find_tool(name: str) -> Optional[str]:
     return None
 
 
-def tool_command_or_module(name: str, module: Optional[str] = None) -> Optional[list[str]]:
+def tool_command_or_module(name: str, module: str | None = None) -> list[str] | None:
     """Return the command-line prefix needed to invoke ``name``.
 
     Examples:
@@ -84,6 +84,7 @@ def tool_command_or_module(name: str, module: Optional[str] = None) -> Optional[
     module_name = module if module is not None else name
     try:
         import importlib.util
+
         spec = importlib.util.find_spec(module_name)
         if spec is not None:
             return [sys.executable, "-m", module_name]

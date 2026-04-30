@@ -5,6 +5,7 @@ correct *and* on ``GitOpError`` carrying the underlying stderr -- the
 diff command surfaces the error message verbatim to the user, so a
 silent / generic failure mode here would make CI failures undebuggable.
 """
+
 from __future__ import annotations
 
 import subprocess

@@ -10,6 +10,7 @@ Pinned contract:
 - The legacy `/api/scans/{id}` and `/api/v1/scans/{id}` paths must both
   reach the handler (single source of truth via alias_router_at_v1).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -90,9 +91,7 @@ def _seed_scan(status: ScanStatus, *, findings: int = 0) -> tuple[str, list[str]
 
 async def _count_findings(db_path: str, scan_id: str) -> int:
     async with aiosqlite.connect(db_path) as db:
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM findings WHERE scan_id = ?", (scan_id,)
-        )
+        cursor = await db.execute("SELECT COUNT(*) FROM findings WHERE scan_id = ?", (scan_id,))
         row = await cursor.fetchone()
         return row[0]
 

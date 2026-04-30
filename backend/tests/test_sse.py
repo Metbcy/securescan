@@ -6,6 +6,7 @@ semantics, then the FastAPI endpoint is exercised end-to-end with an
 ASGI transport so the wire format and HTTP-level behaviour (404, SSE
 content-type, terminal-state short-circuit) are pinned too.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,6 @@ from securescan.database import init_db, save_scan, set_db_path
 from securescan.events import TERMINAL, ScanEventBus, bus
 from securescan.main import app
 from securescan.models import Scan, ScanStatus, ScanType
-
 
 # ---------------------------------------------------------------------------
 # Bus unit tests
@@ -250,9 +250,7 @@ async def test_sse_endpoint_streams_events(temp_db) -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         producer = asyncio.create_task(_producer())
-        async with client.stream(
-            "GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0
-        ) as resp:
+        async with client.stream("GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0) as resp:
             assert resp.status_code == 200
             assert resp.headers["content-type"].startswith("text/event-stream")
             chunks: list[str] = []
@@ -283,9 +281,7 @@ async def test_sse_endpoint_terminal_state_immediate_close(temp_db) -> None:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        async with client.stream(
-            "GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0
-        ) as resp:
+        async with client.stream("GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0) as resp:
             assert resp.status_code == 200
             body = ""
             async for chunk in resp.aiter_text():
@@ -301,16 +297,12 @@ async def test_sse_endpoint_terminal_state_immediate_close(temp_db) -> None:
 async def test_sse_endpoint_terminal_state_failed_synthesized(temp_db) -> None:
     """The synthesized-terminal path covers all three terminal
     statuses, not just ``completed``."""
-    scan = Scan(
-        target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.FAILED, error="boom"
-    )
+    scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.FAILED, error="boom")
     await save_scan(scan)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        async with client.stream(
-            "GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0
-        ) as resp:
+        async with client.stream("GET", f"/api/v1/scans/{scan.id}/events", timeout=5.0) as resp:
             assert resp.status_code == 200
             body = ""
             async for chunk in resp.aiter_text():
@@ -329,9 +321,7 @@ async def test_sse_endpoint_legacy_alias_routes(temp_db) -> None:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        async with client.stream(
-            "GET", f"/api/scans/{scan.id}/events", timeout=5.0
-        ) as resp:
+        async with client.stream("GET", f"/api/scans/{scan.id}/events", timeout=5.0) as resp:
             assert resp.status_code == 200
             body = ""
             async for chunk in resp.aiter_text():
@@ -441,9 +431,7 @@ async def test_event_token_query_param_accepted_on_sse_route(
 
 
 @pytest.mark.asyncio
-async def test_event_token_rejected_on_non_sse_route(
-    temp_db, signing_secret, env_auth
-) -> None:
+async def test_event_token_rejected_on_non_sse_route(temp_db, signing_secret, env_auth) -> None:
     """A leaked token MUST NOT be usable on any non-/events route.
     The auth dependency only consults event_token when the request
     path ends in /events, so the token here is ignored and the
@@ -459,9 +447,7 @@ async def test_event_token_rejected_on_non_sse_route(
 
 
 @pytest.mark.asyncio
-async def test_dev_mode_token_round_trips(
-    temp_db, signing_secret
-) -> None:
+async def test_dev_mode_token_round_trips(temp_db, signing_secret) -> None:
     """In dev mode (no env-var, no DB keys), the mint endpoint binds
     the token to a 'dev' sentinel rather than 'env'. The verifier
     accepts these only while the system remains in dev mode — once
@@ -511,16 +497,12 @@ async def test_dev_mode_token_invalidated_when_auth_enabled(
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            f"/api/v1/scans/{scan.id}/events?event_token={token}"
-        )
+        resp = await client.get(f"/api/v1/scans/{scan.id}/events?event_token={token}")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_token_bound_to_scan_id_and_key_id(
-    temp_db, signing_secret, env_auth
-) -> None:
+async def test_token_bound_to_scan_id_and_key_id(temp_db, signing_secret, env_auth) -> None:
     """A token minted for scan A is rejected when used against scan B.
     The auth dependency cross-checks the URL scan_id against the
     token binding."""
@@ -533,31 +515,23 @@ async def test_token_bound_to_scan_id_and_key_id(
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            f"/api/v1/scans/{scan_b.id}/events?event_token={token_for_a}"
-        )
+        resp = await client.get(f"/api/v1/scans/{scan_b.id}/events?event_token={token_for_a}")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_event_token_invalid_returns_401(
-    temp_db, signing_secret, env_auth
-) -> None:
+async def test_event_token_invalid_returns_401(temp_db, signing_secret, env_auth) -> None:
     scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.COMPLETED)
     await save_scan(scan)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            f"/api/v1/scans/{scan.id}/events?event_token=garbage"
-        )
+        resp = await client.get(f"/api/v1/scans/{scan.id}/events?event_token=garbage")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_revoked_key_token_rejected_at_connect(
-    temp_db, signing_secret, monkeypatch
-) -> None:
+async def test_revoked_key_token_rejected_at_connect(temp_db, signing_secret, monkeypatch) -> None:
     """Mint a token bound to a DB key, revoke the key, try SSE.
     The token's HMAC is still valid AND not yet expired, but
     rehydration sees revoked_at and refuses the connection."""
@@ -566,8 +540,12 @@ async def test_revoked_key_token_rejected_at_connect(
     # Seed a DB key with read scope so /events is reachable.
     gk = ak.generate_key()
     await insert_api_key(
-        gk.id, "sse-key", gk.key_hash, gk.prefix,
-        ["read"], datetime.utcnow(),
+        gk.id,
+        "sse-key",
+        gk.key_hash,
+        gk.prefix,
+        ["read"],
+        datetime.utcnow(),
     )
 
     scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.COMPLETED)
@@ -591,16 +569,12 @@ async def test_revoked_key_token_rejected_at_connect(
     revoked = await revoke_api_key(gk.id)
     assert revoked is True
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            f"/api/v1/scans/{scan.id}/events?event_token={token}"
-        )
+        resp = await client.get(f"/api/v1/scans/{scan.id}/events?event_token={token}")
     assert resp.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_env_token_unset_after_mint_rejected(
-    temp_db, signing_secret, monkeypatch
-) -> None:
+async def test_env_token_unset_after_mint_rejected(temp_db, signing_secret, monkeypatch) -> None:
     """Mint with env-var auth, unset the env var, try SSE.
     Rehydration of an "env" principal requires the env-var key to
     still be configured."""
@@ -614,9 +588,7 @@ async def test_env_token_unset_after_mint_rejected(
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.get(
-            f"/api/v1/scans/{scan.id}/events?event_token={token}"
-        )
+        resp = await client.get(f"/api/v1/scans/{scan.id}/events?event_token={token}")
     assert resp.status_code == 401
 
 
@@ -630,8 +602,12 @@ async def test_mint_endpoint_uses_db_key_id_when_authed_via_db(
     monkeypatch.delenv(_auth.ENV_VAR, raising=False)
     gk = ak.generate_key()
     await insert_api_key(
-        gk.id, "mint-key", gk.key_hash, gk.prefix,
-        ["read"], datetime.utcnow(),
+        gk.id,
+        "mint-key",
+        gk.key_hash,
+        gk.prefix,
+        ["read"],
+        datetime.utcnow(),
     )
 
     scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.COMPLETED)
@@ -650,9 +626,7 @@ async def test_mint_endpoint_uses_db_key_id_when_authed_via_db(
 
 
 @pytest.mark.asyncio
-async def test_event_token_legacy_alias_accepted(
-    temp_db, signing_secret, env_auth
-) -> None:
+async def test_event_token_legacy_alias_accepted(temp_db, signing_secret, env_auth) -> None:
     """The query-string token works on the legacy /api/scans/... mount
     too (the SSE path lives behind both v1 and the legacy alias)."""
     scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.COMPLETED)

@@ -1,4 +1,5 @@
 """Data-driven compliance framework mapping engine."""
+
 import json
 from pathlib import Path
 
@@ -57,12 +58,14 @@ class ComplianceMapper:
         """Return metadata about loaded frameworks."""
         result = []
         for fw_id, fw_data in self._frameworks.items():
-            result.append({
-                "id": fw_id,
-                "name": fw_data["framework"],
-                "version": fw_data.get("version", ""),
-                "total_controls": len(fw_data.get("controls", {})),
-            })
+            result.append(
+                {
+                    "id": fw_id,
+                    "name": fw_data["framework"],
+                    "version": fw_data.get("version", ""),
+                    "total_controls": len(fw_data.get("controls", {})),
+                }
+            )
         return result
 
     def get_coverage(self, findings: list[Finding]) -> list[dict]:
@@ -77,19 +80,20 @@ class ComplianceMapper:
             violated = all_control_ids & all_tags
             clear = all_control_ids - violated
             total = len(all_control_ids)
-            result.append({
-                "framework": fw_data["framework"],
-                "framework_id": fw_id,
-                "version": fw_data.get("version", ""),
-                "total_controls": total,
-                "controls_violated": sorted(violated),
-                "controls_clear": sorted(clear),
-                "violated_details": [
-                    {"id": cid, "name": controls[cid]["name"]}
-                    for cid in sorted(violated)
-                ],
-                "coverage_percentage": round(
-                    (len(violated) / total * 100) if total > 0 else 0, 1
-                ),
-            })
+            result.append(
+                {
+                    "framework": fw_data["framework"],
+                    "framework_id": fw_id,
+                    "version": fw_data.get("version", ""),
+                    "total_controls": total,
+                    "controls_violated": sorted(violated),
+                    "controls_clear": sorted(clear),
+                    "violated_details": [
+                        {"id": cid, "name": controls[cid]["name"]} for cid in sorted(violated)
+                    ],
+                    "coverage_percentage": round(
+                        (len(violated) / total * 100) if total > 0 else 0, 1
+                    ),
+                }
+            )
         return result

@@ -10,6 +10,7 @@ filtering is a future feature; the schema and these endpoints are
 shaped so a `user_id` query param can be added later without breaking
 existing callers.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,7 +24,6 @@ from ..database import (
     mark_notification_read,
 )
 from ..models import Notification
-
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 

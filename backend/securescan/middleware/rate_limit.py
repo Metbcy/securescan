@@ -25,6 +25,7 @@ Bounded memory: LRU eviction past 10K live buckets and a 1h idle TTL,
 checked opportunistically on each request so the limiter never grows
 unbounded under a key-rotation or DoS pattern.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,6 @@ import os
 import re
 import time
 from collections import OrderedDict
-from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -85,7 +85,7 @@ class RateLimiter:
         self.refill_per_sec = self.per_min / 60.0
         # OrderedDict gives us O(1) LRU semantics: move_to_end on access,
         # popitem(last=False) to evict the oldest.
-        self._buckets: "OrderedDict[str, list[float]]" = OrderedDict()
+        self._buckets: OrderedDict[str, list[float]] = OrderedDict()
         self._lock = asyncio.Lock()
 
     @property
@@ -118,7 +118,9 @@ class RateLimiter:
             else:
                 allowed = False
                 deficit = 1.0 - tokens
-                retry_after = deficit / self.refill_per_sec if self.refill_per_sec > 0 else float("inf")
+                retry_after = (
+                    deficit / self.refill_per_sec if self.refill_per_sec > 0 else float("inf")
+                )
 
             self._buckets[key] = [tokens, now]
             self._buckets.move_to_end(key)
@@ -146,7 +148,7 @@ class RateLimiter:
             self._buckets.popitem(last=False)
 
 
-def _build_limiter() -> Optional[RateLimiter]:
+def _build_limiter() -> RateLimiter | None:
     if not _env_bool("SECURESCAN_RATE_LIMIT_ENABLED", True):
         return None
     per_min = _env_int("SECURESCAN_RATE_LIMIT_PER_MIN", 60)
@@ -173,7 +175,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app) -> None:
         super().__init__(app)
-        self._limiter: Optional[RateLimiter] = _build_limiter()
+        self._limiter: RateLimiter | None = _build_limiter()
         self._snapshot = self._config_snapshot()
 
     @staticmethod
@@ -184,7 +186,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             os.environ.get("SECURESCAN_RATE_LIMIT_BURST", ""),
         )
 
-    def _current_limiter(self) -> Optional[RateLimiter]:
+    def _current_limiter(self) -> RateLimiter | None:
         snapshot = self._config_snapshot()
         if snapshot != self._snapshot:
             self._limiter = _build_limiter()

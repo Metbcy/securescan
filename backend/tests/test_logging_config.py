@@ -1,4 +1,5 @@
 """Tests for structured JSON logging + request-id middleware (PG4)."""
+
 from __future__ import annotations
 
 import importlib
@@ -10,10 +11,10 @@ from fastapi.testclient import TestClient
 
 from securescan import logging_config
 
-
 # ---------------------------------------------------------------------------
 # JSONFormatter unit tests
 # ---------------------------------------------------------------------------
+
 
 def _record(msg: str = "hello", **extras) -> logging.LogRecord:
     record = logging.LogRecord(
@@ -66,9 +67,8 @@ def test_json_formatter_includes_exc_info():
         raise ValueError("boom")
     except ValueError:
         import sys
-        record = logging.LogRecord(
-            "test", logging.ERROR, __file__, 1, "fail", (), sys.exc_info()
-        )
+
+        record = logging.LogRecord("test", logging.ERROR, __file__, 1, "fail", (), sys.exc_info())
     parsed = json.loads(formatter.format(record))
     assert "exc_info" in parsed
     assert "ValueError" in parsed["exc_info"]
@@ -77,6 +77,7 @@ def test_json_formatter_includes_exc_info():
 # ---------------------------------------------------------------------------
 # configure_logging() environment resolution
 # ---------------------------------------------------------------------------
+
 
 def test_text_format_default_in_dev(monkeypatch):
     monkeypatch.delenv("SECURESCAN_LOG_FORMAT", raising=False)
@@ -136,6 +137,7 @@ def test_configure_logging_clears_old_handlers(monkeypatch):
 # ---------------------------------------------------------------------------
 # Request-id middleware tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def app_client(monkeypatch):

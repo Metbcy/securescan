@@ -69,11 +69,15 @@ COPY . /build/
 
 # Build a wheel for the project itself and resolve all runtime deps as
 # wheels into /build/wheels so the runtime stage doesn't need a compiler.
+# We include the [pdf] extra so weasyprint and its rendering chain are
+# staged into the runtime image -- the container is the supported way
+# to run `securescan scan --output report-pdf` without manually
+# installing the Cairo / Pango / GObject system libraries.
 # Also stage a clean source-only artifact at /artifact that the runtime
 # stage will copy in. This keeps the runtime image free of build droppings
 # (egg-info, wheels, __pycache__).
 RUN pip install --upgrade pip wheel build \
-    && pip wheel . --wheel-dir /build/wheels \
+    && pip wheel '.[pdf]' --wheel-dir /build/wheels \
     && mkdir -p /artifact \
     && cp pyproject.toml /artifact/ \
     && if [ -d src ]; then cp -r src /artifact/src; fi \
@@ -162,8 +166,12 @@ RUN set -eux; \
 #   1. Installs the pinned scanner CLIs from PyPI.
 #   2. Installs the SecureScan dep wheels staged by the builder, with
 #      --no-deps (the builder already resolved transitive closure).
+#      The builder used the [pdf] extra, so the weasyprint rendering
+#      chain (weasyprint, pydyf, pyphen, pillow, fonttools, brotli,
+#      tinycss2, cssselect2, webencodings) is included here -- the
+#      container is the supported PDF-reporting install path; pip
+#      users opt in via `pip install 'securescan[pdf]'` instead.
 #   3. Uninstalls dashboard-only chains we don't need for CLI scanning:
-#      - weasyprint chain (PDF report rendering, lazy-imported)
 #      - fastapi/starlette (HTTP API, only used by `securescan serve`)
 #      - uvicorn[standard] extras (httptools, websockets, watchfiles, ...)
 #   4. Strips C headers, docs, man pages, locales, __pycache__, bundled
@@ -189,8 +197,6 @@ RUN --mount=type=bind,from=builder,source=/build/wheels,target=/tmp/wheels \
     pip uninstall -y \
         fastapi starlette \
         uvicorn uvloop httptools watchfiles websockets \
-        weasyprint pydyf pyphen pillow fonttools brotli zopfli \
-        tinycss2 cssselect2 webencodings \
         || true; \
     # Pin setuptools<81 so `pkg_resources` is still shipped (semgrep
     # via opentelemetry imports it); pin typer<0.16 so safety's CLI

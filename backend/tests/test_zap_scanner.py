@@ -1,17 +1,17 @@
 """Tests for the OWASP ZAP scanner wrapper."""
+
 import asyncio
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from securescan.scanners.zap_scanner import ZapScanner, _RISK_MAP
 from securescan.models import ScanType, Severity
-
+from securescan.scanners.zap_scanner import ZapScanner
 
 # ---------------------------------------------------------------------------
 # Basic properties
 # ---------------------------------------------------------------------------
+
 
 def test_scanner_name():
     scanner = ZapScanner()
@@ -26,6 +26,7 @@ def test_scanner_type():
 # ---------------------------------------------------------------------------
 # Availability checks
 # ---------------------------------------------------------------------------
+
 
 def test_not_available_when_no_zapv2():
     """is_available returns False when zapv2 cannot be imported."""
@@ -43,8 +44,10 @@ def test_not_available_when_zap_not_running():
     )
 
     scanner = ZapScanner()
-    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
-         patch.object(scanner, "_make_zap", return_value=mock_zap):
+    with (
+        patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True),
+        patch.object(scanner, "_make_zap", return_value=mock_zap),
+    ):
         result = asyncio.run(scanner.is_available())
     assert result is False
 
@@ -55,8 +58,10 @@ def test_available_when_zap_running():
     mock_zap.core.version = "2.14.0"
 
     scanner = ZapScanner()
-    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
-         patch.object(scanner, "_make_zap", return_value=mock_zap):
+    with (
+        patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True),
+        patch.object(scanner, "_make_zap", return_value=mock_zap),
+    ):
         result = asyncio.run(scanner.is_available())
     assert result is True
 
@@ -64,6 +69,7 @@ def test_available_when_zap_running():
 # ---------------------------------------------------------------------------
 # No target_url → empty list
 # ---------------------------------------------------------------------------
+
 
 def test_no_target_url_returns_empty():
     scanner = ZapScanner()
@@ -80,6 +86,7 @@ def test_none_target_url_returns_empty():
 # ---------------------------------------------------------------------------
 # Alert → Finding mapping
 # ---------------------------------------------------------------------------
+
 
 def test_alerts_to_findings_high_risk():
     scanner = ZapScanner()
@@ -112,27 +119,60 @@ def test_alerts_to_findings_high_risk():
 
 def test_alerts_to_findings_medium_risk():
     scanner = ZapScanner()
-    alerts = [{"riskcode": "2", "alert": "XSS", "description": "Cross-site scripting",
-                "pluginid": "40012", "solution": "Encode output",
-                "url": "", "param": "", "evidence": "", "cweid": "", "wascid": ""}]
+    alerts = [
+        {
+            "riskcode": "2",
+            "alert": "XSS",
+            "description": "Cross-site scripting",
+            "pluginid": "40012",
+            "solution": "Encode output",
+            "url": "",
+            "param": "",
+            "evidence": "",
+            "cweid": "",
+            "wascid": "",
+        }
+    ]
     findings = scanner._alerts_to_findings(alerts, "scan-1", "http://example.com")
     assert findings[0].severity == Severity.MEDIUM
 
 
 def test_alerts_to_findings_low_risk():
     scanner = ZapScanner()
-    alerts = [{"riskcode": "1", "alert": "Cookie no HttpOnly", "description": "...",
-                "pluginid": "10010", "solution": "Set HttpOnly",
-                "url": "", "param": "", "evidence": "", "cweid": "", "wascid": ""}]
+    alerts = [
+        {
+            "riskcode": "1",
+            "alert": "Cookie no HttpOnly",
+            "description": "...",
+            "pluginid": "10010",
+            "solution": "Set HttpOnly",
+            "url": "",
+            "param": "",
+            "evidence": "",
+            "cweid": "",
+            "wascid": "",
+        }
+    ]
     findings = scanner._alerts_to_findings(alerts, "scan-1", "http://example.com")
     assert findings[0].severity == Severity.LOW
 
 
 def test_alerts_to_findings_info_risk():
     scanner = ZapScanner()
-    alerts = [{"riskcode": "0", "alert": "Info Leak", "description": "...",
-                "pluginid": "10001", "solution": "",
-                "url": "", "param": "", "evidence": "", "cweid": "", "wascid": ""}]
+    alerts = [
+        {
+            "riskcode": "0",
+            "alert": "Info Leak",
+            "description": "...",
+            "pluginid": "10001",
+            "solution": "",
+            "url": "",
+            "param": "",
+            "evidence": "",
+            "cweid": "",
+            "wascid": "",
+        }
+    ]
     findings = scanner._alerts_to_findings(alerts, "scan-1", "http://example.com")
     assert findings[0].severity == Severity.INFO
 
@@ -145,9 +185,20 @@ def test_alerts_to_findings_empty():
 
 def test_alerts_to_findings_unknown_risk_defaults_to_info():
     scanner = ZapScanner()
-    alerts = [{"riskcode": "99", "alert": "Unknown", "description": "",
-                "pluginid": "99999", "solution": "",
-                "url": "", "param": "", "evidence": "", "cweid": "", "wascid": ""}]
+    alerts = [
+        {
+            "riskcode": "99",
+            "alert": "Unknown",
+            "description": "",
+            "pluginid": "99999",
+            "solution": "",
+            "url": "",
+            "param": "",
+            "evidence": "",
+            "cweid": "",
+            "wascid": "",
+        }
+    ]
     findings = scanner._alerts_to_findings(alerts, "scan-1", "http://example.com")
     assert findings[0].severity == Severity.INFO
 
@@ -155,6 +206,7 @@ def test_alerts_to_findings_unknown_risk_defaults_to_info():
 # ---------------------------------------------------------------------------
 # Full scan (mocked ZAP)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_full_scan_calls_spider_and_active_scan():
@@ -170,13 +222,24 @@ async def test_full_scan_calls_spider_and_active_scan():
     mock_zap.ascan.status.side_effect = ["50", "100"]
     # Alerts
     mock_zap.core.alerts.return_value = [
-        {"riskcode": "3", "alert": "SQL Injection", "description": "SQLi found",
-         "pluginid": "40018", "solution": "Use params",
-         "url": "http://t.com/q", "param": "id", "evidence": "1=1", "cweid": "89", "wascid": "19"}
+        {
+            "riskcode": "3",
+            "alert": "SQL Injection",
+            "description": "SQLi found",
+            "pluginid": "40018",
+            "solution": "Use params",
+            "url": "http://t.com/q",
+            "param": "id",
+            "evidence": "1=1",
+            "cweid": "89",
+            "wascid": "19",
+        }
     ]
 
-    with patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True), \
-         patch.object(scanner, "_make_zap", return_value=mock_zap):
+    with (
+        patch("securescan.scanners.zap_scanner._ZAP_AVAILABLE", True),
+        patch.object(scanner, "_make_zap", return_value=mock_zap),
+    ):
         findings = await scanner.scan("/path", "scan-z", target_url="http://t.com")
 
     assert len(findings) == 1

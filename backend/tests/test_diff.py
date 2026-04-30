@@ -11,6 +11,7 @@ These tests pin down the contract:
 - line-shift invariance via SS2's fingerprint
 - JSON loader accepts both ``{"findings": [...]}`` and flat-list shapes
 """
+
 from __future__ import annotations
 
 import copy
@@ -174,9 +175,7 @@ def test_changeset_lists_are_sorted_canonically():
     high = _make_finding(
         severity=Severity.HIGH, file_path="src/aaa.py", rule_id="R-HIGH", cwe="CWE-2"
     )
-    low = _make_finding(
-        severity=Severity.LOW, file_path="src/mmm.py", rule_id="R-LOW", cwe="CWE-3"
-    )
+    low = _make_finding(severity=Severity.LOW, file_path="src/mmm.py", rule_id="R-LOW", cwe="CWE-3")
     medium = _make_finding(
         severity=Severity.MEDIUM, file_path="src/bbb.py", rule_id="R-MED", cwe="CWE-4"
     )

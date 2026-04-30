@@ -1,8 +1,8 @@
-from enum import Enum
-from pydantic import BaseModel, Field, field_validator
-from datetime import datetime
-from typing import Optional
 import uuid
+from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Severity(str, Enum):
@@ -38,12 +38,12 @@ class Finding(BaseModel):
     severity: Severity
     title: str
     description: str
-    file_path: Optional[str] = None
-    line_start: Optional[int] = None
-    line_end: Optional[int] = None
-    rule_id: Optional[str] = None
-    cwe: Optional[str] = None
-    remediation: Optional[str] = None
+    file_path: str | None = None
+    line_start: int | None = None
+    line_end: int | None = None
+    rule_id: str | None = None
+    cwe: str | None = None
+    remediation: str | None = None
     metadata: dict = Field(default_factory=dict)
     compliance_tags: list[str] = Field(default_factory=list)
     fingerprint: str = ""  # populated by populate_fingerprints() before save
@@ -57,9 +57,10 @@ class ScannerSkip(BaseModel):
     "Skipped (N)" section without an extra round-trip. Sorted alphabetically
     by name at persistence time for deterministic output.
     """
+
     name: str
     reason: str
-    install_hint: Optional[str] = None
+    install_hint: str | None = None
 
 
 class Scan(BaseModel):
@@ -67,14 +68,14 @@ class Scan(BaseModel):
     target_path: str
     scan_types: list[ScanType]
     status: ScanStatus = ScanStatus.PENDING
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     findings_count: int = 0
-    risk_score: Optional[float] = None
-    summary: Optional[str] = None
-    error: Optional[str] = None
-    target_url: Optional[str] = None
-    target_host: Optional[str] = None
+    risk_score: float | None = None
+    summary: str | None = None
+    error: str | None = None
+    target_url: str | None = None
+    target_host: str | None = None
     scanners_run: list[str] = Field(default_factory=list)
     scanners_skipped: list[ScannerSkip] = Field(default_factory=list)
 
@@ -82,8 +83,8 @@ class Scan(BaseModel):
 class ScanRequest(BaseModel):
     target_path: str
     scan_types: list[ScanType] = Field(default=[ScanType.CODE, ScanType.DEPENDENCY], min_length=1)
-    target_url: Optional[str] = None
-    target_host: Optional[str] = None
+    target_url: str | None = None
+    target_host: str | None = None
 
 
 class ScanSummary(BaseModel):
@@ -106,6 +107,7 @@ class TriageStatus(str, Enum):
     `NEW` row. The other values represent explicit user verdicts that should
     survive subsequent rescans of the same target.
     """
+
     NEW = "new"
     TRIAGED = "triaged"
     FALSE_POSITIVE = "false_positive"
@@ -122,11 +124,12 @@ class FindingState(BaseModel):
     code edits. Orphan rows (rule_id renamed, file moved out of the project)
     are intentionally tolerated -- the UI just won't surface them.
     """
+
     fingerprint: str
     status: TriageStatus
-    note: Optional[str] = None
+    note: str | None = None
     updated_at: datetime
-    updated_by: Optional[str] = None
+    updated_by: str | None = None
 
 
 class FindingComment(BaseModel):
@@ -135,10 +138,11 @@ class FindingComment(BaseModel):
     Multiple comments per fingerprint are allowed; they are listed in
     `created_at` ASC order so a triage thread reads top-to-bottom.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     fingerprint: str
     text: str
-    author: Optional[str] = None
+    author: str | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -151,7 +155,8 @@ class FindingWithState(Finding):
     Findings, and adding fields there would silently change their JSON
     contracts.
     """
-    state: Optional[FindingState] = None
+
+    state: FindingState | None = None
 
 
 class ApiKeyScope(str, Enum):
@@ -163,6 +168,7 @@ class ApiKeyScope(str, Enum):
     other scope listed alongside it on the route - the route author
     controls the policy, not the scope enum.
     """
+
     READ = "read"
     WRITE = "write"
     ADMIN = "admin"
@@ -175,13 +181,14 @@ class ApiKeyView(BaseModel):
     safe to display in admin UIs so a user can recognise their own keys
     without ever seeing the secret again after creation.
     """
+
     id: str
     name: str
     prefix: str
     scopes: list[ApiKeyScope]
     created_at: datetime
-    last_used_at: Optional[datetime] = None
-    revoked_at: Optional[datetime] = None
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
 
 
 class ApiKeyCreated(ApiKeyView):
@@ -191,6 +198,7 @@ class ApiKeyCreated(ApiKeyView):
     stores the salted hash, so a lost key cannot be recovered - it
     must be revoked and re-issued.
     """
+
     key: str
 
 
@@ -202,6 +210,7 @@ class NotificationSeverity(str, Enum):
     crashed) rather than a single finding's CVSS-ish band, and we
     don't want a future renaming of one to cascade through the other.
     """
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -215,14 +224,15 @@ class Notification(BaseModel):
     feature; the table is structured so adding `user_id` later is a
     pure additive migration.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     type: str
     title: str
-    body: Optional[str] = None
-    link: Optional[str] = None
+    body: str | None = None
+    link: str | None = None
     severity: NotificationSeverity = NotificationSeverity.INFO
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    read_at: Optional[datetime] = None
+    read_at: datetime | None = None
 
 
 class SBOMComponent(BaseModel):
@@ -231,14 +241,14 @@ class SBOMComponent(BaseModel):
     name: str
     version: str
     type: str = "library"
-    purl: Optional[str] = None
-    license: Optional[str] = None
-    supplier: Optional[str] = None
+    purl: str | None = None
+    license: str | None = None
+    supplier: str | None = None
 
 
 class SBOMDocument(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    scan_id: Optional[str] = None
+    scan_id: str | None = None
     target_path: str
     format: str = "cyclonedx"
     components: list[SBOMComponent] = []
@@ -258,6 +268,7 @@ class WebhookEventType(str, Enum):
     not emitted by the scan orchestrator. The other three are emitted from
     ``_log_scan_event`` in ``api/scans.py``.
     """
+
     SCAN_COMPLETE = "scan.complete"
     SCAN_FAILED = "scan.failed"
     SCANNER_FAILED = "scanner.failed"
@@ -289,6 +300,7 @@ def _validate_webhook_url(url: str) -> str:
 
 class Webhook(BaseModel):
     """An outbound webhook subscription. Secret is NEVER returned here."""
+
     id: str
     name: str
     url: str
@@ -311,6 +323,7 @@ class WebhookCreated(Webhook):
     expose a rotate endpoint in v0.9.0 so the receiver-side reconcile
     flow stays simple (one new id == one new secret).
     """
+
     secret: str
 
 
@@ -321,6 +334,7 @@ class WebhookDelivery(BaseModel):
     kept as a plain string (not an enum) so the dispatcher can write
     new transient states in the future without a migration.
     """
+
     id: str
     webhook_id: str
     event: str
@@ -329,5 +343,5 @@ class WebhookDelivery(BaseModel):
     next_attempt_at: datetime
     created_at: datetime
     updated_at: datetime
-    response_code: Optional[int] = None
-    response_body: Optional[str] = None
+    response_code: int | None = None
+    response_body: str | None = None

@@ -10,7 +10,7 @@ import sys
 
 def test_securescan_package_is_importable():
     import securescan  # noqa: F401  (import-only smoke check)
-    from securescan import models, cli, fingerprint, diff  # noqa: F401
+    from securescan import cli, diff, fingerprint, models  # noqa: F401
 
 
 def test_package_does_not_expose_src_namespace():

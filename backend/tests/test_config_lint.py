@@ -71,7 +71,9 @@ severity_overrides:
 
     assert report.has_errors
     locations = [i.location for i in report.errors()]
-    assert any(loc and "severity_overrides" in loc and "RULE-A" in loc for loc in locations), locations
+    assert any(loc and "severity_overrides" in loc and "RULE-A" in loc for loc in locations), (
+        locations
+    )
 
 
 def test_lint_unknown_top_level_key_yields_error(tmp_path):
@@ -87,9 +89,7 @@ ingored_rules:
 
     assert report.has_errors
     # Pydantic surfaces extra-key errors with the bad key in the loc.
-    assert any(
-        i.location and "ingored_rules" in i.location for i in report.errors()
-    )
+    assert any(i.location and "ingored_rules" in i.location for i in report.errors())
 
 
 def test_lint_missing_semgrep_rules_path_yields_error(tmp_path):
@@ -104,7 +104,9 @@ semgrep_rules:
     report = lint_config(cfg)
 
     error_messages = [i.message for i in report.errors()]
-    assert any("semgrep_rules" in m and "rules-pack.yml" in m for m in error_messages), error_messages
+    assert any("semgrep_rules" in m and "rules-pack.yml" in m for m in error_messages), (
+        error_messages
+    )
     locations = [i.location for i in report.errors()]
     assert any(loc and loc.startswith("semgrep_rules[") for loc in locations), locations
 
@@ -197,11 +199,13 @@ def test_lint_empty_yaml_file_yields_info_issue(tmp_path):
 
 
 def test_lint_report_has_errors_when_any_error_present():
-    report = LintReport(issues=[
-        LintIssue(severity="warning", message="w"),
-        LintIssue(severity="error", message="e"),
-        LintIssue(severity="info", message="i"),
-    ])
+    report = LintReport(
+        issues=[
+            LintIssue(severity="warning", message="w"),
+            LintIssue(severity="error", message="e"),
+            LintIssue(severity="info", message="i"),
+        ]
+    )
     assert report.has_errors is True
 
 
@@ -213,12 +217,14 @@ def test_lint_report_has_warnings_only_when_warnings_present():
 
 
 def test_lint_report_errors_method_returns_only_errors():
-    report = LintReport(issues=[
-        LintIssue(severity="warning", message="w"),
-        LintIssue(severity="error", message="e1"),
-        LintIssue(severity="info", message="i"),
-        LintIssue(severity="error", message="e2"),
-    ])
+    report = LintReport(
+        issues=[
+            LintIssue(severity="warning", message="w"),
+            LintIssue(severity="error", message="e1"),
+            LintIssue(severity="info", message="i"),
+            LintIssue(severity="error", message="e2"),
+        ]
+    )
     errors = report.errors()
     assert [e.message for e in errors] == ["e1", "e2"]
     assert all(e.severity == "error" for e in errors)

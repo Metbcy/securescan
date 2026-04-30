@@ -5,18 +5,19 @@ without exercising the (slow, side-effectful) full scan pipeline. Real
 scan behaviour is covered elsewhere; here we just want to know that
 ``--no-ai``, ``--ai`` and ``--baseline`` are recognised options.
 """
+
 from __future__ import annotations
 
 import pytest
 
 try:
     from typer.testing import CliRunner
+
     HAS_RUNNER = True
 except ImportError:  # pragma: no cover - typer ships testing helpers, but be safe
     HAS_RUNNER = False
 
 from securescan.cli import app
-
 
 pytestmark = pytest.mark.skipif(not HAS_RUNNER, reason="typer.testing.CliRunner unavailable")
 

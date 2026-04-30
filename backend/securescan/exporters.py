@@ -31,6 +31,7 @@ terminal) makes the audit trail visible at the moment a developer
 would notice it; the CI / PR-comment / file-output paths default to
 False so the ordinary signal stays clean.
 """
+
 import json
 import xml.etree.ElementTree as ET
 
@@ -59,9 +60,7 @@ def _suppressed_reason(finding: Finding) -> str | None:
     return None
 
 
-def _filter_suppressed(
-    findings: list[Finding], *, show_suppressed: bool
-) -> list[Finding]:
+def _filter_suppressed(findings: list[Finding], *, show_suppressed: bool) -> list[Finding]:
     """Return ``findings`` minus suppressed entries when ``show_suppressed``
     is False, or the input list unchanged when True.
 
@@ -129,7 +128,9 @@ def findings_to_sarif(
     for finding in deduped:
         fp = getattr(finding, "fingerprint", "") or ""
 
-        rule_id = finding.rule_id or f"{finding.scanner}/{finding.title.lower().replace(' ', '-')[:50]}"
+        rule_id = (
+            finding.rule_id or f"{finding.scanner}/{finding.title.lower().replace(' ', '-')[:50]}"
+        )
 
         if rule_id not in rules:
             rules[rule_id] = {
@@ -190,20 +191,24 @@ def findings_to_sarif(
     return {
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
-        "runs": [{
-            "tool": {
-                "driver": {
-                    "name": "SecureScan",
-                    "version": "0.1.0",
-                    "informationUri": "https://github.com/Metbcy/securescan",
-                    "rules": [rule for _, rule in sorted(rules.items(), key=lambda kv: kv[0])],
-                }
-            },
-            "results": results,
-            "invocations": [{
-                "executionSuccessful": scan.status == "completed",
-            }],
-        }],
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "SecureScan",
+                        "version": "0.1.0",
+                        "informationUri": "https://github.com/Metbcy/securescan",
+                        "rules": [rule for _, rule in sorted(rules.items(), key=lambda kv: kv[0])],
+                    }
+                },
+                "results": results,
+                "invocations": [
+                    {
+                        "executionSuccessful": scan.status == "completed",
+                    }
+                ],
+            }
+        ],
     }
 
 
@@ -278,9 +283,7 @@ def _severity_score(severity: Severity) -> str:
     }.get(severity, "5.0")
 
 
-def findings_to_csv(
-    findings: list[Finding], *, show_suppressed: bool = False
-) -> str:
+def findings_to_csv(findings: list[Finding], *, show_suppressed: bool = False) -> str:
     """Export findings as CSV string. Findings are sorted canonically so
     the output is byte-identical for the same logical input.
 
@@ -340,23 +343,36 @@ def findings_to_junit(
     """
     findings = _filter_suppressed(findings, show_suppressed=show_suppressed)
     findings = sort_findings_canonical(findings)
-    suite = ET.Element("testsuite", {
-        "name": "SecureScan",
-        "tests": str(len(findings)),
-        "failures": str(sum(1 for f in findings if f.severity in (Severity.CRITICAL, Severity.HIGH))),
-        "errors": "0",
-    })
+    suite = ET.Element(
+        "testsuite",
+        {
+            "name": "SecureScan",
+            "tests": str(len(findings)),
+            "failures": str(
+                sum(1 for f in findings if f.severity in (Severity.CRITICAL, Severity.HIGH))
+            ),
+            "errors": "0",
+        },
+    )
 
     for finding in findings:
-        tc = ET.SubElement(suite, "testcase", {
-            "name": finding.title[:200],
-            "classname": f"securescan.{finding.scanner}",
-        })
+        tc = ET.SubElement(
+            suite,
+            "testcase",
+            {
+                "name": finding.title[:200],
+                "classname": f"securescan.{finding.scanner}",
+            },
+        )
         if finding.severity in (Severity.CRITICAL, Severity.HIGH):
-            failure = ET.SubElement(tc, "failure", {
-                "type": finding.severity.value,
-                "message": finding.title,
-            })
+            failure = ET.SubElement(
+                tc,
+                "failure",
+                {
+                    "type": finding.severity.value,
+                    "message": finding.title,
+                },
+            )
             failure.text = f"{finding.description}\nFile: {finding.file_path or 'N/A'}\nLine: {finding.line_start or 'N/A'}\nRemediation: {finding.remediation or 'N/A'}"
         elif finding.severity == Severity.MEDIUM:
             ET.SubElement(tc, "system-out").text = finding.description
@@ -425,6 +441,4 @@ def findings_to_pr_comment(
     callers.
     """
     changeset = ChangeSet(new=sort_findings_canonical(findings))
-    return render_pr_comment(
-        changeset, repo=repo, sha=sha, show_suppressed=show_suppressed
-    )
+    return render_pr_comment(changeset, repo=repo, sha=sha, show_suppressed=show_suppressed)

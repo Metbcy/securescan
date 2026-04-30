@@ -14,6 +14,7 @@ These tests pin down:
 * the per-file cache on :class:`IgnoreMap`
 * the guard rails for ``None`` arguments on :meth:`IgnoreMap.applies_to`
 """
+
 from __future__ import annotations
 
 import os
@@ -24,7 +25,6 @@ import pytest
 
 from securescan import suppression
 from securescan.suppression import IgnoreMap, IgnoreMark, parse_file_ignores
-
 
 # ---------------------------------------------------------------------------
 # parse_file_ignores: per-language prefixes
@@ -86,10 +86,7 @@ def test_unknown_extension_falls_back_to_all_prefixes(tmp_path: Path) -> None:
 
 def test_ignore_next_line_targets_next_line(tmp_path: Path) -> None:
     f = tmp_path / "code.py"
-    f.write_text(
-        "# securescan: ignore-next-line RULE-A\n"
-        "password = 'hunter2'\n"
-    )
+    f.write_text("# securescan: ignore-next-line RULE-A\npassword = 'hunter2'\n")
     marks = parse_file_ignores(f)
     assert len(marks) == 1
     mark = marks[0]
@@ -178,11 +175,7 @@ def test_marker_inside_string_is_a_known_false_positive(tmp_path: Path) -> None:
     is ignored.
     """
     f = tmp_path / "fp.py"
-    f.write_text(
-        'docstring = """\n'
-        "# securescan: ignore X\n"
-        '"""\n'
-    )
+    f.write_text('docstring = """\n# securescan: ignore X\n"""\n')
     marks = parse_file_ignores(f)
     # Current behaviour: false positive — the marker matches even
     # though the line is inside a string literal.

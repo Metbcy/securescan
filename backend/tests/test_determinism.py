@@ -10,6 +10,7 @@ Wall-clock leaks are pinned via the ``SECURESCAN_FAKE_NOW`` env var.
 PDF determinism is intentionally NOT covered: WeasyPrint embeds font
 and producer metadata that depends on host font cache state.
 """
+
 from __future__ import annotations
 
 import copy
@@ -33,7 +34,6 @@ from securescan.ordering import sort_findings_canonical
 from securescan.reports import ReportGenerator
 from securescan.sbom import SBOMGenerator
 from securescan.scoring import build_summary
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -123,10 +123,7 @@ def _scan() -> Scan:
 def test_sort_findings_canonical_orders_by_severity_then_file_then_line():
     findings = _findings_bag()
     sorted_f = sort_findings_canonical(findings)
-    keys = [
-        (f.severity.value, f.file_path, f.line_start, f.rule_id, f.title)
-        for f in sorted_f
-    ]
+    keys = [(f.severity.value, f.file_path, f.line_start, f.rule_id, f.title) for f in sorted_f]
     assert keys == [
         # CRITICAL first
         ("critical", "app/db.py", 42, "py.sqli", "SQL Injection"),
@@ -372,14 +369,18 @@ async def test_sbom_generate_components_are_sorted(tmp_path, monkeypatch):
     monkeypatch.setattr("shutil.which", lambda _: None)
     monkeypatch.setenv("SECURESCAN_FAKE_NOW", "2026-01-01T00:00:00")
 
-    (tmp_path / "package.json").write_text(json.dumps({
-        "name": "p",
-        "dependencies": {
-            "zebra": "1.0.0",
-            "apple": "2.0.0",
-            "mango": "3.0.0",
-        },
-    }))
+    (tmp_path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "p",
+                "dependencies": {
+                    "zebra": "1.0.0",
+                    "apple": "2.0.0",
+                    "mango": "3.0.0",
+                },
+            }
+        )
+    )
 
     gen = SBOMGenerator(str(tmp_path))
     doc = await gen.generate()

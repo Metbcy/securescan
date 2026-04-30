@@ -40,6 +40,7 @@ the inline review comment one line above ``finding.line_start``, NOT
 on the finding's own line. See the function docstring for details;
 this is a behavioural contract pinned by tests.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

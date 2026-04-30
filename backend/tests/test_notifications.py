@@ -10,6 +10,7 @@ Covers:
   touches unread rows.
 - HTTP API: GET list, GET unread-count, PATCH 404 on unknown id.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,6 @@ from securescan.database import (
 from securescan.main import app
 from securescan.models import NotificationSeverity
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -48,6 +48,7 @@ def temp_db(tmp_path, monkeypatch):
     rely on the production default.
     """
     from securescan.config import settings as _settings
+
     db_path = str(tmp_path / "notifications.db")
     original = _settings.database_path
     set_db_path(db_path)
@@ -187,6 +188,7 @@ def test_limit_capped(temp_db, client):
     cap lives in the router on purpose: the DB layer trusts its caller
     so a future internal user can ask for more rows if needed.
     """
+
     async def _seed():
         for i in range(205):
             await insert_notification(type="t", title=f"n{i}")
@@ -258,10 +260,9 @@ def test_scan_failed_always_notifies(temp_db):
 def test_scan_failed_truncates_long_error(temp_db):
     """Long stack traces get capped to 200 chars in the body."""
     long_err = "x" * 500
+
     async def _go():
-        await _create_notification_for_event(
-            "scan.failed", "scan-3b", {"error": long_err}
-        )
+        await _create_notification_for_event("scan.failed", "scan-3b", {"error": long_err})
         return await list_notifications()
 
     rows = _run(_go())
@@ -294,9 +295,7 @@ def test_scanner_start_does_not_notify(temp_db):
             {"scanner": "bandit"},
         )
         # And a few other no-op events for good measure.
-        await _create_notification_for_event(
-            "scan.start", "scan-5", {"target": "/x"}
-        )
+        await _create_notification_for_event("scan.start", "scan-5", {"target": "/x"})
         await _create_notification_for_event(
             "scanner.complete",
             "scan-5",

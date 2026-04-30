@@ -1,5 +1,15 @@
 """Tests for Pydantic models."""
-from securescan.models import Finding, Scan, ScannerSkip, Severity, ScanType, ScanStatus, ScanRequest, ScanSummary
+
+from securescan.models import (
+    Finding,
+    Scan,
+    ScannerSkip,
+    ScanRequest,
+    ScanStatus,
+    ScanSummary,
+    ScanType,
+    Severity,
+)
 
 
 def test_severity_enum():

@@ -7,6 +7,7 @@ contract without exercising the (slow, side-effectful) full scan
 pipeline -- the snapshot-input mode lets every behaviour be verified
 deterministically with synthetic JSON.
 """
+
 from __future__ import annotations
 
 import json
@@ -116,11 +117,7 @@ def test_diff_snapshot_path_classifies_correctly(tmp_path):
     _write_snapshot(old_snap, [])
     _write_snapshot(
         new_snap,
-        [
-            _finding_dict(
-                fingerprint="fp-classify-1", title="UniqueDistinctTitle"
-            )
-        ],
+        [_finding_dict(fingerprint="fp-classify-1", title="UniqueDistinctTitle")],
     )
     runner = CliRunner()
     result = runner.invoke(
@@ -314,7 +311,7 @@ def test_diff_ai_default_off_does_not_construct_enricher(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             constructed.append((args, kwargs))
 
-    monkeypatch.setattr("securescan.cli.AIEnricher", _SentinelEnricher)
+    monkeypatch.setattr("securescan.cli._shared.AIEnricher", _SentinelEnricher)
     empty = tmp_path / "empty.json"
     _write_snapshot(empty, [])
     runner = CliRunner()

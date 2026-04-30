@@ -14,10 +14,10 @@ fingerprint can pre-date or out-live any individual scan, and orphan
 state rows are intentional (they reactivate when a matching finding
 reappears in a later scan).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -35,7 +35,6 @@ from ..models import (
     TriageStatus,
 )
 
-
 router = APIRouter(prefix="/api/findings", tags=["triage"])
 
 
@@ -47,17 +46,22 @@ class PatchStateBody(BaseModel):
     rather than keeping them, which matches the PATCH-as-replace semantic
     we use for state. Comments are the right place for incremental notes.
     """
+
     status: TriageStatus
-    note: Optional[str] = None
-    updated_by: Optional[str] = None
+    note: str | None = None
+    updated_by: str | None = None
 
 
 class AddCommentBody(BaseModel):
     text: str
-    author: Optional[str] = None
+    author: str | None = None
 
 
-@router.patch("/{fingerprint}/state", response_model=FindingState, dependencies=[Depends(require_scope("write"))])
+@router.patch(
+    "/{fingerprint}/state",
+    response_model=FindingState,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def patch_state(fingerprint: str, body: PatchStateBody) -> FindingState:
     """Create or replace the triage verdict for `fingerprint`.
 
@@ -75,7 +79,11 @@ async def patch_state(fingerprint: str, body: PatchStateBody) -> FindingState:
     return state
 
 
-@router.get("/{fingerprint}/comments", response_model=list[FindingComment], dependencies=[Depends(require_scope("read"))])
+@router.get(
+    "/{fingerprint}/comments",
+    response_model=list[FindingComment],
+    dependencies=[Depends(require_scope("read"))],
+)
 async def list_comments(fingerprint: str) -> list[FindingComment]:
     """List comments on `fingerprint`, oldest first.
 
@@ -102,7 +110,11 @@ async def add_comment(fingerprint: str, body: AddCommentBody) -> FindingComment:
     return comment
 
 
-@router.delete("/{fingerprint}/comments/{comment_id}", status_code=204, dependencies=[Depends(require_scope("write"))])
+@router.delete(
+    "/{fingerprint}/comments/{comment_id}",
+    status_code=204,
+    dependencies=[Depends(require_scope("write"))],
+)
 async def delete_comment(fingerprint: str, comment_id: str) -> None:
     """Remove a single comment by id.
 

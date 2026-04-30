@@ -20,11 +20,11 @@ Lockout protection
 exists -- otherwise the next request would 503 and the operator
 would have no way to issue a replacement.
 """
+
 from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Optional
 
 import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -47,7 +47,6 @@ from ..database import (
 )
 from ..models import ApiKeyCreated, ApiKeyScope, ApiKeyView
 
-
 router = APIRouter(prefix="/api/keys", tags=["auth"])
 
 
@@ -58,10 +57,9 @@ class CreateKeyBody(BaseModel):
     creates a key without thinking about scopes gets the least
     privileged option.
     """
+
     name: str = Field(min_length=1, max_length=200)
-    scopes: list[ApiKeyScope] = Field(
-        default_factory=lambda: [ApiKeyScope.READ]
-    )
+    scopes: list[ApiKeyScope] = Field(default_factory=lambda: [ApiKeyScope.READ])
 
 
 def _row_to_view(row: dict) -> ApiKeyView:
@@ -77,16 +75,8 @@ def _row_to_view(row: dict) -> ApiKeyView:
         prefix=row["prefix"],
         scopes=[ApiKeyScope(s) for s in scopes_raw],
         created_at=datetime.fromisoformat(row["created_at"]),
-        last_used_at=(
-            datetime.fromisoformat(row["last_used_at"])
-            if row["last_used_at"]
-            else None
-        ),
-        revoked_at=(
-            datetime.fromisoformat(row["revoked_at"])
-            if row["revoked_at"]
-            else None
-        ),
+        last_used_at=(datetime.fromisoformat(row["last_used_at"]) if row["last_used_at"] else None),
+        revoked_at=(datetime.fromisoformat(row["revoked_at"]) if row["revoked_at"] else None),
     )
 
 
@@ -108,9 +98,7 @@ async def create_key(body: CreateKeyBody) -> ApiKeyCreated:
         gk = generate_key()
         created_at = datetime.utcnow()
         try:
-            await insert_api_key(
-                gk.id, body.name, gk.key_hash, gk.prefix, scopes, created_at
-            )
+            await insert_api_key(gk.id, body.name, gk.key_hash, gk.prefix, scopes, created_at)
         except aiosqlite.IntegrityError:
             continue
         return ApiKeyCreated(
@@ -149,7 +137,7 @@ async def get_me(request: Request) -> ApiKeyView:
     caller authenticated via the legacy env-var path or via dev mode,
     because there is no DB row to describe.
     """
-    principal: Optional[Principal] = getattr(request.state, "principal", None)
+    principal: Principal | None = getattr(request.state, "principal", None)
     if principal is None or principal.source != "db":
         raise HTTPException(404, "Not authenticated via DB key")
     row = await get_api_key_by_id(principal.id)

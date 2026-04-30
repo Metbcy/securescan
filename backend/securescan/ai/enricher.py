@@ -1,7 +1,9 @@
 """AI enrichment for security findings using Groq API."""
+
 import os
-import json
+
 import httpx
+
 from ..models import Finding, ScanSummary
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -9,7 +11,9 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 class AIEnricher:
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.environ.get("GROQ_API_KEY") or os.environ.get("SECURESCAN_GROQ_API_KEY")
+        self.api_key = (
+            api_key or os.environ.get("GROQ_API_KEY") or os.environ.get("SECURESCAN_GROQ_API_KEY")
+        )
         self.model = "llama-3.3-70b-versatile"
 
     @property
@@ -27,9 +31,9 @@ Finding:
 - Title: {finding.title}
 - Severity: {finding.severity.value}
 - Description: {finding.description}
-- File: {finding.file_path or 'N/A'}
-- Rule: {finding.rule_id or 'N/A'}
-- CWE: {finding.cwe or 'N/A'}
+- File: {finding.file_path or "N/A"}
+- Rule: {finding.rule_id or "N/A"}
+- CWE: {finding.cwe or "N/A"}
 
 Respond with ONLY a concise remediation suggestion (2-3 sentences max). Include a code fix example if applicable."""
 

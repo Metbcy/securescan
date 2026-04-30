@@ -11,6 +11,7 @@ emit the same logical finding twice in one run; without it the user
 would see two identical alerts on the Security tab. Dedup is keyed on
 ``finding.fingerprint`` (the truth), not ``(rule_id, file, line)``.
 """
+
 from __future__ import annotations
 
 import copy
@@ -19,7 +20,6 @@ from datetime import datetime
 
 from securescan.exporters import findings_to_sarif
 from securescan.models import Finding, Scan, ScanStatus, ScanType, Severity
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

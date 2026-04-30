@@ -1,16 +1,18 @@
 import asyncio
 import json
 
+from ..config import settings
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
-from ..config import settings
 
 
 class TrivyScanner(BaseScanner):
     name = "trivy"
     scan_type = ScanType.DEPENDENCY
-    description = "Scans package manifests and lock files for known CVE vulnerabilities in your dependencies."
+    description = (
+        "Scans package manifests and lock files for known CVE vulnerabilities in your dependencies."
+    )
     checks = [
         "Known CVEs in npm/pip/gem/cargo packages",
         "Outdated dependencies with security patches",
@@ -33,7 +35,13 @@ class TrivyScanner(BaseScanner):
             return findings
         try:
             proc = await asyncio.create_subprocess_exec(
-                trivy_bin, "fs", "--format", "json", "--scanners", "vuln", target_path,
+                trivy_bin,
+                "fs",
+                "--format",
+                "json",
+                "--scanners",
+                "vuln",
+                target_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -49,42 +57,50 @@ class TrivyScanner(BaseScanner):
                     target = result.get("Target", "")
                     for v in vulns:
                         severity = self._map_severity(v.get("Severity", "UNKNOWN"))
-                        findings.append(Finding(
-                            scan_id=scan_id,
-                            scanner=self.name,
-                            scan_type=self.scan_type,
-                            severity=severity,
-                            title=f"{v.get('VulnerabilityID', 'Unknown')} in {v.get('PkgName', 'unknown')}",
-                            description=v.get("Description", v.get("Title", "No description")),
-                            file_path=target,
-                            rule_id=v.get("VulnerabilityID"),
-                            cwe=self._extract_cwe(v),
-                            remediation=f"Update to {v['FixedVersion']}" if v.get("FixedVersion") else None,
-                            metadata={
-                                "package": v.get("PkgName", ""),
-                                "installed_version": v.get("InstalledVersion", ""),
-                                "fixed_version": v.get("FixedVersion", ""),
-                                "references": v.get("References", [])[:5],
-                            },
-                        ))
+                        findings.append(
+                            Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=severity,
+                                title=f"{v.get('VulnerabilityID', 'Unknown')} in {v.get('PkgName', 'unknown')}",
+                                description=v.get("Description", v.get("Title", "No description")),
+                                file_path=target,
+                                rule_id=v.get("VulnerabilityID"),
+                                cwe=self._extract_cwe(v),
+                                remediation=f"Update to {v['FixedVersion']}"
+                                if v.get("FixedVersion")
+                                else None,
+                                metadata={
+                                    "package": v.get("PkgName", ""),
+                                    "installed_version": v.get("InstalledVersion", ""),
+                                    "fixed_version": v.get("FixedVersion", ""),
+                                    "references": v.get("References", [])[:5],
+                                },
+                            )
+                        )
         except asyncio.TimeoutError:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.HIGH,
-                title="INCOMPLETE SCAN: Trivy scan timed out",
-                description=f"Scan timed out after {settings.scan_timeout}s",
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.HIGH,
+                    title="INCOMPLETE SCAN: Trivy scan timed out",
+                    description=f"Scan timed out after {settings.scan_timeout}s",
+                )
+            )
         except Exception as e:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Trivy scan error",
-                description=str(e),
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.INFO,
+                    title="Trivy scan error",
+                    description=str(e),
+                )
+            )
         return findings
 
     @staticmethod

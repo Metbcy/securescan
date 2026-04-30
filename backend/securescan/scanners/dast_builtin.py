@@ -3,11 +3,12 @@
 Checks for missing security headers, information-disclosure headers, and
 insecure cookie flags without requiring any external tool.
 """
+
 import httpx
 
-from .base import BaseScanner
-from ..models import Finding, ScanType, Severity
 from ..config import settings
+from ..models import Finding, ScanType, Severity
+from .base import BaseScanner
 
 SECURITY_HEADERS = [
     "Strict-Transport-Security",
@@ -62,15 +63,17 @@ class BuiltinDastScanner(BaseScanner):
             findings.extend(self._check_info_disclosure_headers(response, scan_id, target_url))
             findings.extend(self._check_cookies(response, scan_id, target_url))
         except httpx.RequestError as exc:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="DAST scan error: request failed",
-                description=str(exc),
-                metadata={"target_url": target_url},
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.INFO,
+                    title="DAST scan error: request failed",
+                    description=str(exc),
+                    metadata={"target_url": target_url},
+                )
+            )
         return findings
 
     def _check_security_headers(
@@ -82,21 +85,23 @@ class BuiltinDastScanner(BaseScanner):
         findings: list[Finding] = []
         for header in SECURITY_HEADERS:
             if header.lower() not in response.headers:
-                findings.append(Finding(
-                    scan_id=scan_id,
-                    scanner=self.name,
-                    scan_type=self.scan_type,
-                    severity=Severity.MEDIUM,
-                    title=f"Missing security header: {header}",
-                    description=(
-                        f"The response from {target_url} is missing the '{header}' "
-                        "HTTP security header, which helps protect against common "
-                        "web attacks."
-                    ),
-                    rule_id=f"missing-header-{header.lower()}",
-                    remediation=f"Add the '{header}' header to all HTTP responses.",
-                    metadata={"target_url": target_url, "header": header},
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.MEDIUM,
+                        title=f"Missing security header: {header}",
+                        description=(
+                            f"The response from {target_url} is missing the '{header}' "
+                            "HTTP security header, which helps protect against common "
+                            "web attacks."
+                        ),
+                        rule_id=f"missing-header-{header.lower()}",
+                        remediation=f"Add the '{header}' header to all HTTP responses.",
+                        metadata={"target_url": target_url, "header": header},
+                    )
+                )
         return findings
 
     def _check_info_disclosure_headers(
@@ -109,24 +114,26 @@ class BuiltinDastScanner(BaseScanner):
         for header in INFO_DISCLOSURE_HEADERS:
             value = response.headers.get(header.lower())
             if value:
-                findings.append(Finding(
-                    scan_id=scan_id,
-                    scanner=self.name,
-                    scan_type=self.scan_type,
-                    severity=Severity.LOW,
-                    title=f"Information disclosure header: {header}",
-                    description=(
-                        f"The response from {target_url} includes the '{header}' "
-                        f"header with value '{value}', which discloses server "
-                        "technology information to potential attackers."
-                    ),
-                    rule_id=f"info-disclosure-{header.lower()}",
-                    remediation=(
-                        f"Remove or obfuscate the '{header}' header in your "
-                        "web server / application configuration."
-                    ),
-                    metadata={"target_url": target_url, "header": header, "value": value},
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.LOW,
+                        title=f"Information disclosure header: {header}",
+                        description=(
+                            f"The response from {target_url} includes the '{header}' "
+                            f"header with value '{value}', which discloses server "
+                            "technology information to potential attackers."
+                        ),
+                        rule_id=f"info-disclosure-{header.lower()}",
+                        remediation=(
+                            f"Remove or obfuscate the '{header}' header in your "
+                            "web server / application configuration."
+                        ),
+                        metadata={"target_url": target_url, "header": header, "value": value},
+                    )
+                )
         return findings
 
     def _check_cookies(
@@ -143,36 +150,40 @@ class BuiltinDastScanner(BaseScanner):
             parts_lower = [p.strip().lower() for p in raw_cookie.split(";")]
 
             if "secure" not in parts_lower:
-                findings.append(Finding(
-                    scan_id=scan_id,
-                    scanner=self.name,
-                    scan_type=self.scan_type,
-                    severity=Severity.MEDIUM,
-                    title=f"Cookie missing Secure flag: {cookie_name}",
-                    description=(
-                        f"The cookie '{cookie_name}' set by {target_url} does not "
-                        "have the Secure flag, meaning it can be transmitted over "
-                        "unencrypted HTTP connections."
-                    ),
-                    rule_id="cookie-missing-secure",
-                    remediation="Set the Secure flag on all cookies.",
-                    metadata={"target_url": target_url, "cookie": cookie_name},
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.MEDIUM,
+                        title=f"Cookie missing Secure flag: {cookie_name}",
+                        description=(
+                            f"The cookie '{cookie_name}' set by {target_url} does not "
+                            "have the Secure flag, meaning it can be transmitted over "
+                            "unencrypted HTTP connections."
+                        ),
+                        rule_id="cookie-missing-secure",
+                        remediation="Set the Secure flag on all cookies.",
+                        metadata={"target_url": target_url, "cookie": cookie_name},
+                    )
+                )
 
             if "httponly" not in parts_lower:
-                findings.append(Finding(
-                    scan_id=scan_id,
-                    scanner=self.name,
-                    scan_type=self.scan_type,
-                    severity=Severity.MEDIUM,
-                    title=f"Cookie missing HttpOnly flag: {cookie_name}",
-                    description=(
-                        f"The cookie '{cookie_name}' set by {target_url} does not "
-                        "have the HttpOnly flag, making it accessible to JavaScript "
-                        "and increasing the risk of XSS-based session theft."
-                    ),
-                    rule_id="cookie-missing-httponly",
-                    remediation="Set the HttpOnly flag on all session/auth cookies.",
-                    metadata={"target_url": target_url, "cookie": cookie_name},
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.MEDIUM,
+                        title=f"Cookie missing HttpOnly flag: {cookie_name}",
+                        description=(
+                            f"The cookie '{cookie_name}' set by {target_url} does not "
+                            "have the HttpOnly flag, making it accessible to JavaScript "
+                            "and increasing the risk of XSS-based session theft."
+                        ),
+                        rule_id="cookie-missing-httponly",
+                        remediation="Set the HttpOnly flag on all session/auth cookies.",
+                        metadata={"target_url": target_url, "cookie": cookie_name},
+                    )
+                )
         return findings

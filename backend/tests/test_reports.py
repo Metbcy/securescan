@@ -1,10 +1,11 @@
 """Tests for report generation."""
+
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from securescan.models import Finding, Scan, ScanStatus, ScanSummary, ScanType, Severity
+from securescan.models import Finding, Scan, ScanStatus, ScanType, Severity
 from securescan.reports import ReportGenerator
 from securescan.scoring import build_summary
 
@@ -85,18 +86,20 @@ def test_generate_html_with_compliance(generator: ReportGenerator):
     scan = _make_scan()
     findings = _make_findings()
     summary = build_summary(findings, ["semgrep"])
-    coverage = [{
-        "framework": "OWASP Top 10",
-        "version": "2021",
-        "total_controls": 10,
-        "controls_violated": ["OWASP-A02", "OWASP-A03"],
-        "controls_clear": ["OWASP-A01"],
-        "violated_details": [
-            {"id": "OWASP-A02", "name": "Cryptographic Failures"},
-            {"id": "OWASP-A03", "name": "Injection"},
-        ],
-        "coverage_percentage": 20.0,
-    }]
+    coverage = [
+        {
+            "framework": "OWASP Top 10",
+            "version": "2021",
+            "total_controls": 10,
+            "controls_violated": ["OWASP-A02", "OWASP-A03"],
+            "controls_clear": ["OWASP-A01"],
+            "violated_details": [
+                {"id": "OWASP-A02", "name": "Cryptographic Failures"},
+                {"id": "OWASP-A03", "name": "Injection"},
+            ],
+            "coverage_percentage": 20.0,
+        }
+    ]
     html = generator.generate_html(scan, findings, summary, compliance_coverage=coverage)
     assert "Compliance" in html
     assert "OWASP Top 10" in html

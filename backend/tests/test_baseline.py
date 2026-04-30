@@ -1,4 +1,5 @@
 """Tests for ``backend/securescan/baseline.py``."""
+
 from __future__ import annotations
 
 import json
@@ -11,16 +12,21 @@ from securescan.baseline import filter_against_baseline
 @dataclass
 class _StubFinding:
     """Minimal duck-typed Finding used until SS2 lands the real field."""
+
     fingerprint: str
     title: str = "stub"
 
 
 def test_filter_against_baseline_suppresses_matching_fingerprints(tmp_path: Path):
     baseline = tmp_path / "baseline.json"
-    baseline.write_text(json.dumps([
-        {"fingerprint": "fp-old-1"},
-        {"fingerprint": "fp-old-2"},
-    ]))
+    baseline.write_text(
+        json.dumps(
+            [
+                {"fingerprint": "fp-old-1"},
+                {"fingerprint": "fp-old-2"},
+            ]
+        )
+    )
 
     findings = [
         _StubFinding(fingerprint="fp-old-1"),
@@ -51,9 +57,7 @@ def test_filter_against_baseline_keeps_findings_not_in_baseline(tmp_path: Path):
     assert {f.fingerprint for f in kept} == {"fp-a", "fp-b"}
 
 
-def test_filter_against_baseline_handles_missing_file_gracefully(
-    tmp_path: Path, capsys
-):
+def test_filter_against_baseline_handles_missing_file_gracefully(tmp_path: Path, capsys):
     findings = [_StubFinding(fingerprint="fp-a")]
     missing = tmp_path / "does-not-exist.json"
 
@@ -66,9 +70,7 @@ def test_filter_against_baseline_handles_missing_file_gracefully(
     assert str(missing) in captured.err
 
 
-def test_filter_against_baseline_handles_malformed_json_gracefully(
-    tmp_path: Path, capsys
-):
+def test_filter_against_baseline_handles_malformed_json_gracefully(tmp_path: Path, capsys):
     baseline = tmp_path / "broken.json"
     baseline.write_text("{not valid json,,,")
 
@@ -86,11 +88,15 @@ def test_filter_against_baseline_accepts_wrapped_findings_shape(tmp_path: Path):
     """The output of ``securescan scan --output json`` is a list of full
     Finding dicts; the helper should accept that shape too."""
     baseline = tmp_path / "baseline.json"
-    baseline.write_text(json.dumps({
-        "findings": [
-            {"fingerprint": "fp-old", "title": "legacy SQLi"},
-        ]
-    }))
+    baseline.write_text(
+        json.dumps(
+            {
+                "findings": [
+                    {"fingerprint": "fp-old", "title": "legacy SQLi"},
+                ]
+            }
+        )
+    )
 
     findings = [
         _StubFinding(fingerprint="fp-old"),

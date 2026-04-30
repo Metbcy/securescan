@@ -10,12 +10,13 @@ We rely on SHA-256 (not argon2/bcrypt) because the keys themselves are
 without a memory-hard KDF. Adding bcrypt here would buy nothing except
 a hard dep and per-request CPU cost on the auth path.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 import secrets
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 KEY_PREFIX = "ssk_"
 ID_LENGTH = 10  # base64url chars; ~60 bits
@@ -29,11 +30,11 @@ class GeneratedKey(NamedTuple):
     must round-trip back to the caller; ``id`` and ``key_hash`` are what
     the DB persists, ``prefix`` is what the UI surfaces."""
 
-    id: str          # 10-char base64url (no `-` or `_`)
-    secret: str      # 32-char base64url
-    full: str        # ssk_<id>_<secret>
-    prefix: str      # full[:16] (id + 1 char of secret); safe to display
-    key_hash: str    # "<salt-hex>$<sha256-hex>"
+    id: str  # 10-char base64url (no `-` or `_`)
+    secret: str  # 32-char base64url
+    full: str  # ssk_<id>_<secret>
+    prefix: str  # full[:16] (id + 1 char of secret); safe to display
+    key_hash: str  # "<salt-hex>$<sha256-hex>"
 
 
 def generate_key() -> GeneratedKey:
@@ -47,11 +48,7 @@ def generate_key() -> GeneratedKey:
     # token_urlsafe(8) yields ~11 chars; trim to ID_LENGTH and substitute
     # `-` / `_` so the id can be parsed from the full key without the
     # separator (`_`) being ambiguous and without needing URL-escaping.
-    id_ = (
-        secrets.token_urlsafe(8)[:ID_LENGTH]
-        .replace("-", "x")
-        .replace("_", "y")
-    )
+    id_ = secrets.token_urlsafe(8)[:ID_LENGTH].replace("-", "x").replace("_", "y")
     secret = secrets.token_urlsafe(24)[:SECRET_LENGTH]
     full = f"{KEY_PREFIX}{id_}_{secret}"
     return GeneratedKey(
@@ -63,7 +60,7 @@ def generate_key() -> GeneratedKey:
     )
 
 
-def parse_key_id(provided: str) -> Optional[str]:
+def parse_key_id(provided: str) -> str | None:
     """Extract the id segment from ``ssk_<id>_<secret>``.
 
     Returns None on any malformed input (wrong prefix, missing
@@ -74,7 +71,7 @@ def parse_key_id(provided: str) -> Optional[str]:
         return None
     if not provided.startswith(KEY_PREFIX):
         return None
-    rest = provided[len(KEY_PREFIX):]
+    rest = provided[len(KEY_PREFIX) :]
     parts = rest.split("_", 1)
     if len(parts) != 2:
         return None

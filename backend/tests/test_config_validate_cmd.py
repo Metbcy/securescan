@@ -13,15 +13,14 @@ import pytest
 
 try:
     from typer.testing import CliRunner
+
     HAS_RUNNER = True
 except ImportError:  # pragma: no cover - typer ships testing helpers
     HAS_RUNNER = False
 
 from securescan.cli import app
 
-pytestmark = pytest.mark.skipif(
-    not HAS_RUNNER, reason="typer.testing.CliRunner unavailable"
-)
+pytestmark = pytest.mark.skipif(not HAS_RUNNER, reason="typer.testing.CliRunner unavailable")
 
 
 def _isolated_root(tmp_path: Path) -> Path:

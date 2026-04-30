@@ -16,6 +16,7 @@ so the classifier can be unit-tested without a filesystem and reused
 both by the ``securescan diff`` CLI (SS6) and the GitHub Action
 (SS9/SS10) which feeds it pre-scanned base/head JSONs.
 """
+
 from __future__ import annotations
 
 import json

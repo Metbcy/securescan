@@ -15,6 +15,7 @@ and what teams check into git. The contract pinned here:
 * the file round-trips through ``securescan.diff.load_findings_json``
   with fingerprints intact.
 """
+
 from __future__ import annotations
 
 import json
@@ -124,9 +125,7 @@ def test_serialize_baseline_sorts_findings_canonically(tmp_path):
 
     parsed = json.loads(a)
     canonical = sort_findings_canonical(findings)
-    assert [x["fingerprint"] for x in parsed["findings"]] == [
-        f.fingerprint for f in canonical
-    ]
+    assert [x["fingerprint"] for x in parsed["findings"]] == [f.fingerprint for f in canonical]
 
 
 def test_serialize_baseline_includes_version_field(tmp_path):

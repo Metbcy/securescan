@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from securescan import main as main_module
 from securescan.main import app
 
-
 client = TestClient(app)
 
 

@@ -1,7 +1,9 @@
 """Git hygiene scanner — checks .gitignore coverage and repo security practices."""
+
 from pathlib import Path
-from .base import BaseScanner
+
 from ..models import Finding, ScanType, Severity
+from .base import BaseScanner
 
 # Files/patterns that should be in .gitignore
 SHOULD_BE_IGNORED = {
@@ -75,15 +77,19 @@ class GitHygieneScanner(BaseScanner):
         gitignore = target / ".gitignore"
         gitignore_content = ""
         if not gitignore.exists():
-            findings.append(Finding(
-                scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                severity=Severity.MEDIUM,
-                title="No .gitignore file found",
-                description="Project has no .gitignore file. Sensitive files, build artifacts, and dependencies may be committed to version control.",
-                file_path=str(target),
-                rule_id="git-hygiene/no-gitignore",
-                remediation="Create a .gitignore file. Use gitignore.io or GitHub's templates for your project type.",
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.MEDIUM,
+                    title="No .gitignore file found",
+                    description="Project has no .gitignore file. Sensitive files, build artifacts, and dependencies may be committed to version control.",
+                    file_path=str(target),
+                    rule_id="git-hygiene/no-gitignore",
+                    remediation="Create a .gitignore file. Use gitignore.io or GitHub's templates for your project type.",
+                )
+            )
         else:
             gitignore_content = gitignore.read_text(errors="ignore")
 
@@ -102,29 +108,37 @@ class GitHygieneScanner(BaseScanner):
                         exists = (target / pattern).exists()
 
                     if exists and severity in (Severity.CRITICAL, Severity.HIGH):
-                        findings.append(Finding(
-                            scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                            severity=severity,
-                            title=f"'{pattern}' not in .gitignore but exists in project",
-                            description=f"'{pattern}' exists in the project but is not listed in .gitignore. This file may contain sensitive data.",
-                            file_path=str(gitignore),
-                            rule_id=f"git-hygiene/missing-ignore-{clean_pattern}",
-                            remediation=f"Add '{pattern}' to your .gitignore file.",
-                        ))
+                        findings.append(
+                            Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=severity,
+                                title=f"'{pattern}' not in .gitignore but exists in project",
+                                description=f"'{pattern}' exists in the project but is not listed in .gitignore. This file may contain sensitive data.",
+                                file_path=str(gitignore),
+                                rule_id=f"git-hygiene/missing-ignore-{clean_pattern}",
+                                remediation=f"Add '{pattern}' to your .gitignore file.",
+                            )
+                        )
 
         # Check for sensitive files in the project
         for filename, severity, desc in SENSITIVE_FILES:
             for found in target.rglob(filename):
                 if "node_modules" in str(found) or "venv" in str(found) or ".git/" in str(found):
                     continue
-                findings.append(Finding(
-                    scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                    severity=severity,
-                    title=f"Sensitive file in project: {filename}",
-                    description=f"{desc}. File found at {found.relative_to(target)}.",
-                    file_path=str(found),
-                    rule_id=f"git-hygiene/sensitive-file-{filename.replace('.', '-')}",
-                    remediation=f"Remove '{filename}' from version control, add it to .gitignore, and rotate any credentials it contains.",
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=severity,
+                        title=f"Sensitive file in project: {filename}",
+                        description=f"{desc}. File found at {found.relative_to(target)}.",
+                        file_path=str(found),
+                        rule_id=f"git-hygiene/sensitive-file-{filename.replace('.', '-')}",
+                        remediation=f"Remove '{filename}' from version control, add it to .gitignore, and rotate any credentials it contains.",
+                    )
+                )
 
         return findings

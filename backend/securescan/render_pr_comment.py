@@ -45,6 +45,7 @@ Output format is GitHub-flavored Markdown only. No ANSI escapes (the
 Action posts the body verbatim into a comment) and no emojis (pinned
 v0.2.0 decision — see plan.md).
 """
+
 from __future__ import annotations
 
 import re
@@ -86,7 +87,7 @@ _DESCRIPTION_MAX_CHARS = 120
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
 
 
-def _suppressed_reason(finding: "Finding") -> str | None:
+def _suppressed_reason(finding: Finding) -> str | None:
     """Return the suppression reason stamped on ``finding`` or ``None``.
 
     Mirrors the helper in :mod:`securescan.exporters`. Reads
@@ -105,7 +106,7 @@ def _suppressed_reason(finding: "Finding") -> str | None:
     return None
 
 
-def _suppression_breakdown(findings: list["Finding"]) -> dict[str, int]:
+def _suppression_breakdown(findings: list[Finding]) -> dict[str, int]:
     """Tally suppressed-by reasons across ``findings``.
 
     Returns a dict mapping reason -> count for every reason in
@@ -123,16 +124,13 @@ def _suppression_breakdown(findings: list["Finding"]) -> dict[str, int]:
     return breakdown
 
 
-def _filter_suppressed(
-    findings: list["Finding"], *, show_suppressed: bool
-) -> list["Finding"]:
+def _filter_suppressed(findings: list[Finding], *, show_suppressed: bool) -> list[Finding]:
     """Drop findings stamped with ``metadata['suppressed_by']`` unless
     ``show_suppressed`` is True. Stable: order is preserved.
     """
     if show_suppressed:
         return list(findings)
     return [f for f in findings if _suppressed_reason(f) is None]
-
 
 
 def _first_sentence_or_truncate(text: str, limit: int = _DESCRIPTION_MAX_CHARS) -> str:
@@ -160,7 +158,7 @@ def _first_sentence_or_truncate(text: str, limit: int = _DESCRIPTION_MAX_CHARS) 
 
 
 def _file_reference(
-    finding: "Finding",
+    finding: Finding,
     *,
     repo: str | None,
     sha: str | None,
@@ -201,8 +199,8 @@ def _file_reference(
 
 
 def _bucket_by_severity(
-    findings: list["Finding"],
-) -> dict[Severity, list["Finding"]]:
+    findings: list[Finding],
+) -> dict[Severity, list[Finding]]:
     """Group ``findings`` into per-severity buckets.
 
     Each bucket is sorted via ``sort_findings_canonical`` (the same key
@@ -220,7 +218,7 @@ def _bucket_by_severity(
 
 
 def _render_finding_bullet(
-    finding: "Finding",
+    finding: Finding,
     *,
     repo: str | None,
     sha: str | None,
@@ -267,7 +265,7 @@ def _render_finding_bullet(
 
 def _render_section(
     title: str,
-    findings: list["Finding"],
+    findings: list[Finding],
     *,
     repo: str | None,
     sha: str | None,
@@ -311,7 +309,7 @@ def _render_section(
 
 
 def render_pr_comment(
-    changeset: "ChangeSet",
+    changeset: ChangeSet,
     *,
     repo: str | None = None,
     sha: str | None = None,
@@ -399,23 +397,15 @@ def render_pr_comment(
 
     if show_suppressed:
         suppressed_in_new = [f for f in raw_new if _suppressed_reason(f) is not None]
-        suppressed_in_fixed = [
-            f for f in raw_fixed if _suppressed_reason(f) is not None
-        ]
+        suppressed_in_fixed = [f for f in raw_fixed if _suppressed_reason(f) is not None]
         suppressed_total = len(suppressed_in_new) + len(suppressed_in_fixed)
         if suppressed_total > 0:
-            breakdown = _suppression_breakdown(
-                suppressed_in_new + suppressed_in_fixed
-            )
+            breakdown = _suppression_breakdown(suppressed_in_new + suppressed_in_fixed)
             ordered_keys = list(_SUPPRESSION_REASON_ORDER) + sorted(
                 k for k in breakdown if k not in _SUPPRESSION_REASON_ORDER
             )
-            breakdown_text = ", ".join(
-                f"{k}={breakdown[k]}" for k in ordered_keys
-            )
-            lines.append(
-                f"| Suppressed | {suppressed_total} ({breakdown_text}) |"
-            )
+            breakdown_text = ", ".join(f"{k}={breakdown[k]}" for k in ordered_keys)
+            lines.append(f"| Suppressed | {suppressed_total} ({breakdown_text}) |")
 
     lines.append("")
 

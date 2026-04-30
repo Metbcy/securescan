@@ -1,4 +1,5 @@
 """Tests for the CI/AI guard rail logic."""
+
 from __future__ import annotations
 
 from securescan.cli import should_run_ai

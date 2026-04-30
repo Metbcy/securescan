@@ -20,6 +20,7 @@ The fingerprint field itself is being added by SS2 (parallel branch).
 This module reads it via ``getattr(finding, "fingerprint", "")`` so it
 can land before SS2 without breaking import.
 """
+
 from __future__ import annotations
 
 import json
@@ -47,9 +48,7 @@ def _extract_fingerprints(data) -> set[str]:
     return fingerprints
 
 
-def filter_against_baseline(
-    findings: list, baseline_path: Path
-) -> tuple[list, int]:
+def filter_against_baseline(findings: list, baseline_path: Path) -> tuple[list, int]:
     """Suppress findings whose fingerprint appears in the baseline file.
 
     Returns ``(kept_findings, suppressed_count)``.
@@ -73,8 +72,7 @@ def filter_against_baseline(
         data = json.loads(raw)
     except (OSError, json.JSONDecodeError) as exc:
         print(
-            f"warning: could not parse baseline file {path}: {exc} "
-            "(no findings suppressed)",
+            f"warning: could not parse baseline file {path}: {exc} (no findings suppressed)",
             file=sys.stderr,
         )
         return findings, 0

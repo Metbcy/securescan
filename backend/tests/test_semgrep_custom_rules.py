@@ -6,6 +6,7 @@ argv, which is exactly what we need to verify: that the scanner threads
 ``config.semgrep_rules`` (delivered through ``**kwargs``) into the
 right ``--config`` flags.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -131,9 +132,7 @@ def test_multiple_custom_rules_uses_repeated_config_flags(captured_argv, tmp_pat
     assert "auto" not in argv
 
 
-def test_custom_rules_uses_repeated_config_flag_does_not_combine(
-    captured_argv, tmp_path
-):
+def test_custom_rules_uses_repeated_config_flag_does_not_combine(captured_argv, tmp_path):
     """Each rule pack must get its own ``--config`` flag.
 
     The opposite would be a single ``--config a.yml,b.yml`` token — we
@@ -215,9 +214,7 @@ def test_kwargs_path_works_through_base_scanner_interface(captured_argv, tmp_pat
 
     scanner: SemgrepScanner = SemgrepScanner()
     # exact call shape TS10 will use
-    asyncio.run(
-        scanner.scan(str(tmp_path), scan_id="test", semgrep_rules=[rule_file])
-    )
+    asyncio.run(scanner.scan(str(tmp_path), scan_id="test", semgrep_rules=[rule_file]))
 
     argv = captured_argv[0]
     assert "--config" in argv
@@ -254,9 +251,7 @@ def test_target_path_is_last_with_custom_rules(captured_argv, tmp_path):
     rule_file.write_text("rules: []\n")
 
     scanner = SemgrepScanner()
-    asyncio.run(
-        scanner.scan(str(tmp_path), scan_id="t", semgrep_rules=[rule_file])
-    )
+    asyncio.run(scanner.scan(str(tmp_path), scan_id="t", semgrep_rules=[rule_file]))
 
     argv = captured_argv[0]
     assert argv[-1] == str(tmp_path)

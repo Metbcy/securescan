@@ -1,6 +1,8 @@
 """Risk scoring module for SecureScan."""
+
 import math
-from .models import Finding, Severity, ScanSummary
+
+from .models import Finding, ScanSummary, Severity
 
 
 def calculate_risk_score(findings: list[Finding]) -> float:

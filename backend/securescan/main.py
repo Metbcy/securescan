@@ -10,16 +10,18 @@ load_user_env()
 
 from fastapi import Depends, HTTPException
 
+from . import event_tokens
 from .api import app
-from .api.scans import router as scans_router
-from .api.dashboard import router as dashboard_router, browse_router
 from .api.compliance import router as compliance_router
-from .api.sbom import router as sbom_router
-from .api.triage import router as triage_router
+from .api.dashboard import browse_router
+from .api.dashboard import router as dashboard_router
 from .api.keys import router as keys_router
 from .api.notifications import router as notifications_router
-from .api.webhooks import router as webhooks_router
+from .api.sbom import router as sbom_router
+from .api.scans import router as scans_router
+from .api.triage import router as triage_router
 from .api.versioning import alias_router_at_v1
+from .api.webhooks import router as webhooks_router
 from .auth import (
     AUTH_REQUIRED_ENV,
     _bool_env,
@@ -28,7 +30,6 @@ from .auth import (
     is_dev_mode,
     require_api_key,
 )
-from . import event_tokens
 from .database import count_admin_keys_active, init_db, prune_old_notifications
 from .middleware.rate_limit import RateLimitMiddleware
 from .webhook_dispatcher import dispatcher as webhook_dispatcher
@@ -61,9 +62,7 @@ for _r in (
 
 _logger = logging.getLogger(__name__)
 if is_dev_mode():
-    _logger.warning(
-        "SECURESCAN_API_KEY not set; API is unauthenticated (dev mode)."
-    )
+    _logger.warning("SECURESCAN_API_KEY not set; API is unauthenticated (dev mode).")
 
 
 @app.on_event("startup")
@@ -89,9 +88,7 @@ async def _startup_notifications():
     """
     pruned = await prune_old_notifications(older_than_days=30)
     if pruned:
-        _logger.info(
-            "notifications: pruned %d old read notifications", pruned
-        )
+        _logger.info("notifications: pruned %d old read notifications", pruned)
 
 
 @app.on_event("startup")
@@ -101,9 +98,7 @@ async def _startup_event_tokens():
     # secret is acceptable in dev because tokens die with the process
     # anyway.
     auth_required = _bool_env(AUTH_REQUIRED_ENV)
-    secret_set = bool(
-        os.environ.get("SECURESCAN_EVENT_TOKEN_SECRET", "").strip()
-    )
+    secret_set = bool(os.environ.get("SECURESCAN_EVENT_TOKEN_SECRET", "").strip())
     if auth_required and not secret_set:
         _logger.critical(
             "SECURESCAN_AUTH_REQUIRED=1 requires "
@@ -164,6 +159,7 @@ async def ready():
 
     try:
         from .scanners import ALL_SCANNERS
+
         checks["scanners"] = {"status": "ok", "count": len(ALL_SCANNERS)}
     except Exception as e:
         checks["scanners"] = {"status": "fail", "error": str(e)}

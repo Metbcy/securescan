@@ -29,6 +29,7 @@ pick a backoff inside [0, tiny_cap], which we then poll for via
 the loop one tick at a time via :meth:`WebhookDispatcher.run_once`
 so we never need to start the long-running task in unit tests.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,7 +37,6 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timedelta
-from typing import Optional
 
 import httpx
 import pytest
@@ -45,7 +45,6 @@ from fastapi.testclient import TestClient
 from securescan import webhook_dispatcher as wd
 from securescan.api import scans as scans_api
 from securescan.database import (
-    get_webhook,
     get_webhook_delivery,
     init_db,
     insert_webhook,
@@ -58,7 +57,6 @@ from securescan.database import (
 from securescan.main import app
 from securescan.webhook_dispatcher import WebhookDispatcher
 from securescan.webhook_formatters import format_payload
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -122,11 +120,13 @@ class _StubClient:
         self._closed = False
 
     async def post(self, url, content=None, headers=None):
-        self.calls.append({
-            "url": url,
-            "content": content,
-            "headers": dict(headers or {}),
-        })
+        self.calls.append(
+            {
+                "url": url,
+                "content": content,
+                "headers": dict(headers or {}),
+            }
+        )
         if self._idx < len(self.responses):
             r = self.responses[self._idx]
             self._idx += 1
@@ -161,7 +161,7 @@ async def _seed_webhook(
     name: str = "test-hook",
     url: str = "https://example.com/hook",
     secret: str = "topsecret",
-    events: Optional[list[str]] = None,
+    events: list[str] | None = None,
     enabled: bool = True,
 ) -> str:
     import uuid as _uuid
@@ -183,9 +183,9 @@ async def _enqueue(
     webhook_id: str,
     *,
     event: str = "scan.complete",
-    payload: Optional[dict] = None,
-    next_at: Optional[datetime] = None,
-    created_at: Optional[datetime] = None,
+    payload: dict | None = None,
+    next_at: datetime | None = None,
+    created_at: datetime | None = None,
 ) -> str:
     import uuid as _uuid
 
@@ -286,6 +286,7 @@ def test_patch_webhook_does_not_rotate_secret(client):
     # The body model has no `secret` field; confirm DB still has the
     # original by reading via the dispatcher path (get_webhook_row).
     from securescan.database import get_webhook_row
+
     row = asyncio.run(get_webhook_row(wh_id))
     assert row["secret"] == original_secret
 
@@ -357,9 +358,7 @@ def test_create_requires_at_least_one_event(client):
 
 def test_get_unknown_returns_404(client):
     assert client.get("/api/v1/webhooks/does-not-exist").status_code == 404
-    assert client.patch(
-        "/api/v1/webhooks/does-not-exist", json={"name": "x"}
-    ).status_code == 404
+    assert client.patch("/api/v1/webhooks/does-not-exist", json={"name": "x"}).status_code == 404
     assert client.delete("/api/v1/webhooks/does-not-exist").status_code == 404
 
 
@@ -446,19 +445,18 @@ async def test_delivery_transport_error_retries(temp_db, fresh_dispatcher):
     wh_id = await _seed_webhook()
     delivery_id = await _enqueue(wh_id)
 
-    fresh_dispatcher.client = _StubClient([
-        httpx.ConnectError("boom"),
-        _Resp(200, "ok"),
-    ])
+    fresh_dispatcher.client = _StubClient(
+        [
+            httpx.ConnectError("boom"),
+            _Resp(200, "ok"),
+        ]
+    )
 
     await fresh_dispatcher.run_once()
 
     async def _pending_after_transport_err():
         row = await get_webhook_delivery(delivery_id)
-        return (
-            row["status"] == "pending"
-            and (row["response_body"] or "").startswith("transport:")
-        )
+        return row["status"] == "pending" and (row["response_body"] or "").startswith("transport:")
 
     assert await _wait_for(_pending_after_transport_err)
 
@@ -554,9 +552,7 @@ async def test_event_filter_drops_unmatched_events(temp_db):
     assert pending == [], pending
 
     # And the matching event DOES enqueue.
-    await scans_api._enqueue_webhook_deliveries(
-        "scan.complete", "scan-xyz", {"findings_count": 3}
-    )
+    await scans_api._enqueue_webhook_deliveries("scan.complete", "scan-xyz", {"findings_count": 3})
     pending = await list_pending_deliveries(limit=10)
     assert len(pending) == 1
     assert pending[0]["webhook_id"] == wh_id
@@ -567,9 +563,7 @@ async def test_event_filter_drops_unmatched_events(temp_db):
 async def test_disabled_webhook_does_not_receive(temp_db):
     """An `enabled=0` subscription is invisible to the enqueuer."""
     await _seed_webhook(events=["scan.complete"], enabled=False)
-    await scans_api._enqueue_webhook_deliveries(
-        "scan.complete", "scan-xyz", {"findings_count": 3}
-    )
+    await scans_api._enqueue_webhook_deliveries("scan.complete", "scan-xyz", {"findings_count": 3})
     pending = await list_pending_deliveries(limit=10)
     assert pending == []
 
@@ -587,6 +581,7 @@ async def test_startup_resets_stale_delivering_rows(temp_db):
 
     # Simulate the worker having claimed the row right before crash.
     from securescan.database import mark_delivery_delivering
+
     claimed = await mark_delivery_delivering(delivery_id)
     assert claimed
     row = await get_webhook_delivery(delivery_id)
@@ -661,6 +656,7 @@ async def test_fifo_per_webhook(temp_db, fresh_dispatcher):
     # Give the first dispatch task a chance to actually call .post.
     async def _first_in_flight():
         return call_count == 1
+
     assert await _wait_for(_first_in_flight)
 
     # Second tick: still blocked on the gate, FIFO guard rejects.
@@ -677,6 +673,7 @@ async def test_fifo_per_webhook(temp_db, fresh_dispatcher):
     async def _first_done():
         row = await get_webhook_delivery(first)
         return row["status"] == "succeeded"
+
     assert await _wait_for(_first_done, timeout=2.0)
 
     async def _second_done():
@@ -696,6 +693,7 @@ async def test_mark_delivering_is_atomic(temp_db):
     delivery_id = await _enqueue(wh_id)
 
     from securescan.database import mark_delivery_delivering
+
     a, b = await asyncio.gather(
         mark_delivery_delivering(delivery_id),
         mark_delivery_delivering(delivery_id),

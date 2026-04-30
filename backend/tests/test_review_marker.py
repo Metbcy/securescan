@@ -1,4 +1,5 @@
 """Tests for the fingerprint marker module."""
+
 from __future__ import annotations
 
 import pytest
@@ -11,7 +12,6 @@ from securescan.review_marker import (
     has_fingerprint,
     strip_fingerprint_markers,
 )
-
 
 FP_FULL_A = "a" * 64
 FP_FULL_B = "b" * 64
@@ -104,26 +104,11 @@ def test_extract_marker_returns_none_for_unmarked_body() -> None:
 
 
 def test_extract_marker_handles_whitespace_variants() -> None:
-    assert (
-        extract_fingerprint("<!--   securescan:fp:abc123def456 -->")
-        == "abc123def456"
-    )
-    assert (
-        extract_fingerprint("<!-- securescan:fp:abc123def456   -->")
-        == "abc123def456"
-    )
-    assert (
-        extract_fingerprint("<!-- securescan:fp: abc123def456 -->")
-        == "abc123def456"
-    )
-    assert (
-        extract_fingerprint("<!--securescan:fp:abc123def456-->")
-        == "abc123def456"
-    )
-    assert (
-        extract_fingerprint("body\n<!-- SECURESCAN:FP:ABC123 -->\nmore")
-        == "abc123"
-    )
+    assert extract_fingerprint("<!--   securescan:fp:abc123def456 -->") == "abc123def456"
+    assert extract_fingerprint("<!-- securescan:fp:abc123def456   -->") == "abc123def456"
+    assert extract_fingerprint("<!-- securescan:fp: abc123def456 -->") == "abc123def456"
+    assert extract_fingerprint("<!--securescan:fp:abc123def456-->") == "abc123def456"
+    assert extract_fingerprint("body\n<!-- SECURESCAN:FP:ABC123 -->\nmore") == "abc123"
 
 
 def test_extract_marker_returns_first_when_multiple_present() -> None:
@@ -204,11 +189,7 @@ def test_marker_does_not_break_markdown_rendering() -> None:
     """Sanity: the marker is an HTML comment and is invisible in rendered
     Markdown. We assert it doesn't appear in the stripped form, which is
     what a Markdown renderer would also hide from end users."""
-    body = (
-        "## Finding\n\n"
-        "Severity: **high**\n\n"
-        "```python\nimport requests\n```\n"
-    )
+    body = "## Finding\n\nSeverity: **high**\n\n```python\nimport requests\n```\n"
     marked = add_fingerprint_marker(body, FP_FULL_A)
     stripped = strip_fingerprint_markers(marked)
     assert "<!-- securescan:fp:" not in stripped

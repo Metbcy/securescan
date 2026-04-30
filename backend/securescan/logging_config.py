@@ -6,6 +6,7 @@ Reads:
   SECURESCAN_LOG_FORMAT (default "json" if SECURESCAN_IN_CONTAINER else "text")
   SECURESCAN_TESTING    (when set, format defaults to "text" for capsys)
 """
+
 from __future__ import annotations
 
 import json
@@ -15,13 +16,32 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-
-_STANDARD_RECORD_ATTRS = frozenset({
-    "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
-    "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-    "created", "msecs", "relativeCreated", "thread", "threadName",
-    "processName", "process", "message", "taskName",
-})
+_STANDARD_RECORD_ATTRS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "levelname",
+        "levelno",
+        "pathname",
+        "filename",
+        "module",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "created",
+        "msecs",
+        "relativeCreated",
+        "thread",
+        "threadName",
+        "processName",
+        "process",
+        "message",
+        "taskName",
+    }
+)
 
 
 class JSONFormatter(logging.Formatter):
@@ -67,9 +87,7 @@ def configure_logging() -> None:
     if fmt == "json":
         handler.setFormatter(JSONFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
     root = logging.getLogger()
     root.handlers.clear()

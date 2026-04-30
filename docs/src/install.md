@@ -59,6 +59,19 @@ secret is configured on the repo. Until then, install from the
 GitHub Release URL or build from source (see §4).
 ```
 
+```admonish note
+PDF reports (`securescan scan ... --output report-pdf`) require the
+optional `[pdf]` extra, which pulls in WeasyPrint and its Cairo /
+Pango / GObject system-library chain:
+
+    pip install 'securescan[pdf] @ https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl'
+
+The container image ships `weasyprint` pre-installed, so PDF reports
+work out of the box there. Without the extra, requesting
+`--output report-pdf` raises a clear `RuntimeError` pointing back at
+this install step.
+```
+
 The wheel only ships SecureScan itself. The underlying scanner CLIs
 (`semgrep`, `bandit`, `safety`, `pip-licenses`, `checkov`, `trivy`,
 `npm`, `nmap`, ZAP, …) need to be installed separately and on `PATH`

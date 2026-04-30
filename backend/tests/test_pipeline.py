@@ -20,7 +20,6 @@ from securescan.config_file import SecureScanConfig
 from securescan.models import Finding, ScanType, Severity
 from securescan.pipeline import apply_pipeline
 
-
 # --- helpers --------------------------------------------------------------
 
 
@@ -51,9 +50,7 @@ def _make_finding(
 
 def _write_baseline(path: Path, fingerprints: list[str]) -> None:
     """Write a minimal ``[{"fingerprint": ...}]`` baseline."""
-    path.write_text(
-        json.dumps([{"fingerprint": fp} for fp in fingerprints])
-    )
+    path.write_text(json.dumps([{"fingerprint": fp} for fp in fingerprints]))
 
 
 # --- tests ----------------------------------------------------------------
@@ -121,6 +118,7 @@ def test_apply_pipeline_baseline_suppresses(tmp_path):
 
     # Pre-populate fingerprint so the baseline file can target it.
     from securescan.fingerprint import populate_fingerprints
+
     populate_fingerprints(findings)
     target_fp = finding.fingerprint
     assert target_fp
@@ -174,18 +172,11 @@ def test_apply_pipeline_inline_comment_suppresses(tmp_path):
 def test_apply_pipeline_inline_beats_config_beats_baseline(tmp_path):
     """All three apply for the same finding -> reason='inline' wins."""
     src = tmp_path / "app.py"
-    src.write_text(
-        "# l1\n"
-        "# l2\n"
-        "# l3\n"
-        "# l4\n"
-        "evil()  # securescan: ignore RULE-A\n"
-    )
+    src.write_text("# l1\n# l2\n# l3\n# l4\nevil()  # securescan: ignore RULE-A\n")
 
-    finding = _make_finding(
-        rule_id="RULE-A", file_path=str(src), line_start=5
-    )
+    finding = _make_finding(rule_id="RULE-A", file_path=str(src), line_start=5)
     from securescan.fingerprint import populate_fingerprints
+
     populate_fingerprints([finding])
 
     baseline = tmp_path / "baseline.json"
@@ -212,15 +203,11 @@ def test_apply_pipeline_no_suppress_returns_all_kept(tmp_path):
     pollute the audit trail.
     """
     src = tmp_path / "app.py"
-    src.write_text(
-        "# l1\n# l2\n# l3\n# l4\n"
-        "evil()  # securescan: ignore RULE-A\n"
-    )
+    src.write_text("# l1\n# l2\n# l3\n# l4\nevil()  # securescan: ignore RULE-A\n")
 
-    finding = _make_finding(
-        rule_id="RULE-A", file_path=str(src), line_start=5
-    )
+    finding = _make_finding(rule_id="RULE-A", file_path=str(src), line_start=5)
     from securescan.fingerprint import populate_fingerprints
+
     populate_fingerprints([finding])
 
     baseline = tmp_path / "baseline.json"
@@ -253,9 +240,7 @@ def test_apply_pipeline_idempotent(tmp_path):
     )
 
     first = apply_pipeline(findings, target_path=tmp_path, config=config)
-    second = apply_pipeline(
-        first.kept + first.suppressed, target_path=tmp_path, config=config
-    )
+    second = apply_pipeline(first.kept + first.suppressed, target_path=tmp_path, config=config)
 
     assert len(second.kept) == 1
     assert len(second.suppressed) == 1
@@ -298,9 +283,7 @@ def test_apply_pipeline_loads_config_from_disk(tmp_path):
     "loaded config from <path>" to stderr.
     """
     cfg_file = tmp_path / ".securescan.yml"
-    cfg_file.write_text(
-        "ignored_rules:\n  - RULE-A\n"
-    )
+    cfg_file.write_text("ignored_rules:\n  - RULE-A\n")
 
     findings = [
         _make_finding(rule_id="RULE-A"),
@@ -331,9 +314,7 @@ def test_apply_pipeline_resolves_semgrep_rules_relative_paths(tmp_path):
     (rules_dir / "custom.yml").write_text("rules: []\n")
 
     cfg_file = tmp_path / ".securescan.yml"
-    cfg_file.write_text(
-        "semgrep_rules:\n  - ./rules/custom.yml\n"
-    )
+    cfg_file.write_text("semgrep_rules:\n  - ./rules/custom.yml\n")
 
     result = apply_pipeline(
         [],

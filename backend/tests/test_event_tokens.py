@@ -6,6 +6,7 @@ a short-lived signed token (POST .../event-token), then attach it as
 HMAC contract; the HTTP-level behaviour (rehydrate principal, reject
 on revoked key, etc.) is exercised in ``test_sse.py``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -97,9 +98,7 @@ def test_signing_secret_required_when_auth_required(monkeypatch):
     import os
 
     auth_required = auth._bool_env(auth.AUTH_REQUIRED_ENV)
-    secret_set = bool(
-        os.environ.get("SECURESCAN_EVENT_TOKEN_SECRET", "").strip()
-    )
+    secret_set = bool(os.environ.get("SECURESCAN_EVENT_TOKEN_SECRET", "").strip())
     assert auth_required is True
     assert secret_set is False
 
@@ -109,9 +108,7 @@ def test_signing_secret_required_when_auth_required(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         # Provide a valid env_key so the BE-AUTH-KEYS check passes
         # and the SECRET check is the one that fires.
-        auth.assert_auth_credentials_configured(
-            env_key="bootstrap", admin_db_count=0
-        )
+        auth.assert_auth_credentials_configured(env_key="bootstrap", admin_db_count=0)
         # We have to run the real startup hook to hit the SECRET
         # check; do it via asyncio.run since it's an async function.
         asyncio.run(main.startup())

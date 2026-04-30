@@ -10,6 +10,7 @@ Covers:
 - Comments — POST/GET/DELETE, ordering, isolation, idempotency-of-404
 - Legacy /api/findings/... alias still reaches the same handler
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,7 +33,6 @@ from securescan.models import (
     ScanType,
     Severity,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -71,7 +71,9 @@ def _make_finding(scan_id: str, *, suffix: str, fingerprint: str = "") -> Findin
     )
 
 
-def _seed_scan(*, status: ScanStatus = ScanStatus.COMPLETED, findings: list[Finding] | None = None) -> str:
+def _seed_scan(
+    *, status: ScanStatus = ScanStatus.COMPLETED, findings: list[Finding] | None = None
+) -> str:
     scan = Scan(target_path="/tmp/proj", scan_types=[ScanType.CODE], status=status)
 
     async def _inner() -> str:
@@ -105,6 +107,7 @@ def test_patch_state_creates(client: TestClient):
     # updated_at is server-assigned; just assert presence + ISO-parseable.
     assert body["updated_at"]
     from datetime import datetime
+
     datetime.fromisoformat(body["updated_at"])
 
 
@@ -198,9 +201,22 @@ def test_get_findings_with_state_preserves_finding_fields(client: TestClient):
     item = body[0]
     # Every Finding-side field is present.
     for key in (
-        "id", "scan_id", "scanner", "scan_type", "severity", "title",
-        "description", "file_path", "line_start", "line_end", "rule_id",
-        "cwe", "remediation", "metadata", "compliance_tags", "fingerprint",
+        "id",
+        "scan_id",
+        "scanner",
+        "scan_type",
+        "severity",
+        "title",
+        "description",
+        "file_path",
+        "line_start",
+        "line_end",
+        "rule_id",
+        "cwe",
+        "remediation",
+        "metadata",
+        "compliance_tags",
+        "fingerprint",
     ):
         assert key in item, f"missing field: {key}"
     assert item["state"] is None
@@ -225,8 +241,9 @@ def test_state_survives_scan_delete(client: TestClient):
     # the test is not coupled to any HTTP "get state" route (there isn't
     # one -- state is only ever read via the scan-findings join).
     import aiosqlite
-    from securescan.config import settings as _settings  # noqa: F401
+
     from securescan import database as _db_module
+    from securescan.config import settings as _settings  # noqa: F401
 
     async def _state_count() -> int:
         async with aiosqlite.connect(_db_module._db_path) as db:
@@ -291,6 +308,7 @@ def test_add_comment(client: TestClient):
     assert body["author"] == "amir"
     assert body["id"]  # uuid assigned server-side
     from datetime import datetime
+
     datetime.fromisoformat(body["created_at"])  # server-assigned + parseable
 
 

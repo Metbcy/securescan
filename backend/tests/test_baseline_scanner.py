@@ -20,6 +20,7 @@ These tests cover the new HOST/TARGET dispatch in
   ``metadata["baseline_scope"] = "host" | "target"`` so downstream
   renderers can label scope.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -156,9 +157,9 @@ def test_target_path_directory_partial_etc_files(tmp_path: Path):
 
     # No SSH or shadow probes ran.
     assert not any(rid and rid.startswith("BASELINE-SSH-") for rid in rule_ids)
-    assert not any(
-        rid == "BASELINE-USER-002" for rid in rule_ids
-    ), "shadow probe should not have run"
+    assert not any(rid == "BASELINE-USER-002" for rid in rule_ids), (
+        "shadow probe should not have run"
+    )
 
     # The UID-0 detector should have fired on `badguy`.
     assert "BASELINE-USER-001" in rule_ids

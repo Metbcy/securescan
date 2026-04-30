@@ -42,6 +42,7 @@ on a second pass, ``original_severity`` would silently drift to the value
 *after* the first override, destroying the audit trail. The check is on
 ``metadata[_ORIGINAL_KEY]`` *presence*: once stamped, hands off.
 """
+
 from __future__ import annotations
 
 from .config_file import SecureScanConfig

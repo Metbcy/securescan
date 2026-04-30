@@ -1,17 +1,17 @@
-from .semgrep import SemgrepScanner
 from .bandit import BanditScanner
-from .trivy import TrivyScanner
-from .checkov import CheckovScanner
 from .baseline import BaselineScanner
-from .secrets import SecretsScanner
-from .safety import SafetyScanner
-from .license_checker import LicenseScanner
-from .dockerfile import DockerfileScanner
-from .npm_audit import NpmAuditScanner
-from .gitleaks import GitHygieneScanner
+from .checkov import CheckovScanner
 from .dast_builtin import BuiltinDastScanner
-from .zap_scanner import ZapScanner
+from .dockerfile import DockerfileScanner
+from .gitleaks import GitHygieneScanner
+from .license_checker import LicenseScanner
 from .nmap_scanner import NmapScanner
+from .npm_audit import NpmAuditScanner
+from .safety import SafetyScanner
+from .secrets import SecretsScanner
+from .semgrep import SemgrepScanner
+from .trivy import TrivyScanner
+from .zap_scanner import ZapScanner
 
 ALL_SCANNERS = [
     SemgrepScanner(),

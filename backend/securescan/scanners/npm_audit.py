@@ -1,10 +1,12 @@
 """npm audit scanner — checks npm dependencies for known vulnerabilities."""
+
 import asyncio
 import json
 from pathlib import Path
+
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
 
 SEVERITY_MAP = {
     "critical": Severity.CRITICAL,
@@ -18,7 +20,9 @@ SEVERITY_MAP = {
 class NpmAuditScanner(BaseScanner):
     name = "npm-audit"
     scan_type = ScanType.DEPENDENCY
-    description = "Runs npm audit to find known vulnerabilities in JavaScript/Node.js package dependencies."
+    description = (
+        "Runs npm audit to find known vulnerabilities in JavaScript/Node.js package dependencies."
+    )
     checks = [
         "Known CVEs in npm packages",
         "Outdated packages with security patches",
@@ -57,7 +61,9 @@ class NpmAuditScanner(BaseScanner):
 
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    npm_bin, "audit", "--json",
+                    npm_bin,
+                    "audit",
+                    "--json",
                     cwd=str(pkg_dir),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -82,29 +88,42 @@ class NpmAuditScanner(BaseScanner):
                         if isinstance(v, dict):
                             desc_parts.append(v.get("title", ""))
 
-                    description = "; ".join(filter(None, desc_parts)) or f"Vulnerability in {pkg_name}"
+                    description = (
+                        "; ".join(filter(None, desc_parts)) or f"Vulnerability in {pkg_name}"
+                    )
                     fix_available = vuln_info.get("fixAvailable", False)
 
-                    findings.append(Finding(
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=severity,
+                            title=f"Vulnerable npm package: {pkg_name}",
+                            description=description[:500],
+                            file_path=str(pkg_dir / "package.json"),
+                            rule_id=f"npm-audit/{pkg_name}",
+                            remediation=f"Run 'npm audit fix' to auto-fix, or manually update {pkg_name}."
+                            if fix_available
+                            else f"Check for updates to {pkg_name} or find an alternative package.",
+                            metadata={
+                                "fix_available": fix_available,
+                                "range": vuln_info.get("range", ""),
+                            },
+                        )
+                    )
+
+            except asyncio.TimeoutError:
+                findings.append(
+                    Finding(
                         scan_id=scan_id,
                         scanner=self.name,
                         scan_type=self.scan_type,
-                        severity=severity,
-                        title=f"Vulnerable npm package: {pkg_name}",
-                        description=description[:500],
-                        file_path=str(pkg_dir / "package.json"),
-                        rule_id=f"npm-audit/{pkg_name}",
-                        remediation=f"Run 'npm audit fix' to auto-fix, or manually update {pkg_name}." if fix_available else f"Check for updates to {pkg_name} or find an alternative package.",
-                        metadata={"fix_available": fix_available, "range": vuln_info.get("range", "")},
-                    ))
-
-            except asyncio.TimeoutError:
-                findings.append(Finding(
-                    scan_id=scan_id, scanner=self.name, scan_type=self.scan_type,
-                    severity=Severity.HIGH,
-                    title="INCOMPLETE SCAN: npm audit timed out",
-                    description=f"npm audit timed out for {pkg_dir}.",
-                ))
+                        severity=Severity.HIGH,
+                        title="INCOMPLETE SCAN: npm audit timed out",
+                        description=f"npm audit timed out for {pkg_dir}.",
+                    )
+                )
             except (json.JSONDecodeError, Exception):
                 pass
 

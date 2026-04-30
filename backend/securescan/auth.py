@@ -31,6 +31,7 @@ instead of relying solely on the dependency return value so that:
 so handlers that take ``principal: Principal = Depends(require_api_key)``
 keep working - the two ergonomics coexist.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,7 +40,6 @@ import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Set
 
 from fastapi import HTTPException, Request, status
 from fastapi.security.utils import get_authorization_scheme_param
@@ -70,12 +70,13 @@ class Principal:
     ``source`` distinguishes the two so handlers (e.g. ``GET /keys/me``)
     can branch on origin without parsing ``id``.
     """
+
     id: str
-    scopes: Set[str]
+    scopes: set[str]
     source: str  # "env" | "db"
 
 
-def get_configured_key() -> Optional[str]:
+def get_configured_key() -> str | None:
     """Read the API key from env. Returns None when unset (or blank)."""
     key = os.environ.get(ENV_VAR, "")
     return key.strip() or None
@@ -98,7 +99,7 @@ def is_dev_mode() -> bool:
     return get_configured_key() is None
 
 
-def _extract_provided_key(request: Request) -> Optional[str]:
+def _extract_provided_key(request: Request) -> str | None:
     """Extract the caller's key from X-API-Key or Authorization: Bearer."""
     direct = request.headers.get("X-API-Key", "").strip()
     if direct:
@@ -110,7 +111,7 @@ def _extract_provided_key(request: Request) -> Optional[str]:
     return None
 
 
-def _attach_principal(request: Request, principal: Optional[Principal]) -> None:
+def _attach_principal(request: Request, principal: Principal | None) -> None:
     """Stash ``principal`` on ``request.state``, defensively.
 
     Real Starlette requests always carry a ``state`` namespace, but
@@ -127,9 +128,7 @@ def _attach_principal(request: Request, principal: Optional[Principal]) -> None:
         pass
 
 
-async def _authenticate_via_event_token(
-    request: Request, event_token: str
-) -> Principal:
+async def _authenticate_via_event_token(request: Request, event_token: str) -> Principal:
     """Validate an SSE event token and rehydrate the bound Principal.
 
     Performed inside ``require_api_key`` (not as a separate dependency)
@@ -225,7 +224,7 @@ async def _authenticate_via_event_token(
     return principal
 
 
-async def require_api_key(request: Request) -> Optional[Principal]:
+async def require_api_key(request: Request) -> Principal | None:
     """FastAPI dependency: enforce auth via env-var key OR DB-issued key.
 
     Returns the resolved :class:`Principal` (also stashed on
@@ -264,13 +263,8 @@ async def require_api_key(request: Request) -> Optional[Principal]:
     event_token = None
     is_sse_route = False
     try:
-        event_token = (
-            request.query_params.get("event_token", "").strip() or None
-        )
-        is_sse_route = (
-            request.url.path.endswith("/events")
-            and "/scans/" in request.url.path
-        )
+        event_token = request.query_params.get("event_token", "").strip() or None
+        is_sse_route = request.url.path.endswith("/events") and "/scans/" in request.url.path
     except AttributeError:
         pass
     if event_token is not None and is_sse_route:
@@ -353,7 +347,7 @@ def require_scope(*needed: str):
     """
     needed_set = frozenset(needed)
 
-    async def _dep(request: Request) -> Optional[Principal]:
+    async def _dep(request: Request) -> Principal | None:
         principal = getattr(request.state, "principal", None)
         if principal is None:
             return None
@@ -368,9 +362,7 @@ def require_scope(*needed: str):
     return _dep
 
 
-def assert_auth_credentials_configured(
-    env_key: Optional[str], admin_db_count: int
-) -> None:
+def assert_auth_credentials_configured(env_key: str | None, admin_db_count: int) -> None:
     """Raise SystemExit(2) when AUTH_REQUIRED=1 with no usable credentials.
 
     Called from the FastAPI startup hook. Split out so unit tests can

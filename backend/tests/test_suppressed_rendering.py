@@ -21,6 +21,7 @@ These tests exercise the renderer behaviour directly with hand-built
 the new flags are accepted by the ``scan`` / ``diff`` / ``compare``
 typer surface; the full end-to-end pipeline is TS10 territory.
 """
+
 from __future__ import annotations
 
 import json
@@ -59,7 +60,6 @@ from securescan.suppression import (
     REASON_INLINE,
     SuppressionContext,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -171,12 +171,11 @@ def test_suppression_context_stamps_metadata_consumed_by_renderer():
     sarif_off = findings_to_sarif(kept + suppressed, _scan())
     assert len(sarif_off["runs"][0]["results"]) == 2
 
-    sarif_on = findings_to_sarif(
-        kept + suppressed, _scan(), show_suppressed=True
-    )
+    sarif_on = findings_to_sarif(kept + suppressed, _scan(), show_suppressed=True)
     assert len(sarif_on["runs"][0]["results"]) == 3
     suppressed_results = [
-        r for r in sarif_on["runs"][0]["results"]
+        r
+        for r in sarif_on["runs"][0]["results"]
         if r.get("properties", {}).get("suppressed_by") == REASON_CONFIG
     ]
     assert len(suppressed_results) == 1
@@ -207,8 +206,7 @@ def test_sarif_show_suppressed_marks_with_reason():
     findings = _two_kept_one_suppressed()
     out = findings_to_sarif(findings, _scan(), show_suppressed=True)
     suppressed = [
-        r for r in out["runs"][0]["results"]
-        if r.get("properties", {}).get("suppressed_by")
+        r for r in out["runs"][0]["results"] if r.get("properties", {}).get("suppressed_by")
     ]
     assert len(suppressed) == 1
     assert suppressed[0]["properties"]["suppressed_by"] == REASON_INLINE
@@ -227,10 +225,7 @@ def test_sarif_suppressed_finding_carries_suppressed_by_property_when_shown():
         ),
     ]
     out = findings_to_sarif(findings, _scan(), show_suppressed=True)
-    matching = [
-        r for r in out["runs"][0]["results"]
-        if r["ruleId"] == "RULE-B"
-    ]
+    matching = [r for r in out["runs"][0]["results"] if r["ruleId"] == "RULE-B"]
     assert len(matching) == 1
     assert matching[0]["properties"]["suppressed_by"] == REASON_BASELINE
 
@@ -323,15 +318,9 @@ def test_junit_show_suppressed_marks_with_reason():
     findings = _two_kept_one_suppressed()
     out = findings_to_junit(findings, _scan(), show_suppressed=True)
     root = ET.fromstring(out)
-    suppressed_case = next(
-        c for c in root.findall("testcase")
-        if "SUPPRESSED" in c.get("name", "")
-    )
+    suppressed_case = next(c for c in root.findall("testcase") if "SUPPRESSED" in c.get("name", ""))
     sysouts = suppressed_case.findall("system-out")
-    suppression_markers = [
-        s.text for s in sysouts
-        if s.text and s.text.startswith("SUPPRESSED:")
-    ]
+    suppression_markers = [s.text for s in sysouts if s.text and s.text.startswith("SUPPRESSED:")]
     assert suppression_markers == [f"SUPPRESSED:{REASON_INLINE}"]
     # No <skipped> element -- intentional choice (see docstring).
     assert suppressed_case.find("skipped") is None
@@ -367,10 +356,7 @@ def test_json_show_suppressed_marks_with_reason():
     findings = _two_kept_one_suppressed()
     out = findings_to_json(findings, show_suppressed=True)
     parsed = json.loads(out)
-    suppressed = [
-        f for f in parsed
-        if f.get("metadata", {}).get("suppressed_by")
-    ]
+    suppressed = [f for f in parsed if f.get("metadata", {}).get("suppressed_by")]
     assert len(suppressed) == 1
     assert suppressed[0]["metadata"]["suppressed_by"] == REASON_INLINE
 
@@ -556,9 +542,7 @@ def test_renderer_determinism_with_show_suppressed_false():
 
     sarif1 = findings_to_sarif(findings, _scan())
     sarif2 = findings_to_sarif(findings, _scan())
-    assert json.dumps(sarif1, sort_keys=True) == json.dumps(
-        sarif2, sort_keys=True
-    )
+    assert json.dumps(sarif1, sort_keys=True) == json.dumps(sarif2, sort_keys=True)
 
     csv1 = findings_to_csv(findings)
     csv2 = findings_to_csv(findings)
@@ -586,9 +570,7 @@ def test_renderer_determinism_with_show_suppressed_true():
 
     sarif1 = findings_to_sarif(findings, _scan(), show_suppressed=True)
     sarif2 = findings_to_sarif(findings, _scan(), show_suppressed=True)
-    assert json.dumps(sarif1, sort_keys=True) == json.dumps(
-        sarif2, sort_keys=True
-    )
+    assert json.dumps(sarif1, sort_keys=True) == json.dumps(sarif2, sort_keys=True)
 
     csv1 = findings_to_csv(findings, show_suppressed=True)
     csv2 = findings_to_csv(findings, show_suppressed=True)
@@ -606,12 +588,8 @@ def test_renderer_determinism_with_show_suppressed_true():
     pr2 = findings_to_pr_comment(findings, show_suppressed=True)
     assert pr1 == pr2
 
-    diff_text1 = _render_diff_text(
-        ChangeSet(new=findings), show_suppressed=True
-    )
-    diff_text2 = _render_diff_text(
-        ChangeSet(new=findings), show_suppressed=True
-    )
+    diff_text1 = _render_diff_text(ChangeSet(new=findings), show_suppressed=True)
+    diff_text2 = _render_diff_text(ChangeSet(new=findings), show_suppressed=True)
     assert diff_text1 == diff_text2
 
 
@@ -635,9 +613,7 @@ def test_default_off_output_matches_pre_ts6_for_unsuppressed_only():
 
     sarif_default = findings_to_sarif(findings, _scan())
     sarif_explicit = findings_to_sarif(findings, _scan(), show_suppressed=False)
-    assert json.dumps(sarif_default, sort_keys=True) == json.dumps(
-        sarif_explicit, sort_keys=True
-    )
+    assert json.dumps(sarif_default, sort_keys=True) == json.dumps(sarif_explicit, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -798,7 +774,7 @@ def test_compare_command_accepts_show_suppressed_flag(tmp_path, monkeypatch):
     """Compare with the new flag accepted -- monkeypatched scanner so
     we don't shell out to real scanners.
     """
-    from securescan import cli as cli_mod
+    from securescan.cli import _shared as _cli_shared
 
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
@@ -806,7 +782,7 @@ def test_compare_command_accepts_show_suppressed_flag(tmp_path, monkeypatch):
     async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
-    monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
+    monkeypatch.setattr(_cli_shared, "_run_scan_for_diff", _stub_scan)
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -822,7 +798,7 @@ def test_compare_command_accepts_show_suppressed_flag(tmp_path, monkeypatch):
 
 
 def test_compare_command_accepts_hide_suppressed_flag(tmp_path, monkeypatch):
-    from securescan import cli as cli_mod
+    from securescan.cli import _shared as _cli_shared
 
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
@@ -830,7 +806,7 @@ def test_compare_command_accepts_hide_suppressed_flag(tmp_path, monkeypatch):
     async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
-    monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
+    monkeypatch.setattr(_cli_shared, "_run_scan_for_diff", _stub_scan)
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -846,7 +822,7 @@ def test_compare_command_accepts_hide_suppressed_flag(tmp_path, monkeypatch):
 
 
 def test_compare_command_accepts_no_suppress_flag(tmp_path, monkeypatch):
-    from securescan import cli as cli_mod
+    from securescan.cli import _shared as _cli_shared
 
     baseline_path = tmp_path / "baseline.json"
     baseline_path.write_text(json.dumps([]))
@@ -854,7 +830,7 @@ def test_compare_command_accepts_no_suppress_flag(tmp_path, monkeypatch):
     async def _stub_scan(_target, _types, *, enable_ai, scanner_kwargs=None):  # noqa: ARG001
         return []
 
-    monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _stub_scan)
+    monkeypatch.setattr(_cli_shared, "_run_scan_for_diff", _stub_scan)
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -875,7 +851,7 @@ def test_scan_command_accepts_show_suppressed_flag(monkeypatch):
     behaviour belongs to TS10; here we monkey-patch ``_run_scan_async``
     so the test stays fast and side-effect-free.
     """
-    from securescan import cli as cli_mod
+    import securescan.cli.scan as _cli_scan
     from securescan.models import Scan, ScanStatus
 
     async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
@@ -888,7 +864,7 @@ def test_scan_command_accepts_show_suppressed_flag(monkeypatch):
             [],
         )
 
-    monkeypatch.setattr(cli_mod, "_run_scan_async", _stub_run_scan_async)
+    monkeypatch.setattr(_cli_scan, "_run_scan_async", _stub_run_scan_async)
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -898,7 +874,7 @@ def test_scan_command_accepts_show_suppressed_flag(monkeypatch):
 
 
 def test_scan_command_accepts_hide_suppressed_flag(monkeypatch):
-    from securescan import cli as cli_mod
+    import securescan.cli.scan as _cli_scan
     from securescan.models import Scan, ScanStatus
 
     async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
@@ -911,7 +887,7 @@ def test_scan_command_accepts_hide_suppressed_flag(monkeypatch):
             [],
         )
 
-    monkeypatch.setattr(cli_mod, "_run_scan_async", _stub_run_scan_async)
+    monkeypatch.setattr(_cli_scan, "_run_scan_async", _stub_run_scan_async)
     runner = CliRunner()
     result = runner.invoke(
         app,
@@ -921,7 +897,7 @@ def test_scan_command_accepts_hide_suppressed_flag(monkeypatch):
 
 
 def test_scan_command_accepts_no_suppress_flag(monkeypatch):
-    from securescan import cli as cli_mod
+    import securescan.cli.scan as _cli_scan
     from securescan.models import Scan, ScanStatus
 
     async def _stub_run_scan_async(target, types, enable_ai=True, *, scanner_kwargs=None):  # noqa: ARG001
@@ -934,7 +910,7 @@ def test_scan_command_accepts_no_suppress_flag(monkeypatch):
             [],
         )
 
-    monkeypatch.setattr(cli_mod, "_run_scan_async", _stub_run_scan_async)
+    monkeypatch.setattr(_cli_scan, "_run_scan_async", _stub_run_scan_async)
     runner = CliRunner()
     result = runner.invoke(
         app,

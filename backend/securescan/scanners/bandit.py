@@ -2,10 +2,10 @@ import asyncio
 import json
 import os
 
+from ..config import settings
+from ..models import Finding, ScanType, Severity
 from .base import BaseScanner
 from .discovery import find_tool
-from ..models import Finding, ScanType, Severity
-from ..config import settings
 
 
 class BanditScanner(BaseScanner):
@@ -33,7 +33,7 @@ class BanditScanner(BaseScanner):
 
         # Only scan if target contains Python files
         has_python = False
-        for root, _dirs, files in os.walk(target_path):
+        for _root, _dirs, files in os.walk(target_path):
             if any(f.endswith(".py") for f in files):
                 has_python = True
                 break
@@ -49,7 +49,12 @@ class BanditScanner(BaseScanner):
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                bandit_bin, "-r", target_path, "-f", "json", "--quiet",
+                bandit_bin,
+                "-r",
+                target_path,
+                "-f",
+                "json",
+                "--quiet",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -72,41 +77,47 @@ class BanditScanner(BaseScanner):
                         if cwe_id:
                             cwe_str = f"CWE-{cwe_id}"
 
-                    findings.append(Finding(
-                        scan_id=scan_id,
-                        scanner=self.name,
-                        scan_type=self.scan_type,
-                        severity=severity,
-                        title=r.get("test_name", "Unknown issue"),
-                        description=r.get("issue_text", "No description"),
-                        file_path=r.get("filename"),
-                        line_start=r.get("line_number"),
-                        line_end=r.get("line_number"),
-                        rule_id=r.get("test_id"),
-                        cwe=cwe_str,
-                        metadata={
-                            "confidence": r.get("issue_confidence", "UNDEFINED"),
-                            "more_info": r.get("more_info", ""),
-                        },
-                    ))
+                    findings.append(
+                        Finding(
+                            scan_id=scan_id,
+                            scanner=self.name,
+                            scan_type=self.scan_type,
+                            severity=severity,
+                            title=r.get("test_name", "Unknown issue"),
+                            description=r.get("issue_text", "No description"),
+                            file_path=r.get("filename"),
+                            line_start=r.get("line_number"),
+                            line_end=r.get("line_number"),
+                            rule_id=r.get("test_id"),
+                            cwe=cwe_str,
+                            metadata={
+                                "confidence": r.get("issue_confidence", "UNDEFINED"),
+                                "more_info": r.get("more_info", ""),
+                            },
+                        )
+                    )
         except asyncio.TimeoutError:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.HIGH,
-                title="INCOMPLETE SCAN: Bandit scan timed out",
-                description=f"Scan timed out after {settings.scan_timeout}s",
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.HIGH,
+                    title="INCOMPLETE SCAN: Bandit scan timed out",
+                    description=f"Scan timed out after {settings.scan_timeout}s",
+                )
+            )
         except Exception as e:
-            findings.append(Finding(
-                scan_id=scan_id,
-                scanner=self.name,
-                scan_type=self.scan_type,
-                severity=Severity.INFO,
-                title="Bandit scan error",
-                description=str(e),
-            ))
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=Severity.INFO,
+                    title="Bandit scan error",
+                    description=str(e),
+                )
+            )
         return findings
 
     @staticmethod

@@ -21,10 +21,10 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 
-from securescan import cli as cli_mod
+import securescan.cli.scan as _cli_scan
+from securescan.cli import _shared as _cli_shared
 from securescan.cli import app
 from securescan.models import Finding, Scan, ScanStatus, ScanType, Severity
-
 
 # --- helpers --------------------------------------------------------------
 
@@ -83,19 +83,20 @@ def _stub_scan_async(monkeypatch, findings: list[Finding]) -> None:
     Returns a synthetic Scan + the caller-supplied finding list.
     Avoids DB I/O and the real scanner pass.
     """
+
     async def _fake(target_path, types, enable_ai=True, *, scanner_kwargs=None):
         scan = Scan(target_path=str(target_path), scan_types=list(types))
         scan.status = ScanStatus.COMPLETED
         return scan, list(findings)
 
-    monkeypatch.setattr(cli_mod, "_run_scan_async", _fake)
+    monkeypatch.setattr(_cli_scan, "_run_scan_async", _fake)
 
 
 def _stub_scan_for_diff(monkeypatch, findings: list[Finding]) -> None:
     async def _fake(target_path, scan_types, *, enable_ai, scanner_kwargs=None):
         return list(findings)
 
-    monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _fake)
+    monkeypatch.setattr(_cli_shared, "_run_scan_for_diff", _fake)
 
 
 def _write_snapshot(path: Path, dicts: list[dict]) -> None:
@@ -109,9 +110,7 @@ def _write_config(path: Path, body: str) -> None:
 # --- diff ----------------------------------------------------------------
 
 
-def test_diff_subcommand_applies_config_severity_overrides_end_to_end(
-    tmp_path, monkeypatch
-):
+def test_diff_subcommand_applies_config_severity_overrides_end_to_end(tmp_path, monkeypatch):
     """A ``severity_overrides`` entry in ``.securescan.yml`` flips the
     severity of matching findings on both sides of a diff and lets
     ``--fail-on-severity high`` pass when the override demotes a
@@ -158,9 +157,7 @@ def test_diff_subcommand_applies_config_severity_overrides_end_to_end(
     assert parsed["new"][0]["metadata"]["original_severity"] == "high"
 
 
-def test_diff_subcommand_config_ignored_rule_filters_from_default_output(
-    tmp_path, monkeypatch
-):
+def test_diff_subcommand_config_ignored_rule_filters_from_default_output(tmp_path, monkeypatch):
     """``ignored_rules: [RULE-A]`` -> the new finding is suppressed.
 
     Default output (json) hides suppressed findings, so the JSON
@@ -229,14 +226,10 @@ def test_scan_subcommand_filters_config_ignored_rules(tmp_path, monkeypatch):
 
     payload = json.loads(out_file.read_text())
     rules = sorted(f["rule_id"] for f in payload)
-    assert rules == ["RULE-B"], (
-        f"expected RULE-A filtered by config; got {rules}"
-    )
+    assert rules == ["RULE-B"], f"expected RULE-A filtered by config; got {rules}"
 
 
-def test_scan_subcommand_show_suppressed_includes_filtered(
-    tmp_path, monkeypatch
-):
+def test_scan_subcommand_show_suppressed_includes_filtered(tmp_path, monkeypatch):
     """``--show-suppressed`` shows the suppressed finding with audit stamp."""
     _write_config(tmp_path, "ignored_rules:\n  - RULE-A\n")
 
@@ -302,23 +295,16 @@ def test_scan_subcommand_no_suppress_overrides_config(tmp_path, monkeypatch):
     assert "suppressed_by" not in f.get("metadata", {})
 
 
-def test_scan_subcommand_inline_comment_suppresses_with_show_suppressed(
-    tmp_path, monkeypatch
-):
+def test_scan_subcommand_inline_comment_suppresses_with_show_suppressed(tmp_path, monkeypatch):
     """An inline ``# securescan: ignore RULE-A`` directive marks the
     finding suppressed at scan time; ``--show-suppressed`` reveals it
     with ``[SUPPRESSED:inline]`` semantics in the JSON payload."""
     src = tmp_path / "app.py"
-    src.write_text(
-        "# l1\n# l2\n# l3\n# l4\n"
-        "evil()  # securescan: ignore RULE-A\n"
-    )
+    src.write_text("# l1\n# l2\n# l3\n# l4\nevil()  # securescan: ignore RULE-A\n")
 
     findings = [
         _finding(rule_id="RULE-A", file_path=str(src), line_start=5),
-        _finding(
-            rule_id="RULE-B", file_path=str(src), line_start=4
-        ),
+        _finding(rule_id="RULE-B", file_path=str(src), line_start=4),
     ]
     _stub_scan_async(monkeypatch, findings)
 
@@ -349,9 +335,7 @@ def test_scan_subcommand_inline_comment_suppresses_with_show_suppressed(
 # --- compare -------------------------------------------------------------
 
 
-def test_compare_subcommand_applies_pipeline_to_fresh_scan_only(
-    tmp_path, monkeypatch
-):
+def test_compare_subcommand_applies_pipeline_to_fresh_scan_only(tmp_path, monkeypatch):
     """The pipeline runs against the fresh scan only.
 
     Setup:
@@ -371,9 +355,7 @@ def test_compare_subcommand_applies_pipeline_to_fresh_scan_only(
 
     baseline = tmp_path / "baseline.json"
     baseline.write_text(
-        json.dumps(
-            {"findings": [_finding_dict(rule_id="RULE-A", fingerprint="fp-rule-a")]}
-        )
+        json.dumps({"findings": [_finding_dict(rule_id="RULE-A", fingerprint="fp-rule-a")]})
     )
 
     fresh = [_finding(rule_id="RULE-A", fingerprint="fp-rule-a")]
@@ -400,9 +382,7 @@ def test_compare_subcommand_applies_pipeline_to_fresh_scan_only(
     assert parsed["unchanged_count"] == 1
 
 
-def test_compare_subcommand_config_filters_fresh_side_only(
-    tmp_path, monkeypatch
-):
+def test_compare_subcommand_config_filters_fresh_side_only(tmp_path, monkeypatch):
     """When config ignores RULE-A, fresh-side RULE-A is suppressed but
     the baseline still 'has' RULE-A. The pipeline-on-fresh-only
     contract means classify sees a suppressed RULE-A on the fresh
@@ -411,9 +391,7 @@ def test_compare_subcommand_config_filters_fresh_side_only(
 
     baseline = tmp_path / "baseline.json"
     baseline.write_text(
-        json.dumps(
-            {"findings": [_finding_dict(rule_id="RULE-A", fingerprint="fp-rule-a")]}
-        )
+        json.dumps({"findings": [_finding_dict(rule_id="RULE-A", fingerprint="fp-rule-a")]})
     )
     fresh = [_finding(rule_id="RULE-A", fingerprint="fp-rule-a")]
     _stub_scan_for_diff(monkeypatch, fresh)

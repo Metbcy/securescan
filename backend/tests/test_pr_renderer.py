@@ -14,6 +14,7 @@ stable marker. These tests pin down the contract that the GitHub Action
 - no emojis (pinned v0.2.0 decision)
 - description is first-sentence-or-truncated (chosen over raw paragraph)
 """
+
 from __future__ import annotations
 
 import re
@@ -205,13 +206,17 @@ def test_render_is_deterministic():
         return ChangeSet(
             new=[
                 _make_finding(severity=Severity.HIGH, file_path="a.py", line_start=1, rule_id="R1"),
-                _make_finding(severity=Severity.CRITICAL, file_path="b.py", line_start=2, rule_id="R2"),
+                _make_finding(
+                    severity=Severity.CRITICAL, file_path="b.py", line_start=2, rule_id="R2"
+                ),
             ],
             fixed=[
                 _make_finding(severity=Severity.LOW, file_path="c.py", line_start=3, rule_id="R3"),
             ],
             unchanged=[
-                _make_finding(severity=Severity.MEDIUM, file_path="d.py", line_start=4, rule_id="R4"),
+                _make_finding(
+                    severity=Severity.MEDIUM, file_path="d.py", line_start=4, rule_id="R4"
+                ),
             ],
         )
 
@@ -236,13 +241,21 @@ def test_render_is_deterministic_when_input_order_varies():
 
 _EMOJI_REGEX = re.compile(
     "["
-    "\U0001F300-\U0001FAFF"  # symbols, pictographs, emoticons, etc.
-    "\U00002600-\U000027BF"  # misc symbols + dingbats (covers checkmark, cross, warning)
-    "\U0001F000-\U0001F2FF"  # mahjong, dominoes, enclosed alphanumerics supplement
+    "\U0001f300-\U0001faff"  # symbols, pictographs, emoticons, etc.
+    "\U00002600-\U000027bf"  # misc symbols + dingbats (covers checkmark, cross, warning)
+    "\U0001f000-\U0001f2ff"  # mahjong, dominoes, enclosed alphanumerics supplement
     "]"
 )
 
-_NAMED_EMOJI_LEAKS = ("\u2705", "\u274C", "\u26A0", "\U0001F525", "\U0001F389", "\U0001F6A8", "\u2B50")
+_NAMED_EMOJI_LEAKS = (
+    "\u2705",
+    "\u274c",
+    "\u26a0",
+    "\U0001f525",
+    "\U0001f389",
+    "\U0001f6a8",
+    "\u2b50",
+)
 
 
 def test_no_emojis_in_output():

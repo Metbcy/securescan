@@ -5,11 +5,12 @@ Covers the helper module (`api_keys.py`), the auth integration
 protection on DELETE is covered here; per-scope route enforcement
 lives in ``test_scopes.py``.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,16 +23,15 @@ from securescan.database import (
     has_unrevoked_api_key,
     init_db,
     insert_api_key,
-    list_api_keys,
     revoke_api_key,
     set_db_path,
 )
 from securescan.main import app
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def temp_db(tmp_path, monkeypatch):
@@ -43,6 +43,7 @@ def temp_db(tmp_path, monkeypatch):
     populated tmp DB and fail.
     """
     from securescan.config import settings as _settings
+
     db_path = str(tmp_path / "auth_keys.db")
     original = _settings.database_path
     set_db_path(db_path)
@@ -74,8 +75,12 @@ async def _seed_admin_key(name: str = "admin-bootstrap") -> tuple[str, str]:
     """
     gk = ak.generate_key()
     await insert_api_key(
-        gk.id, name, gk.key_hash, gk.prefix,
-        ["admin", "read", "write"], datetime.utcnow(),
+        gk.id,
+        name,
+        gk.key_hash,
+        gk.prefix,
+        ["admin", "read", "write"],
+        datetime.utcnow(),
     )
     return gk.id, gk.full
 
@@ -83,6 +88,7 @@ async def _seed_admin_key(name: str = "admin-bootstrap") -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # api_keys.py: generation / hashing helpers
 # ---------------------------------------------------------------------------
+
 
 def test_generate_key_format():
     gk = ak.generate_key()
@@ -110,9 +116,9 @@ def test_parse_key_id_round_trip():
     [
         "",
         "no-prefix",
-        "ssk_short",                 # missing separator
-        "ssk_tooshort_xxx",          # id length wrong
-        "ssk_" + "a" * 9 + "_xxx",   # id length wrong
+        "ssk_short",  # missing separator
+        "ssk_tooshort_xxx",  # id length wrong
+        "ssk_" + "a" * 9 + "_xxx",  # id length wrong
         "ssk_" + "a" * 11 + "_xxx",  # id length wrong
     ],
 )
@@ -157,6 +163,7 @@ def test_hash_uses_fresh_salt_each_call():
 # Database CRUD
 # ---------------------------------------------------------------------------
 
+
 def test_insert_and_get_api_key(temp_db):
     gk = ak.generate_key()
 
@@ -177,9 +184,7 @@ def test_revoke_api_key_marks_row(temp_db):
     gk = ak.generate_key()
 
     async def _go():
-        await insert_api_key(
-            gk.id, "k", gk.key_hash, gk.prefix, ["read"], datetime.utcnow()
-        )
+        await insert_api_key(gk.id, "k", gk.key_hash, gk.prefix, ["read"], datetime.utcnow())
         assert await revoke_api_key(gk.id) is True
         row = await get_api_key_by_id(gk.id)
         assert row["revoked_at"] is not None
@@ -220,6 +225,7 @@ def test_has_unrevoked_api_key(temp_db):
 # ---------------------------------------------------------------------------
 # Auth integration: env-var legacy + DB key + dev mode
 # ---------------------------------------------------------------------------
+
 
 def test_legacy_env_var_still_works(temp_db, client, monkeypatch):
     monkeypatch.setenv(auth.ENV_VAR, "envsecret")
@@ -316,6 +322,7 @@ def test_authorization_bearer_with_db_key(temp_db, client):
 # /api/keys endpoints
 # ---------------------------------------------------------------------------
 
+
 def test_create_key_returns_full_secret_once(temp_db, client):
     # Bootstrap an admin key first (POST /keys requires admin scope).
     _id, admin_full = asyncio.run(_seed_admin_key())
@@ -334,9 +341,7 @@ def test_create_key_returns_full_secret_once(temp_db, client):
     assert body["revoked_at"] is None
 
     # Subsequent GET must NEVER include the secret.
-    list_res = client.get(
-        "/api/v1/keys", headers={"X-API-Key": admin_full}
-    )
+    list_res = client.get("/api/v1/keys", headers={"X-API-Key": admin_full})
     assert list_res.status_code == 200
     rows = list_res.json()
     new_row = next(r for r in rows if r["id"] == body["id"])
@@ -429,6 +434,7 @@ def test_revoke_unknown_key_returns_404(temp_db, client):
 # Lockout protection on DELETE (last admin under AUTH_REQUIRED=1)
 # ---------------------------------------------------------------------------
 
+
 def test_cannot_revoke_last_admin_when_auth_required(temp_db, client, monkeypatch):
     key_id, admin_full = asyncio.run(_seed_admin_key())
     # No env-var fallback, AUTH_REQUIRED=1: this admin is the only key.
@@ -491,6 +497,7 @@ def test_can_revoke_non_admin_even_when_only_one_admin(temp_db, client, monkeypa
 # ---------------------------------------------------------------------------
 # Startup safety check
 # ---------------------------------------------------------------------------
+
 
 def test_assert_auth_credentials_configured_raises(monkeypatch):
     monkeypatch.setenv(auth.AUTH_REQUIRED_ENV, "1")

@@ -53,6 +53,7 @@ are deliberately distinct from TS7's ``MARKER`` /
 ``MARKER_COMPARE`` so the action's grep can keep the diff-mode
 single PR comment lane and the diff-mode review lane separate.
 """
+
 from __future__ import annotations
 
 import json
@@ -75,7 +76,6 @@ from .suggestions import (
     build_inline_ignore_suggestion,
     build_severity_pin_suggestion,
 )
-
 
 MARKER_REVIEW = "<!-- securescan:diff-review -->"
 MARKER_REVIEW_COMPARE = "<!-- securescan:compare-review -->"
@@ -150,9 +150,7 @@ class ReviewPayload:
         }
 
 
-def _first_sentence_or_truncate(
-    text: str, limit: int = _DESCRIPTION_MAX_CHARS
-) -> str:
+def _first_sentence_or_truncate(text: str, limit: int = _DESCRIPTION_MAX_CHARS) -> str:
     """Return the first sentence of ``text``, capped at ``limit`` chars.
 
     Same shape as the helper in render_pr_comment.py but with a
@@ -555,9 +553,7 @@ def render_review(
             include_suggestions=include_suggestions,
             include_inline_ignore=include_inline_ignore,
         )
-        inline_comments.append(
-            ReviewComment(path=finding.file_path, position=position, body=body)
-        )
+        inline_comments.append(ReviewComment(path=finding.file_path, position=position, body=body))
 
     inline_comments.sort(
         key=lambda c: (

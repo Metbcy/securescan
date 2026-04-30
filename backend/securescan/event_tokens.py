@@ -18,6 +18,7 @@ Format (URL-safe base64 of):
 
 where ``sig`` is HMAC-SHA256(secret, "<scan_id>|<key_id>|<expires_at>").
 """
+
 from __future__ import annotations
 
 import base64
@@ -28,13 +29,12 @@ import os
 import secrets
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 TOKEN_TTL_SECONDS = 300
 
 # Resolved at first use; lazy so tests can monkeypatch the env var
 # between runs without having to reimport the module.
-_signing_secret: Optional[bytes] = None
+_signing_secret: bytes | None = None
 _signing_secret_ephemeral: bool = False
 
 
@@ -78,15 +78,13 @@ class TokenPayload:
     expires_at: int  # unix seconds
 
 
-def mint(
-    scan_id: str, key_id: str, ttl_seconds: int = TOKEN_TTL_SECONDS
-) -> Tuple[str, int]:
+def mint(scan_id: str, key_id: str, ttl_seconds: int = TOKEN_TTL_SECONDS) -> tuple[str, int]:
     """Mint a signed token bound to ``scan_id`` and ``key_id``.
 
     Returns ``(token, expires_in_seconds)``.
     """
     expires_at = int(time.time()) + ttl_seconds
-    body = f"{scan_id}|{key_id}|{expires_at}".encode("utf-8")
+    body = f"{scan_id}|{key_id}|{expires_at}".encode()
     sig = hmac.new(_resolve_secret(), body, hashlib.sha256).digest()
     sig_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=")
     token_bytes = body + b"|" + sig_b64
@@ -94,7 +92,7 @@ def mint(
     return token, ttl_seconds
 
 
-def verify(token: str) -> Optional[TokenPayload]:
+def verify(token: str) -> TokenPayload | None:
     """Verify HMAC + expiry. Returns the bound payload on success.
 
     Does NOT check key revocation; the auth dependency must rehydrate
@@ -111,7 +109,7 @@ def verify(token: str) -> Optional[TokenPayload]:
         expires_at = int(expires_at_b)
     except (ValueError, binascii.Error, UnicodeDecodeError):
         return None
-    body = f"{scan_id}|{key_id}|{expires_at}".encode("utf-8")
+    body = f"{scan_id}|{key_id}|{expires_at}".encode()
     expected = hmac.new(_resolve_secret(), body, hashlib.sha256).digest()
     expected_b64 = base64.urlsafe_b64encode(expected).rstrip(b"=")
     if not hmac.compare_digest(sig_b, expected_b64):

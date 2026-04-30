@@ -9,6 +9,7 @@ the caller); no ``datetime.now()`` is called inside render. The PDF path
 is intentionally NOT covered by byte-identity tests for v0.2.0 — its
 binary form depends on font cache state.
 """
+
 from pathlib import Path
 
 import jinja2
@@ -42,8 +43,7 @@ class ReportGenerator:
         """
         sorted_findings = sort_findings_canonical(findings)
         top_findings = [
-            f for f in sorted_findings
-            if f.severity in (Severity.CRITICAL, Severity.HIGH)
+            f for f in sorted_findings if f.severity in (Severity.CRITICAL, Severity.HIGH)
         ]
         sorted_summary = summary.model_copy(
             update={"scanners_run": sorted(summary.scanners_run)},
@@ -71,7 +71,22 @@ class ReportGenerator:
         producer metadata that depends on the host's font cache. PDF
         determinism is deferred for v0.2.0; use ``generate_html`` if
         byte-identical output is required.
+
+        WeasyPrint is an optional dependency. Install with the ``[pdf]``
+        extra (``pip install 'securescan[pdf]'``) or use the container
+        image, which ships it pre-installed. If it isn't available we
+        raise a ``RuntimeError`` with that hint instead of letting the
+        bare ``ImportError`` (which on bare Linux containers usually
+        surfaces as a missing Cairo / Pango / GObject system library)
+        bubble up unexplained.
         """
-        from weasyprint import HTML
+        try:
+            from weasyprint import HTML  # type: ignore[import-not-found]
+        except ImportError as e:
+            raise RuntimeError(
+                "PDF reports require the 'pdf' extra. "
+                "Install with: pip install 'securescan[pdf]' "
+                "(or use the container image, which ships weasyprint pre-installed)."
+            ) from e
         html_string = self.generate_html(scan, findings, summary, compliance_coverage)
         return HTML(string=html_string).write_pdf()

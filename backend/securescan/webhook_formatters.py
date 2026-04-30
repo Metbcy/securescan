@@ -19,6 +19,7 @@ sending a generic JSON.
 The function is pure (no IO, no clock); the dispatcher passes the
 already-decoded ``data`` dict and the configured webhook URL.
 """
+
 from __future__ import annotations
 
 from datetime import datetime

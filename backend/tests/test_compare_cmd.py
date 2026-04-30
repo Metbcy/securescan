@@ -13,13 +13,14 @@ side-effectful real scan: by monkey-patching ``_run_scan_for_diff`` to
 return a deterministic synthetic finding list, every behaviour is
 verified deterministically.
 """
+
 from __future__ import annotations
 
 import json
 
 from typer.testing import CliRunner
 
-from securescan import cli as cli_mod
+from securescan.cli import _shared as _cli_shared
 from securescan.cli import app
 from securescan.models import Finding, ScanType, Severity
 from securescan.render_pr_comment import MARKER, MARKER_COMPARE
@@ -78,7 +79,7 @@ def _stub_run_scan(monkeypatch, findings: list[Finding]) -> None:
     async def _fake_run_scan(target_path, scan_types, *, enable_ai, scanner_kwargs=None):
         return list(findings)
 
-    monkeypatch.setattr(cli_mod, "_run_scan_for_diff", _fake_run_scan)
+    monkeypatch.setattr(_cli_shared, "_run_scan_for_diff", _fake_run_scan)
 
 
 # --- registration / help --------------------------------------------------
@@ -378,7 +379,7 @@ def test_compare_command_no_ai_flag_works(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             constructed.append((args, kwargs))
 
-    monkeypatch.setattr(cli_mod, "AIEnricher", _SentinelEnricher)
+    monkeypatch.setattr(_cli_shared, "AIEnricher", _SentinelEnricher)
     _stub_run_scan(monkeypatch, [])
     baseline = tmp_path / "baseline.json"
     baseline.write_text(json.dumps([]))

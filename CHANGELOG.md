@@ -9,6 +9,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.10.3] - 2026-04-30
+
+A code-review hardening release. External review surfaced ten items;
+this ships the high-leverage subset and defers over-engineered ones.
+**No user-visible behavior change.**
+
+### Security & correctness
+
+- **DDL identifier allowlist.** `init_db` had two `f"ALTER TABLE …
+  ADD COLUMN {col}"` sites whose `col` came from static literals
+  today, but the pattern would become SQL injection the moment
+  someone refactored `col` to come from a request, config file, or
+  registry. Added `_safe_ident()` helper that asserts
+  `^[A-Za-z_][A-Za-z0-9_]{0,62}$` on every dynamic DDL identifier
+  and raises on anything else. Both call sites gated.
+- **Narrowed `init_db` exception handlers.** Four `except Exception:
+  pass  # column already exists` swallows replaced with
+  `except aiosqlite.OperationalError as e: if not
+  _is_duplicate_column(e): raise`. A typo like
+  `ADD COLUMN foo TXT` (note: TXT not TEXT) would have been silently
+  swallowed before; now it raises and surfaces the real schema bug.
+  Multi-phrasing detection (`"duplicate column name"`,
+  `"duplicate column"`) so future SQLite phrasing changes are a
+  one-line fix and surface as a test failure rather than silent
+  regression.
+
+### Build & install footprint
+
+- **`weasyprint` moved to a `[pdf]` extra.** The runtime cost was
+  zero before (lazy-imported inside the PDF report function), but
+  the install-time cost was huge: WeasyPrint pulls Cairo + Pango +
+  GObject system libs and is a common pip-install failure on bare
+  Linux containers.
+  - `pip install securescan` no longer pulls in `weasyprint`.
+  - `pip install 'securescan[pdf]'` does (and will work after the
+    repo gets a PyPI presence; today it works against the GitHub
+    Release wheel: `pip install 'securescan[pdf] @ <wheel-url>'`).
+  - The container image still ships with `weasyprint` pre-installed.
+  - Calling `securescan report --format pdf` without the extra
+    raises a clear `RuntimeError("PDF reports require the 'pdf'
+    extra. Install with: pip install 'securescan[pdf]' (or use the
+    container image…)")` instead of a generic `ModuleNotFoundError`.
+
+### Developer experience
+
+- **`backend/securescan/cli.py` (2087 LOC) split into a `cli/`
+  package** with one module per command group:
+  ```
+  cli/__init__.py   (typer app + command registration)
+  cli/scan.py       cli/diff.py     cli/compare.py
+  cli/baseline.py   cli/config.py   cli/serve.py
+  cli/status.py     cli/history.py
+  cli/_shared.py    (helpers used by 2+ commands)
+  ```
+  Pure behavior-preserving move. `securescan --help` and every
+  per-command `--help` are byte-identical to v0.10.2.
+- **`.github/workflows/lint.yml`** gates every PR on ruff (lint +
+  format), mypy (currently `continue-on-error: true` while we work
+  through 50 existing annotation gaps), pytest with
+  `--cov-fail-under=77`, and pip-audit. Frontend job runs ESLint +
+  `tsc --noEmit` + production build. Adding `select = ["E", "F",
+  "W", "I", "UP", "B", "ASYNC"]` ruleset to ruff caught 251
+  pre-existing dirt items (unused imports, isort, f-strings,
+  blank-whitespace) auto-fixed in this PR; the codebase is now ruff-
+  clean from a cold start.
+- **Typing modernized via ruff `UP` rules:** 154 sites converted
+  from `Optional[X]` / `List[X]` / `Dict[K,V]` / `Union[X,Y]` to the
+  PEP 604 / 585 forms. Pure mechanical change; safe because
+  `pyproject.toml` declares `requires-python >= 3.10`.
+
+### Tests
+
+- 870 → 887 (+17): 16 for DDL hardening (`_safe_ident` accept/reject
+  + `_is_duplicate_column` accept/reject across multiple SQLite
+  error phrasings), 1 for the PDF-extra error path.
+
+### Out of scope (deferred — see GitHub issues)
+
+- Tracked migration system / Alembic. With ~5 forward-only column
+  additions across the project's two-year history, this is over-
+  engineered today. Revisit when there are 20+ migrations or the
+  first destructive change is needed.
+- `database.py` split (1512 LOC). Borderline; revisit when adding
+  more DB code pushes it past 2000.
+- `baseline.py` split (759 LOC). Under the audit's own "1500 LOC
+  smell" threshold; the audit flagged it on KB, not LOC.
+- mypy gating with `continue-on-error: false`. Needs ~50 small
+  annotation fixes first; tracked separately.
+
 ## [0.10.2] - 2026-04-30
 
 UX polish on the scan-detail page while a scan is running.
@@ -776,7 +865,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.2...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.3...HEAD
+[0.10.3]: https://github.com/Metbcy/securescan/releases/tag/v0.10.3
 [0.10.2]: https://github.com/Metbcy/securescan/releases/tag/v0.10.2
 [0.10.1]: https://github.com/Metbcy/securescan/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Metbcy/securescan/releases/tag/v0.10.0

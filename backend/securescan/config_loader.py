@@ -15,11 +15,11 @@ Real shell env vars always win over file values
 (``load_dotenv(..., override=False)``), and a missing file is a silent
 no-op — Docker images that don't ship a config dir are unaffected.
 """
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -35,7 +35,7 @@ def _candidate_paths() -> list[Path]:
     return paths
 
 
-def load_user_env() -> Optional[Path]:
+def load_user_env() -> Path | None:
     """Load the first existing user env file. Return its path, or ``None``."""
     for candidate in _candidate_paths():
         if candidate.is_file():

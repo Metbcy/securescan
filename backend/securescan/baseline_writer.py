@@ -39,6 +39,7 @@ directory and then ``os.replace``s it onto the target path. This means
 a SIGINT mid-write leaves either the previous file or no file at all,
 never a half-written one a downstream ``compare`` would silently parse.
 """
+
 from __future__ import annotations
 
 import json
@@ -127,9 +128,7 @@ def serialize_baseline(
         "version": BASELINE_VERSION,
         "generated_by": "securescan",
         "target_path": _baseline_target_path(Path(target_path), Path(output_file)),
-        "scan_types": sorted(
-            t.value if hasattr(t, "value") else str(t) for t in scan_types
-        ),
+        "scan_types": sorted(t.value if hasattr(t, "value") else str(t) for t in scan_types),
         "findings": [_finding_to_baseline_dict(f) for f in sorted_findings],
     }
 

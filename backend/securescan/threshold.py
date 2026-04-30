@@ -6,6 +6,7 @@ Extracted into its own module so that SS6's diff subcommand can reuse it
 to count NEW findings only (vs. the current global behaviour where the
 threshold counts every finding in the report).
 """
+
 from __future__ import annotations
 
 from .models import Severity

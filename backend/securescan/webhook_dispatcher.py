@@ -36,6 +36,7 @@ having to wait actual seconds. The HTTP transport (`._client`) is
 also overridable -- tests inject a stub object with an ``async post``
 that records the request and returns a canned response.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,7 +47,6 @@ import logging
 import random
 import time
 from datetime import datetime, timedelta
-from typing import Optional
 
 import httpx
 
@@ -58,7 +58,6 @@ from .database import (
     update_delivery_status,
 )
 from .webhook_formatters import format_payload
-
 
 # Tunables. Module-level so tests can monkeypatch them without
 # relaunching the dispatcher.
@@ -82,17 +81,17 @@ class WebhookDispatcher:
     """
 
     def __init__(self) -> None:
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         # Per-webhook FIFO guard. A webhook_id sitting in this set
         # has an in-flight delivery and we will not start a second
         # one for it until the first completes (success, retry, or
         # terminal failure).
         self._inflight_per_webhook: set[str] = set()
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     @property
-    def client(self) -> Optional[httpx.AsyncClient]:
+    def client(self) -> httpx.AsyncClient | None:
         """Public so tests can swap in a stub or real httpx client."""
         return self._client
 
@@ -177,9 +176,7 @@ class WebhookDispatcher:
                 # asyncio.wait_for with the stop-event lets shutdown
                 # be near-instant instead of waiting out the full
                 # POLL_INTERVAL_SECONDS.
-                await asyncio.wait_for(
-                    self._stop.wait(), timeout=POLL_INTERVAL_SECONDS
-                )
+                await asyncio.wait_for(self._stop.wait(), timeout=POLL_INTERVAL_SECONDS)
             except asyncio.TimeoutError:
                 pass
 
@@ -222,7 +219,8 @@ class WebhookDispatcher:
             logger.exception("delivery %s crashed", delivery_id)
             try:
                 await update_delivery_status(
-                    delivery_id, status="failed",
+                    delivery_id,
+                    status="failed",
                     response_body="dispatcher internal error",
                 )
             except Exception:
@@ -249,7 +247,7 @@ class WebhookDispatcher:
         ts = int(time.time())
         sig = hmac.new(
             secret.encode("utf-8"),
-            f"{ts}.".encode("utf-8") + body,
+            f"{ts}.".encode() + body,
             hashlib.sha256,
         ).hexdigest()
         headers = {
@@ -311,8 +309,8 @@ class WebhookDispatcher:
         row: dict,
         *,
         attempt: int,
-        response_code: Optional[int],
-        response_body: Optional[str],
+        response_code: int | None,
+        response_body: str | None,
     ) -> None:
         """Either schedule a retry or terminal-fail when too old."""
         delivery_id = row["id"]
@@ -333,8 +331,7 @@ class WebhookDispatcher:
 
         # Full-jitter capped exponential. attempt=1 -> uniform[0, base];
         # attempt=2 -> uniform[0, 2*base]; ... clamped at MAX_BACKOFF.
-        cap = min(BASE_BACKOFF_SECONDS * (2 ** max(attempt - 1, 0)),
-                  MAX_BACKOFF_SECONDS)
+        cap = min(BASE_BACKOFF_SECONDS * (2 ** max(attempt - 1, 0)), MAX_BACKOFF_SECONDS)
         delay = random.uniform(0, cap)
         next_at = datetime.utcnow() + timedelta(seconds=delay)
         await update_delivery_status(

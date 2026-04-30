@@ -6,6 +6,7 @@ repeated invocations, and parent-directory creation. The actual
 scanner pipeline is mocked out via ``securescan.cli._run_scan_for_diff``
 so the tests don't depend on semgrep/bandit/etc being installed.
 """
+
 from __future__ import annotations
 
 import json
@@ -71,7 +72,7 @@ def _patch_runner(monkeypatch, findings: list[Finding] | None = None):
         return [f.model_copy() for f in findings]
 
     _fake.calls = []  # type: ignore[attr-defined]
-    monkeypatch.setattr("securescan.cli._run_scan_for_diff", _fake)
+    monkeypatch.setattr("securescan.cli._shared._run_scan_for_diff", _fake)
     return _fake
 
 
@@ -115,7 +116,7 @@ def test_baseline_command_no_ai_default(tmp_path, monkeypatch):
         def __init__(self, *args, **kwargs):
             constructed.append((args, kwargs))
 
-    monkeypatch.setattr("securescan.cli.AIEnricher", _SentinelEnricher)
+    monkeypatch.setattr("securescan.cli._shared.AIEnricher", _SentinelEnricher)
 
     out = tmp_path / "baseline.json"
     runner = CliRunner()
@@ -160,17 +161,13 @@ def test_baseline_command_byte_deterministic_output(tmp_path, monkeypatch):
     out = tmp_path / "baseline.json"
 
     runner = CliRunner()
-    result_a = runner.invoke(
-        app, ["baseline", str(tmp_path), "--output-file", str(out)]
-    )
+    result_a = runner.invoke(app, ["baseline", str(tmp_path), "--output-file", str(out)])
     assert result_a.exit_code == 0, result_a.output
     bytes_a = out.read_bytes()
 
     out.unlink()
 
-    result_b = runner.invoke(
-        app, ["baseline", str(tmp_path), "--output-file", str(out)]
-    )
+    result_b = runner.invoke(app, ["baseline", str(tmp_path), "--output-file", str(out)])
     assert result_b.exit_code == 0, result_b.output
     bytes_b = out.read_bytes()
 
@@ -208,9 +205,7 @@ def test_baseline_command_stderr_summary_line(tmp_path, monkeypatch):
     out = tmp_path / "b.json"
 
     runner = CliRunner(mix_stderr=False) if _supports_mix_stderr() else CliRunner()
-    result = runner.invoke(
-        app, ["baseline", str(tmp_path), "--output-file", str(out)]
-    )
+    result = runner.invoke(app, ["baseline", str(tmp_path), "--output-file", str(out)])
     assert result.exit_code == 0, result.output
 
     combined = (result.output or "") + (getattr(result, "stderr", "") or "")

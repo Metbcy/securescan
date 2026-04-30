@@ -39,7 +39,6 @@ from securescan.review_marker import (
     fingerprint_prefix,
 )
 
-
 # ----------------------------- fixtures -----------------------------------
 
 
@@ -172,10 +171,9 @@ def test_comments_sorted_by_path_then_position():
         _make_finding(file_path="src/alpha.py", line_start=5, rule_id="A1"),
         _make_finding(file_path="src/alpha.py", line_start=2, rule_id="A2"),
     ]
-    diff_text = (
-        _diff_with_lines("src/alpha.py", [f"a{i}" for i in range(1, 11)])
-        + _diff_with_lines("src/zeta.py", [f"z{i}" for i in range(1, 11)])
-    )
+    diff_text = _diff_with_lines(
+        "src/alpha.py", [f"a{i}" for i in range(1, 11)]
+    ) + _diff_with_lines("src/zeta.py", [f"z{i}" for i in range(1, 11)])
     payload = render_review(
         ChangeSet(new=findings),
         commit_id="d" * 40,
@@ -398,8 +396,7 @@ def test_severity_pin_suggestion_always_includes_yaml_block_when_rule_id_present
 
 
 def test_each_inline_comment_carries_fingerprint_marker():
-    findings = [_make_finding(line_start=3, rule_id="A"),
-                _make_finding(line_start=4, rule_id="B")]
+    findings = [_make_finding(line_start=3, rule_id="A"), _make_finding(line_start=4, rule_id="B")]
     diff_text = _diff_for_foo_py_lines_1_to_20()
     payload = render_review(
         ChangeSet(new=findings),
@@ -479,9 +476,7 @@ def test_compare_disappeared_findings_NOT_inline():
 
 
 def test_diff_mode_fixed_section_uses_fixed_label():
-    fixed = _make_finding(
-        file_path="src/old.py", line_start=3, rule_id="F1", title="Fixed thing"
-    )
+    fixed = _make_finding(file_path="src/old.py", line_start=3, rule_id="F1", title="Fixed thing")
     payload = render_review(
         ChangeSet(new=[], fixed=[fixed]),
         commit_id="abc1234abc1234abc1234abc1234abc1234abc12",

@@ -14,7 +14,6 @@ import logging
 import re
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from .models import SBOMComponent, SBOMDocument
 from .timeutil import now_for_output
@@ -28,7 +27,7 @@ _SKIP_DIRS = {"node_modules", "vendor", ".git", "venv", ".venv", "__pycache__"}
 class SBOMGenerator:
     """Generates a Software Bill of Materials for a given target path."""
 
-    def __init__(self, target_path: str, scan_id: Optional[str] = None):
+    def __init__(self, target_path: str, scan_id: str | None = None):
         self.target_path = Path(target_path).resolve()
         self.scan_id = scan_id
 
@@ -84,7 +83,11 @@ class SBOMGenerator:
     async def _run_syft(self, sbom_id: str) -> list[SBOMComponent]:
         # Uses create_subprocess_exec (not shell=True) — no injection risk
         proc = await asyncio.create_subprocess_exec(
-            "syft", str(self.target_path), "-o", "cyclonedx-json", "-q",
+            "syft",
+            str(self.target_path),
+            "-o",
+            "cyclonedx-json",
+            "-q",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -100,24 +103,26 @@ class SBOMGenerator:
             if not name:
                 continue
             purl = item.get("purl")
-            license_val: Optional[str] = None
+            license_val: str | None = None
             licenses = item.get("licenses", [])
             if licenses:
                 lic = licenses[0]
                 license_val = lic.get("expression") or lic.get("id") or lic.get("name")
-            supplier: Optional[str] = None
+            supplier: str | None = None
             supplier_obj = item.get("supplier")
             if supplier_obj:
                 supplier = supplier_obj.get("name")
-            components.append(SBOMComponent(
-                sbom_id=sbom_id,
-                name=name,
-                version=version or "unknown",
-                type=item.get("type", "library"),
-                purl=purl,
-                license=license_val,
-                supplier=supplier,
-            ))
+            components.append(
+                SBOMComponent(
+                    sbom_id=sbom_id,
+                    name=name,
+                    version=version or "unknown",
+                    type=item.get("type", "library"),
+                    purl=purl,
+                    license=license_val,
+                    supplier=supplier,
+                )
+            )
         return components
 
     # ------------------------------------------------------------------
@@ -185,12 +190,14 @@ class SBOMGenerator:
                     continue
                 version = self._strip_semver(version_spec) or "unknown"
                 purl = f"pkg:npm/{name}@{version}"
-                components.append(SBOMComponent(
-                    sbom_id=sbom_id,
-                    name=name,
-                    version=version,
-                    purl=purl,
-                ))
+                components.append(
+                    SBOMComponent(
+                        sbom_id=sbom_id,
+                        name=name,
+                        version=version,
+                        purl=purl,
+                    )
+                )
         return components
 
     def _parse_requirements_txt(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -214,12 +221,14 @@ class SBOMGenerator:
                 if not name:
                     continue
                 purl = f"pkg:pypi/{name.lower()}@{version}"
-                components.append(SBOMComponent(
-                    sbom_id=sbom_id,
-                    name=name,
-                    version=version,
-                    purl=purl,
-                ))
+                components.append(
+                    SBOMComponent(
+                        sbom_id=sbom_id,
+                        name=name,
+                        version=version,
+                        purl=purl,
+                    )
+                )
         return components
 
     def _parse_go_mod(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -239,24 +248,28 @@ class SBOMGenerator:
                 if m_single:
                     module, version = m_single.group(1), m_single.group(2)
                     purl = f"pkg:golang/{module}@{version}"
-                    components.append(SBOMComponent(
-                        sbom_id=sbom_id,
-                        name=module,
-                        version=version,
-                        purl=purl,
-                    ))
+                    components.append(
+                        SBOMComponent(
+                            sbom_id=sbom_id,
+                            name=module,
+                            version=version,
+                            purl=purl,
+                        )
+                    )
                     continue
                 if in_require and line and not line.startswith("//"):
                     parts = line.split()
                     if len(parts) >= 2:
                         module, version = parts[0], parts[1]
                         purl = f"pkg:golang/{module}@{version}"
-                        components.append(SBOMComponent(
-                            sbom_id=sbom_id,
-                            name=module,
-                            version=version,
-                            purl=purl,
-                        ))
+                        components.append(
+                            SBOMComponent(
+                                sbom_id=sbom_id,
+                                name=module,
+                                version=version,
+                                purl=purl,
+                            )
+                        )
         return components
 
     def _parse_cargo_toml(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -279,12 +292,14 @@ class SBOMGenerator:
                     name, version = m_simple.group(1), m_simple.group(2)
                     version = self._strip_semver(version)
                     purl = f"pkg:cargo/{name}@{version}"
-                    components.append(SBOMComponent(
-                        sbom_id=sbom_id,
-                        name=name,
-                        version=version or "unknown",
-                        purl=purl,
-                    ))
+                    components.append(
+                        SBOMComponent(
+                            sbom_id=sbom_id,
+                            name=name,
+                            version=version or "unknown",
+                            purl=purl,
+                        )
+                    )
                     continue
                 # name = {version = "x", ...} format
                 m_table = re.match(r'^([A-Za-z0-9_\-]+)\s*=\s*\{.*version\s*=\s*"([^"]+)"', line)
@@ -292,12 +307,14 @@ class SBOMGenerator:
                     name, version = m_table.group(1), m_table.group(2)
                     version = self._strip_semver(version)
                     purl = f"pkg:cargo/{name}@{version}"
-                    components.append(SBOMComponent(
-                        sbom_id=sbom_id,
-                        name=name,
-                        version=version or "unknown",
-                        purl=purl,
-                    ))
+                    components.append(
+                        SBOMComponent(
+                            sbom_id=sbom_id,
+                            name=name,
+                            version=version or "unknown",
+                            purl=purl,
+                        )
+                    )
         return components
 
     def _parse_gemfile_lock(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -320,12 +337,14 @@ class SBOMGenerator:
                     if m:
                         name, version = m.group(1), m.group(2)
                         purl = f"pkg:gem/{name}@{version}"
-                        components.append(SBOMComponent(
-                            sbom_id=sbom_id,
-                            name=name,
-                            version=version,
-                            purl=purl,
-                        ))
+                        components.append(
+                            SBOMComponent(
+                                sbom_id=sbom_id,
+                                name=name,
+                                version=version,
+                                purl=purl,
+                            )
+                        )
         return components
 
     def _parse_composer_lock(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -342,17 +361,19 @@ class SBOMGenerator:
                 if version.startswith("v"):
                     version = version[1:]
                 purl = f"pkg:composer/{name}@{version}"
-                license_val: Optional[str] = None
+                license_val: str | None = None
                 licenses = pkg.get("license", [])
                 if licenses:
                     license_val = licenses[0] if isinstance(licenses, list) else str(licenses)
-                components.append(SBOMComponent(
-                    sbom_id=sbom_id,
-                    name=name,
-                    version=version,
-                    purl=purl,
-                    license=license_val,
-                ))
+                components.append(
+                    SBOMComponent(
+                        sbom_id=sbom_id,
+                        name=name,
+                        version=version,
+                        purl=purl,
+                        license=license_val,
+                    )
+                )
         return components
 
     def _parse_pipfile_lock(self, path: Path, sbom_id: str) -> list[SBOMComponent]:
@@ -367,12 +388,14 @@ class SBOMGenerator:
                 # Pipfile.lock versions look like "==1.2.3"
                 version = re.sub(r"^==", "", version).strip()
                 purl = f"pkg:pypi/{name.lower()}@{version}"
-                components.append(SBOMComponent(
-                    sbom_id=sbom_id,
-                    name=name,
-                    version=version,
-                    purl=purl,
-                ))
+                components.append(
+                    SBOMComponent(
+                        sbom_id=sbom_id,
+                        name=name,
+                        version=version,
+                        purl=purl,
+                    )
+                )
         return components
 
     # ------------------------------------------------------------------

@@ -1,0 +1,78 @@
+name: Lint & test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Cancel superseded runs on the same PR/branch.
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python — ruff, mypy, pytest, pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install dev deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e './backend[dev,pdf]' mypy pytest-cov pip-audit
+      - name: ruff (lint)
+        run: ruff check backend/
+      - name: ruff (format check)
+        run: ruff format --check backend/
+      - name: mypy
+        # 50 pre-existing mypy errors at v0.10.3 lint bring-up. Most are
+        # legitimate `str | None` narrowings in cli/diff.py and cli/compare.py
+        # that need code changes (not just annotations) to resolve cleanly.
+        # Set to `false` once the count is at 0; tracked as a follow-up.
+        continue-on-error: true
+        run: mypy backend/securescan --ignore-missing-imports
+      - name: pytest with coverage
+        # Baseline measured at 79% on 2025-04-30 (887 tests). Floor set
+        # 2 points below to absorb minor coverage drift on PRs without
+        # masking real regressions.
+        run: |
+          cd backend
+          pytest --cov=securescan --cov-fail-under=77 tests/
+      - name: pip-audit
+        # pip-audit on PRs catches CVE-bumped deps immediately instead of
+        # waiting for the weekly cron in securescan.yml. continue-on-error
+        # because transitive-dep CVEs shouldn't block unrelated PRs.
+        continue-on-error: true
+        run: pip-audit ./backend --strict
+
+  frontend:
+    name: Frontend — eslint, tsc, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: ESLint
+        run: npm run lint
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: npm run build

@@ -4,21 +4,22 @@ Wraps the python-owasp-zap-v2.4 library (optional dependency).  If zapv2
 is not installed, or if a running ZAP instance cannot be reached, the
 scanner reports itself as unavailable and returns no findings.
 """
+
 import asyncio
 import time
 from pathlib import Path
-from typing import Optional
 
 try:
     from zapv2 import ZAPv2 as zapv2_cls
+
     _ZAP_AVAILABLE = True
 except ImportError:
     zapv2_cls = None  # type: ignore[assignment,misc]
     _ZAP_AVAILABLE = False
 
-from .base import BaseScanner
-from ..models import Finding, ScanType, Severity
 from ..config import settings
+from ..models import Finding, ScanType, Severity
+from .base import BaseScanner
 
 # Map ZAP integer risk levels to Finding severities
 _RISK_MAP: dict[int, Severity] = {
@@ -60,7 +61,7 @@ class ZapScanner(BaseScanner):
             "(or ~/.config/securescan/.env)"
         )
 
-    def _make_zap(self) -> Optional[object]:
+    def _make_zap(self) -> object | None:
         """Return a ZAPv2 client, or None if unavailable."""
         if not _ZAP_AVAILABLE:
             return None
@@ -76,15 +77,13 @@ class ZapScanner(BaseScanner):
             zap = self._make_zap()
             # Run the blocking version() call in a thread so we don't block the
             # event loop.
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: zap.core.version
-            )
+            await asyncio.get_event_loop().run_in_executor(None, lambda: zap.core.version)
             return True
         except Exception:
             return False
 
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
-        target_url: Optional[str] = kwargs.get("target_url")
+        target_url: str | None = kwargs.get("target_url")
         if not target_url:
             return []
 

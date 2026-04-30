@@ -1,17 +1,18 @@
 """Tests for the built-in DAST scanner."""
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 import httpx
+import pytest
 
-from securescan.scanners.dast_builtin import BuiltinDastScanner
 from securescan.models import ScanType, Severity
-
+from securescan.scanners.dast_builtin import BuiltinDastScanner
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_response(headers: dict, cookies: list[str] | None = None) -> MagicMock:
     """Build a minimal httpx.Response mock."""
@@ -34,6 +35,7 @@ def _make_response(headers: dict, cookies: list[str] | None = None) -> MagicMock
 # Basic properties
 # ---------------------------------------------------------------------------
 
+
 def test_scanner_name():
     scanner = BuiltinDastScanner()
     assert scanner.name == "builtin_dast"
@@ -53,6 +55,7 @@ def test_always_available():
 # No target_url → empty list
 # ---------------------------------------------------------------------------
 
+
 def test_no_target_url_returns_empty():
     scanner = BuiltinDastScanner()
     result = asyncio.run(scanner.scan("/some/path", "scan-1"))
@@ -68,6 +71,7 @@ def test_empty_target_url_kwarg_returns_empty():
 # ---------------------------------------------------------------------------
 # Security header checks
 # ---------------------------------------------------------------------------
+
 
 def test_missing_all_security_headers():
     scanner = BuiltinDastScanner()
@@ -115,6 +119,7 @@ def test_partial_security_headers():
 # Information-disclosure header checks
 # ---------------------------------------------------------------------------
 
+
 def test_info_disclosure_server_header():
     scanner = BuiltinDastScanner()
     response = _make_response({"Server": "Apache/2.4.51"})
@@ -143,6 +148,7 @@ def test_no_info_disclosure_headers():
 # ---------------------------------------------------------------------------
 # Cookie flag checks
 # ---------------------------------------------------------------------------
+
 
 def test_cookie_missing_secure_and_httponly():
     scanner = BuiltinDastScanner()
@@ -194,6 +200,7 @@ def test_multiple_cookies():
 # Full scan integration (mocked httpx)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_full_scan_with_mock():
     """scan() calls httpx and aggregates findings from all checks."""
@@ -235,9 +242,7 @@ async def test_scan_handles_request_error():
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    mock_client.get = AsyncMock(
-        side_effect=httpx.ConnectError("Connection refused")
-    )
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
 
     with patch("securescan.scanners.dast_builtin.httpx.AsyncClient", return_value=mock_client):
         findings = await scanner.scan("/path", "scan-err", target_url="http://unreachable.local")

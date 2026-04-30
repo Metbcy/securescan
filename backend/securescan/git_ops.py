@@ -19,6 +19,7 @@ already a hard dependency of the diff workflow (you can't have refs
 without a git repo), and shelling out keeps the dependency surface zero
 which matters for the wheel-only install path.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -72,9 +73,7 @@ def current_ref(target: Path) -> str:
         result = _run(["rev-parse", "HEAD"], cwd=target)
         return result.stdout.strip()
     except subprocess.CalledProcessError as exc:
-        raise GitOpError(
-            f"git rev-parse HEAD failed: {exc.stderr.strip()}"
-        ) from exc
+        raise GitOpError(f"git rev-parse HEAD failed: {exc.stderr.strip()}") from exc
 
 
 def rev_parse(target: Path, ref: str) -> str:
@@ -89,9 +88,7 @@ def rev_parse(target: Path, ref: str) -> str:
         result = _run(["rev-parse", ref], cwd=target)
         return result.stdout.strip()
     except subprocess.CalledProcessError as exc:
-        raise GitOpError(
-            f"git rev-parse {ref!r} failed: {exc.stderr.strip()}"
-        ) from exc
+        raise GitOpError(f"git rev-parse {ref!r} failed: {exc.stderr.strip()}") from exc
 
 
 def is_clean(target: Path) -> bool:
@@ -119,9 +116,7 @@ def checkout(target: Path, ref: str) -> None:
     try:
         _run(["checkout", ref], cwd=target)
     except subprocess.CalledProcessError as exc:
-        raise GitOpError(
-            f"git checkout {ref!r} failed: {exc.stderr.strip()}"
-        ) from exc
+        raise GitOpError(f"git checkout {ref!r} failed: {exc.stderr.strip()}") from exc
 
 
 def diff_text(target: Path, base: str, head: str) -> str:
@@ -142,6 +137,4 @@ def diff_text(target: Path, base: str, head: str) -> str:
         result = _run(["diff", "--no-color", base, head], cwd=target)
         return result.stdout
     except subprocess.CalledProcessError as exc:
-        raise GitOpError(
-            f"git diff {base!r}..{head!r} failed: {exc.stderr.strip()}"
-        ) from exc
+        raise GitOpError(f"git diff {base!r}..{head!r} failed: {exc.stderr.strip()}") from exc

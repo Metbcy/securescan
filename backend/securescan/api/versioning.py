@@ -17,16 +17,16 @@ This module exposes two pieces:
   and `Sunset` response headers to any request whose path begins with
   `/api/` but not `/api/v1/`.
 """
+
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from fastapi import APIRouter, FastAPI
 from fastapi.params import Depends
 from fastapi.routing import APIRoute
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-
 
 LEGACY_PREFIX = "/api"
 V1_PREFIX = "/api/v1"
@@ -41,7 +41,7 @@ def alias_router_at_v1(
     app: FastAPI,
     router: APIRouter,
     *,
-    dependencies: Optional[Sequence[Depends]] = None,
+    dependencies: Sequence[Depends] | None = None,
 ) -> None:
     """Mount a copy of ``router`` on ``app`` under ``/api/v1``.
 
@@ -57,7 +57,7 @@ def alias_router_at_v1(
             f"'{LEGACY_PREFIX}/', got {router.prefix!r}"
         )
 
-    suffix = router.prefix[len(LEGACY_PREFIX):]  # "" or "/scans"
+    suffix = router.prefix[len(LEGACY_PREFIX) :]  # "" or "/scans"
     v1_prefix = V1_PREFIX + suffix
     v1 = APIRouter(prefix=v1_prefix, tags=list(router.tags) if router.tags else None)
 
@@ -67,7 +67,7 @@ def alias_router_at_v1(
         # route.path was baked with the original prefix at registration
         # time (e.g. "/api/scans/{scan_id}"); strip it back to the
         # router-relative subpath ("/{scan_id}") for re-registration.
-        sub = route.path[len(router.prefix):]
+        sub = route.path[len(router.prefix) :]
         v1.add_api_route(
             sub,
             route.endpoint,
@@ -116,7 +116,7 @@ class DeprecationHeaderMiddleware(BaseHTTPMiddleware):
             and not path.startswith(V1_PREFIX + "/")
             and not path == V1_PREFIX
         ):
-            successor = V1_PREFIX + path[len(LEGACY_PREFIX):]
+            successor = V1_PREFIX + path[len(LEGACY_PREFIX) :]
             response.headers["Deprecation"] = "true"
             response.headers["Link"] = f'<{successor}>; rel="successor-version"'
             response.headers["Sunset"] = SUNSET_DATE

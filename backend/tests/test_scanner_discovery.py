@@ -6,13 +6,9 @@ missing tools installed in the venv that the backend itself runs out
 of (e.g., `pip install bandit` inside `./venv` while uvicorn launches
 via `./venv/bin/python`).
 """
+
 import os
 import sys
-import tempfile
-from pathlib import Path
-from unittest import mock
-
-import pytest
 
 from securescan.scanners.discovery import find_tool, tool_command_or_module
 

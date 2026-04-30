@@ -6,6 +6,7 @@ can flip ``SECURESCAN_RATE_LIMIT_*`` with ``monkeypatch`` and get a
 fresh limiter (and therefore an empty bucket dict) without reloading
 the app.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -156,9 +157,7 @@ def test_rate_limit_per_key_isolation(monkeypatch, temp_db, scan_dir):
 
     assert r_alice_1.status_code != 429
     assert r_alice_2.status_code == 429
-    assert r_bob_1.status_code != 429, (
-        f"bob should have his own bucket; got {r_bob_1.status_code}"
-    )
+    assert r_bob_1.status_code != 429, f"bob should have his own bucket; got {r_bob_1.status_code}"
 
 
 def test_rate_limit_disabled(monkeypatch, temp_db, scan_dir):
@@ -170,9 +169,7 @@ def test_rate_limit_disabled(monkeypatch, temp_db, scan_dir):
     headers = {"X-API-Key": "disabled-key"}
 
     statuses = [_post_scan(client, scan_dir, **headers).status_code for _ in range(5)]
-    assert all(s != 429 for s in statuses), (
-        f"limiter disabled but got 429 in {statuses}"
-    )
+    assert all(s != 429 for s in statuses), f"limiter disabled but got 429 in {statuses}"
 
     last = _post_scan(client, scan_dir, **headers)
     assert "X-RateLimit-Limit" not in last.headers, (
@@ -235,8 +232,12 @@ def test_rate_limit_v1_path_also_limited(monkeypatch, temp_db, scan_dir):
     assert RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/v1/scans")) is True
     assert RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/v1/scans/")) is True
     assert RateLimitMiddleware._is_rate_limited_route(_Req("GET", "/api/scans")) is False
-    assert RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/scans/abc/cancel")) is False
-    assert RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/dashboard/status")) is False
+    assert (
+        RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/scans/abc/cancel")) is False
+    )
+    assert (
+        RateLimitMiddleware._is_rate_limited_route(_Req("POST", "/api/dashboard/status")) is False
+    )
 
 
 def test_rate_limit_falls_back_to_client_ip(monkeypatch):

@@ -1,4 +1,5 @@
 """Compliance framework API endpoints."""
+
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query

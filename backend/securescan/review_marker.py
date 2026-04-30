@@ -15,6 +15,7 @@ The 12-char prefix is enough collision resistance for per-PR scope
 (~280T combinations); the full sha256 fingerprint is logically the
 identity but not user-visible.
 """
+
 from __future__ import annotations
 
 import re
@@ -36,9 +37,7 @@ def fingerprint_prefix(fingerprint: str) -> str:
     Lowercased. Raises ValueError on too-short or non-hex input.
     """
     if not isinstance(fingerprint, str):
-        raise ValueError(
-            f"fingerprint must be a string, got {type(fingerprint).__name__}"
-        )
+        raise ValueError(f"fingerprint must be a string, got {type(fingerprint).__name__}")
     normalized = fingerprint.lower()
     if len(normalized) < FINGERPRINT_PREFIX_LEN:
         raise ValueError(
@@ -46,9 +45,7 @@ def fingerprint_prefix(fingerprint: str) -> str:
             f"got {len(normalized)}"
         )
     if not _HEX_RE.match(normalized):
-        raise ValueError(
-            "fingerprint must be hexadecimal (0-9, a-f)"
-        )
+        raise ValueError("fingerprint must be hexadecimal (0-9, a-f)")
     return normalized[:FINGERPRINT_PREFIX_LEN]
 
 

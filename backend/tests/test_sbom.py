@@ -1,11 +1,12 @@
 """Tests for the SBOM generator."""
 
 import json
-import pytest
 from pathlib import Path
 
-from securescan.sbom import SBOMGenerator
+import pytest
+
 from securescan.models import SBOMDocument
+from securescan.sbom import SBOMGenerator
 
 
 @pytest.fixture
@@ -41,6 +42,7 @@ numpy==1.24.3  # inline comment
 # ------------------------------------------------------------------
 # Parser unit tests
 # ------------------------------------------------------------------
+
 
 def test_parse_package_json(tmp_project: Path):
     gen = SBOMGenerator(str(tmp_project))
@@ -101,6 +103,7 @@ def test_parse_requirements_txt_skips_comments(tmp_project: Path):
 # generate() integration test
 # ------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_generate_returns_sbom_document(tmp_project: Path, monkeypatch):
     """generate() should return an SBOMDocument with components from both manifests."""
@@ -145,6 +148,7 @@ async def test_generate_deduplicates(tmp_path: Path, monkeypatch):
 # ------------------------------------------------------------------
 # Export tests
 # ------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_export_cyclonedx(tmp_project: Path, monkeypatch):
@@ -195,6 +199,7 @@ async def test_export_spdx(tmp_project: Path, monkeypatch):
 # ------------------------------------------------------------------
 # Additional parser tests
 # ------------------------------------------------------------------
+
 
 def test_parse_go_mod(tmp_path: Path):
     go_mod = """\

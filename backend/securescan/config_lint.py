@@ -166,8 +166,7 @@ def lint_config(config_path: Path) -> LintReport:
             LintIssue(
                 severity="info",
                 message=(
-                    "config file is empty; no overrides will apply "
-                    "(this is a valid starter state)"
+                    "config file is empty; no overrides will apply (this is a valid starter state)"
                 ),
             )
         )

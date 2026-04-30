@@ -1,8 +1,10 @@
 """Dockerfile security scanner — checks Dockerfiles for security best practices."""
+
 import re
 from pathlib import Path
-from .base import BaseScanner
+
 from ..models import Finding, ScanType, Severity
+from .base import BaseScanner
 
 # Security rules for Dockerfiles
 RULES = [
@@ -145,34 +147,38 @@ class DockerfileScanner(BaseScanner):
                     if rule["pattern"] is None:
                         continue
                     if re.search(rule["pattern"], line, re.IGNORECASE):
-                        findings.append(Finding(
-                            scan_id=scan_id,
-                            scanner=self.name,
-                            scan_type=self.scan_type,
-                            severity=rule["severity"],
-                            title=rule["title"],
-                            description=rule["description"],
-                            file_path=str(filepath),
-                            line_start=line_num,
-                            rule_id=f"dockerfile/{rule['id']}",
-                            remediation=rule["remediation"],
-                        ))
+                        findings.append(
+                            Finding(
+                                scan_id=scan_id,
+                                scanner=self.name,
+                                scan_type=self.scan_type,
+                                severity=rule["severity"],
+                                title=rule["title"],
+                                description=rule["description"],
+                                file_path=str(filepath),
+                                line_start=line_num,
+                                rule_id=f"dockerfile/{rule['id']}",
+                                remediation=rule["remediation"],
+                            )
+                        )
 
             # Check for missing USER directive
             if not has_user_directive and any(
                 re.match(r"^\s*FROM\s+", line, re.IGNORECASE) for line in lines
             ):
-                findings.append(Finding(
-                    scan_id=scan_id,
-                    scanner=self.name,
-                    scan_type=self.scan_type,
-                    severity=Severity.MEDIUM,
-                    title="No USER directive found",
-                    description="No USER directive means the container runs as root by default.",
-                    file_path=str(filepath),
-                    rule_id="dockerfile/DL010",
-                    remediation="Add a USER directive to run the container as a non-root user.",
-                ))
+                findings.append(
+                    Finding(
+                        scan_id=scan_id,
+                        scanner=self.name,
+                        scan_type=self.scan_type,
+                        severity=Severity.MEDIUM,
+                        title="No USER directive found",
+                        description="No USER directive means the container runs as root by default.",
+                        file_path=str(filepath),
+                        rule_id="dockerfile/DL010",
+                        remediation="Add a USER directive to run the container as a non-root user.",
+                    )
+                )
         except Exception:
             pass
         return findings
