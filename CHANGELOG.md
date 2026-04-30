@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.10.0] - 2026-04-30
+
+A non-feature minor release: full product documentation website,
+Apache 2.0 relicensing, and a NOTICE file crediting the third-party
+scanners SecureScan orchestrates.
+
+### Added
+
+- **Documentation website** at <https://metbcy.github.io/securescan/>.
+  41 pages covering install, all features (v0.6.0 → v0.9.0), API
+  reference, deployment, security, and CLI usage. Built with mdBook,
+  auto-deployed on every push to `main` that touches `docs/**` via a
+  new `.github/workflows/docs.yml` workflow. Includes mermaid
+  architecture diagrams (scan lifecycle, SSE token rotation, webhook
+  delivery state machine) and full HMAC verification examples for
+  Python / Node / Go.
+- `LICENSE` file (Apache 2.0, full text) and `NOTICE` file crediting
+  the third-party scanners (bandit, semgrep, trivy, checkov, safety,
+  OWASP ZAP, nmap, npm-audit, license-checker) which are invoked as
+  subprocesses, not redistributed.
+- README link to the new documentation site.
+
+### Changed
+
+- Project relicensed to **Apache 2.0**. Previously declared MIT in
+  `README.md` and `backend/pyproject.toml` but no `LICENSE` file
+  existed in the repo. Apache 2.0 fits a security-tooling project
+  better — explicit patent grant, NOTICE convention. `frontend/
+  package.json` `license` field added (was unset).
+
+### No code changes
+
+This release ships zero changes to the API, database schema,
+scanner behavior, or dashboard UX. v0.9.0 callers can upgrade safely.
+
 ## [0.9.0] - 2026-04-29
 
 A workflow / observability release: dashboards now have a
@@ -678,7 +713,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Metbcy/securescan/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Metbcy/securescan/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Metbcy/securescan/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Metbcy/securescan/releases/tag/v0.7.0
