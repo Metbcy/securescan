@@ -46,12 +46,22 @@ def _write_snapshot(path, findings):
 
 
 def test_diff_command_registered_in_cli():
-    runner = CliRunner()
-    result = runner.invoke(app, ["diff", "--help"])
-    assert result.exit_code == 0
-    assert "Diff two scan snapshots" in result.output
-    assert "--base-ref" in result.output
-    assert "--base-snapshot" in result.output
+    """Verify the diff subcommand is registered with the expected flags.
+    Uses Click's command introspection rather than asserting on rendered
+    help output (which collapses without a TTY in CI)."""
+    import click
+    from typer.main import get_command
+
+    cli = get_command(app)
+    diff_cmd = cli.commands["diff"]  # type: ignore[union-attr]
+    assert "Diff two scan snapshots" in (diff_cmd.help or "")
+
+    opts: set[str] = set()
+    for param in diff_cmd.params:
+        if isinstance(param, click.Option):
+            opts.update(param.opts)
+    assert "--base-ref" in opts
+    assert "--base-snapshot" in opts
 
 
 def test_diff_requires_one_input_pair(tmp_path):
