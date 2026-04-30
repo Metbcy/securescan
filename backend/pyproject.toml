@@ -26,7 +26,12 @@ classifiers = [
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    "typer[all]>=0.15.0",
+    # typer 0.21+ requires click>=8.2 (uses click.Choice[T] subscript at
+    # import time); older typer paired with newer click also breaks. Pin
+    # both floors so a fresh `pip install ./backend` in CI resolves to a
+    # compatible pair.
+    "typer[all]>=0.21.0",
+    "click>=8.2.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "aiosqlite>=0.20.0",
