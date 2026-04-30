@@ -1,16 +1,28 @@
 name: Container image
 
+# Build the multi-arch image on every push to main as a smoke test
+# (does NOT push). For tag pushes, release.yml owns the build + sign +
+# push path — duplicating the build here just creates a tag-pointer
+# race (the unsigned image from this workflow can win the :vX.Y.Z tag
+# pointer over the signed one from release.yml). See issue #1.
 on:
   push:
     branches:
       - main
-    tags:
-      - "v*.*.*"
 
 permissions:
   contents: read
   packages: write
   id-token: write
+
+# Cancel any in-flight build when a new commit lands. Multi-arch via
+# QEMU is ~25-30 min; without this, every rapid-fire commit during a
+# CI-fix cycle stacks another parallel build, and the queue never
+# drains. This guarantees only the LATEST commit on main is being
+# built at any one time.
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -30,14 +42,6 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Compute image tags
         id: tags
         run: |
@@ -45,32 +49,24 @@ jobs:
           image="${REGISTRY}/${IMAGE_NAME}"
           # Lowercase the image name; GHCR rejects mixed-case paths.
           image_lc="$(echo "${image}" | tr '[:upper:]' '[:lower:]')"
-          ref="${GITHUB_REF}"
-          if [[ "${ref}" == refs/tags/v* ]]; then
-            tag="${ref#refs/tags/}"
-            tags="${image_lc}:${tag},${image_lc}:latest"
-            push=true
-          elif [[ "${ref}" == refs/heads/main ]]; then
-            tags="${image_lc}:main"
-            push=false
-          else
-            tags="${image_lc}:dev"
-            push=false
-          fi
+          # main-branch builds are smoke-tests only — never push. Tag
+          # pushes are handled by release.yml exclusively (this
+          # workflow no longer triggers on tag pushes; see file
+          # header comment).
+          tags="${image_lc}:main"
           echo "tags=${tags}" >> "${GITHUB_OUTPUT}"
-          echo "push=${push}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved tags: ${tags}"
-          echo "Push: ${push}"
+          echo "Resolved tags: ${tags} (smoke-test build, not pushing)"
 
-      - name: Build and (conditionally) push
+      - name: Build (smoke-test, no push)
         uses: docker/build-push-action@v6
         with:
           context: ./backend
           file: ./backend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ steps.tags.outputs.push == 'true' }}
+          # amd64-only on main pushes — multi-arch is exercised on
+          # tag pushes via release.yml and is a 30-min build that's
+          # not worth running on every commit.
+          platforms: linux/amd64
+          push: false
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
