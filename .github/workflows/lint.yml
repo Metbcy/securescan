@@ -19,6 +19,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Some tests do `git diff <sha>..<sha>`. The default shallow
+          # checkout (depth=1) doesn't include parent commits, so those
+          # diffs fail with "fatal: bad object". Full history fixes it.
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -43,6 +48,13 @@ jobs:
         # Baseline measured at 79% on 2025-04-30 (887 tests). Floor set
         # 2 points below to absorb minor coverage drift on PRs without
         # masking real regressions.
+        env:
+          # Click/Typer's help renderer reads COLUMNS to lay out the
+          # multi-column option table. CI's default is 0 (no TTY), which
+          # collapses every help-flag-recognition test into an empty
+          # frame. Pin a sane width so help tests get the same output
+          # locally and in CI.
+          COLUMNS: '120'
         run: |
           cd backend
           pytest --cov=securescan --cov-fail-under=77 tests/

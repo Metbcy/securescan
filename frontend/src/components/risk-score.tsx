@@ -46,14 +46,22 @@ export function RiskScore({
   const tone = severityToken(score);
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
+  // For non-"lg" sizes we don't animate — use score directly. For
+  // "lg" we ease from 0 → score on mount via requestAnimationFrame.
+  // Storing 0 as the initial value here is safe because the
+  // useEffect below replaces it before paint via rAF on the first
+  // tick, and the non-"lg" code path never reads `animatedScore` —
+  // it returns early before the SVG render.
   const [animatedScore, setAnimatedScore] = useState(0);
   const progress = (animatedScore / 100) * circumference;
 
   useEffect(() => {
-    if (size !== "lg") {
-      setAnimatedScore(score);
-      return;
-    }
+    // Non-"lg" sizes aren't animated: the SVG ring isn't rendered for
+    // them so `animatedScore` is unused, and a setState here would
+    // trigger a cascading render with no visual effect (caught by
+    // react-hooks/set-state-in-effect). Skip outright.
+    if (size !== "lg") return;
+
     const duration = 600;
     const start = performance.now();
     let raf = 0;

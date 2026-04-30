@@ -331,8 +331,10 @@ function StatusLegend({
     "disabled",
   ];
   // Tick once a second while idle so "X seconds ago" stays accurate
-  // without re-fetching.
-  const [, setNow] = useState(Date.now());
+  // without re-fetching. Use a lazy initializer so Date.now() is only
+  // called once at mount time (calling it directly during render would
+  // make the component impure under React 19's purity check).
+  const [, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!checkedAt) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
