@@ -53,10 +53,15 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install SecureScan
+      - name: Install SecureScan + scanner tools
         run: |
+          # Backend (uses click>=8.2 via typer 0.21+).
           pip install ./backend
-          pip install semgrep bandit
+          # Install scanner CLIs in isolated venvs so their pins
+          # don't fight SecureScan's. semgrep pins click~=8.1.8 which
+          # would downgrade click and break typer at import time.
+          pipx install semgrep
+          pipx install bandit
 
       - name: Run Security Scan
         run: |
