@@ -291,8 +291,7 @@ def init(
     no_prompt: bool = typer.Option(
         False,
         "--no-prompt",
-        help="Use detected defaults; don't ask the user anything. "
-        "Useful in CI / scripted setup.",
+        help="Use detected defaults; don't ask the user anything. Useful in CI / scripted setup.",
     ),
     threshold: str = typer.Option(
         "high",
@@ -405,10 +404,14 @@ def init(
                 if overridden:
                     chosen_types = overridden
 
-        threshold_norm = typer.prompt(
-            f"Fail-on-severity threshold? ({'|'.join(_VALID_THRESHOLDS)})",
-            default=threshold_norm,
-        ).strip().lower()
+        threshold_norm = (
+            typer.prompt(
+                f"Fail-on-severity threshold? ({'|'.join(_VALID_THRESHOLDS)})",
+                default=threshold_norm,
+            )
+            .strip()
+            .lower()
+        )
         if threshold_norm not in _VALID_THRESHOLDS:
             valid = "|".join(_VALID_THRESHOLDS)
             print(
@@ -429,22 +432,29 @@ def init(
     baseline_path = root / ".securescan" / "baseline.json"
 
     targets: list[tuple[Path, str]] = [
-        (config_path, _render_config_yaml(
-            project_name=project_name,
-            scan_types=chosen_types,
-            threshold=threshold_norm,
-        )),
+        (
+            config_path,
+            _render_config_yaml(
+                project_name=project_name,
+                scan_types=chosen_types,
+                threshold=threshold_norm,
+            ),
+        ),
     ]
     if write_workflow:
-        targets.append((
-            workflow_path,
-            _render_workflow_yaml(scan_types=chosen_types, threshold=threshold_norm),
-        ))
+        targets.append(
+            (
+                workflow_path,
+                _render_workflow_yaml(scan_types=chosen_types, threshold=threshold_norm),
+            )
+        )
     if not no_baseline:
-        targets.append((
-            baseline_path,
-            _render_baseline_json(scan_types=chosen_types),
-        ))
+        targets.append(
+            (
+                baseline_path,
+                _render_baseline_json(scan_types=chosen_types),
+            )
+        )
 
     # Pre-flight idempotency check: if any target exists and --force
     # wasn't passed, refuse the whole run rather than write a partial
@@ -467,17 +477,13 @@ def init(
         if _write_file(path, body, force=force):
             written.append(path)
 
-    _shared.console.print(
-        f"[bold green]✓ SecureScan initialized for {project_name}[/bold green]"
-    )
+    _shared.console.print(f"[bold green]✓ SecureScan initialized for {project_name}[/bold green]")
     for p in written:
         try:
             rel = p.relative_to(root)
         except ValueError:
             rel = p
         _shared.console.print(f"  wrote [cyan]{rel}[/cyan]")
-    _shared.console.print(
-        "\nNext: run [bold]securescan scan .[/bold] to see your first findings."
-    )
+    _shared.console.print("\nNext: run [bold]securescan scan .[/bold] to see your first findings.")
 
     raise typer.Exit(code=0)

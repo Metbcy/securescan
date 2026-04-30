@@ -359,7 +359,5 @@ def test_pre_commit_securescan_smoke(tmp_path: Path):
         timeout=60,
     )
     # Empty stage → exit 0 with the friendly no-op message.
-    assert proc.returncode == 0, (
-        f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
-    )
+    assert proc.returncode == 0, f"stdout={proc.stdout!r}\nstderr={proc.stderr!r}"
     assert "No staged files" in proc.stdout

@@ -120,9 +120,7 @@ def test_detects_container_dockerfile(tmp_path):
 
 
 def test_detects_iac_tf_files(tmp_path):
-    (tmp_path / "main.tf").write_text(
-        'resource "aws_s3_bucket" "b" { bucket = "x" }\n'
-    )
+    (tmp_path / "main.tf").write_text('resource "aws_s3_bucket" "b" { bucket = "x" }\n')
     res = _runner().invoke(app, ["init", str(tmp_path), "--no-prompt"])
     assert res.exit_code == 0, res.output
 
@@ -193,9 +191,7 @@ def test_force_overwrites(tmp_path):
     (tmp_path / ".securescan.yml").write_text("# old\n")
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
 
-    res = _runner().invoke(
-        app, ["init", str(tmp_path), "--no-prompt", "--force"]
-    )
+    res = _runner().invoke(app, ["init", str(tmp_path), "--no-prompt", "--force"])
     assert res.exit_code == 0, res.output
 
     body = (tmp_path / ".securescan.yml").read_text()
@@ -264,9 +260,7 @@ def test_no_prompt_skips_interactive(tmp_path):
 
 def test_no_workflow_skips_workflow_file(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
-    res = _runner().invoke(
-        app, ["init", str(tmp_path), "--no-prompt", "--no-workflow"]
-    )
+    res = _runner().invoke(app, ["init", str(tmp_path), "--no-prompt", "--no-workflow"])
     assert res.exit_code == 0, res.output
     assert (tmp_path / ".securescan.yml").exists()
     assert not (tmp_path / ".github" / "workflows" / "securescan.yml").exists()
@@ -276,9 +270,7 @@ def test_no_workflow_skips_workflow_file(tmp_path):
 
 def test_no_baseline_skips_baseline_file(tmp_path):
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
-    res = _runner().invoke(
-        app, ["init", str(tmp_path), "--no-prompt", "--no-baseline"]
-    )
+    res = _runner().invoke(app, ["init", str(tmp_path), "--no-prompt", "--no-baseline"])
     assert res.exit_code == 0, res.output
     assert (tmp_path / ".securescan.yml").exists()
     assert (tmp_path / ".github" / "workflows" / "securescan.yml").exists()
@@ -297,9 +289,7 @@ def test_threshold_flag_overrides_default(tmp_path):
     assert cfg.fail_on_severity is not None
     assert cfg.fail_on_severity.value == "critical"
 
-    wf = yaml.safe_load(
-        (tmp_path / ".github" / "workflows" / "securescan.yml").read_text()
-    )
+    wf = yaml.safe_load((tmp_path / ".github" / "workflows" / "securescan.yml").read_text())
     assert wf["jobs"]["scan"]["steps"][1]["with"]["fail-on-severity"] == "critical"
 
 

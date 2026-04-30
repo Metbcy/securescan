@@ -76,9 +76,7 @@ def _resolve_staged_files(repo_root: Path) -> list[Path]:
         # rather than silently returning an empty list — the caller
         # would otherwise no-op and devs would assume the hook was a
         # success.
-        raise typer.BadParameter(
-            "--staged requires git and a git repository in cwd"
-        )
+        raise typer.BadParameter("--staged requires git and a git repository in cwd")
     paths: list[Path] = []
     for line in proc.stdout.splitlines():
         line = line.strip()
