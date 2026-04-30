@@ -64,13 +64,16 @@ securescan = "securescan.cli:app"
 requires = ["setuptools>=75.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = [
-    "securescan",
-    "securescan.api",
-    "securescan.scanners",
-    "securescan.ai",
-]
+[tool.setuptools.packages]
+# IMPORTANT: keep this list in sync with the actual top-level
+# subpackages under `securescan/`. A missing entry here doesn't fail
+# editable installs (those walk the source tree directly) but DOES
+# silently exclude the package from wheels — `pip install` will then
+# crash at runtime with `ModuleNotFoundError: No module named ...`.
+# Caught in v0.10.3 when the `cli/` package was added without an
+# entry; the security-audit and release CI workflows both broke on
+# the wheel install path.
+find = {include = ["securescan*"], exclude = ["tests*"]}
 
 [tool.setuptools.package-data]
 securescan = ["data/**/*", "templates/**/*"]
