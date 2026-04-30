@@ -2,9 +2,9 @@
 # Use this if you prefer to bypass Metbcy/securescan@v1 and call the container
 # directly -- useful for environments that don't allow non-trusted actions.
 #
-# Image pinning: this example pins to :v0.2.0 (immutable) for reproducible
-# CI runs. You can switch to :latest to track new releases automatically,
-# but :v0.2.0 (or any released tag) is recommended for production pipelines.
+# Image pinning: this example pins to :v0.10.3 (immutable, signed) for
+# reproducible CI runs. :latest is not published; switch tags by editing
+# the IMAGE env var below when you choose to upgrade.
 
 name: SecureScan (docker)
 
@@ -27,7 +27,7 @@ jobs:
 
       - name: Run SecureScan diff in container
         env:
-          IMAGE: ghcr.io/metbcy/securescan:v0.2.0
+          IMAGE: ghcr.io/metbcy/securescan:v0.10.3
         run: |
           mkdir -p .securescan
           docker pull "$IMAGE"

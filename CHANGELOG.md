@@ -9,6 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.0] - 2026-04-30
+
+OSS adoption foundations release: a 60-second first-run path, a
+pre-commit hook, PyPI publishing via OIDC, comparison docs against
+DefectDojo / Trivy / Snyk, a CONTRIBUTING file, and a release-cadence
+commitment. No breaking changes.
+
+### Added
+
+- **`securescan init` wizard.** Detects the project's stack
+  (Python / Node / Rust / Go / Container / IaC + multi-language) and
+  writes `.securescan.yml`, `.github/workflows/securescan.yml`, and
+  `.securescan/baseline.json` in one command. Idempotent (refuses
+  to overwrite existing files unless `--force`). Interactive prompts
+  with `--no-prompt` for scripted setup. Generated config rounds-trips
+  through the existing `parse_config` loader so output is guaranteed
+  schema-valid.
+- **pre-commit hook + `--staged` flag.** New `.pre-commit-hooks.yaml`
+  at the repo root; new `pre-commit-securescan` console script
+  installed alongside `securescan`. The hook runs `securescan scan
+  --staged`, which uses `git diff --cached --name-only --diff-filter=
+  ACMRT` to limit the scan to staged changes (sub-3s on small
+  projects). Empty stage exits 0. Outside a git repo: clear error.
+  See docs/src/integrations/pre-commit.md for the
+  `.pre-commit-config.yaml` snippet.
+- **PyPI publishing via OIDC Trusted Publishers.** The `publish-pypi`
+  job in `.github/workflows/release.yml` no longer needs a
+  `PYPI_TOKEN` secret. The first time a `vX.Y.Z` tag is pushed after
+  the one-time pypi.org setup completes (see `docs/PUBLISHING.md`),
+  PyPI accepts the upload via short-lived OIDC tokens issued by
+  GitHub Actions. The job's `environment: pypi` + `permissions:
+  id-token: write` are how PyPI verifies the claim. No token
+  rotation, no secret management.
+- **`CONTRIBUTING.md`** at the repo root with dev-setup commands,
+  test commands, code-style rules (ruff, mypy, conventional commits),
+  PR process, security-disclosure address, code-of-conduct ref.
+- **`docs/src/reference/release-cadence.md`** committing to monthly
+  minor releases (first Monday) + on-demand patches, with explicit
+  deprecation policy (≥60 days notice, runtime warnings, CHANGELOG).
+- **OpenAPI surface documented.** New `docs/src/api/openapi.md`
+  pointing at the auto-generated `/api/v1/openapi.json` endpoint
+  (FastAPI ships this for free) plus interactive `/docs` (Swagger
+  UI) and `/redoc` surfaces. With Postman / Insomnia / Backstage
+  import recipes.
+- **Comparison docs.** Three new pages under `docs/src/compare/`:
+  - `vs-defectdojo.md` — different categories; many teams use both.
+  - `vs-trivy.md` — SecureScan wraps Trivy and adds 13 more scanners.
+  - `vs-snyk.md` — OSS, self-hosted, deterministic vs. SaaS reachability.
+
+### Changed
+
+- **README quick-start (60 seconds).** First 30 lines are now
+  `pip install <wheel-url>` + `securescan init` + `securescan diff`
+  with copy-pasteable commands. Screenshots and dashboard tour
+  preserved below the fold. Outdated "What's new in v0.6.0" callout
+  removed.
+- **Image / tag drift fixed across the docs.** Every `@v0.2.0`,
+  `@v0.6.0`, `@v0.9.0`, `@v0.10.2` reference in user-facing docs
+  bumped to either `@v1` (mutable major, recommended) or `@v0.10.3`
+  / `@v0.11.0` (exact pin). New "Action versioning" section in
+  README explains the contract.
+- `release.yml`'s publish-pypi job migrated from `twine + PYPI_TOKEN`
+  to `pypa/gh-action-pypi-publish@release/v1` with OIDC Trusted
+  Publishers. The associated `if: PYPI_TOKEN configured` gate is
+  gone; the job runs on every tag.
+
+### Tests
+
+- 887 → 929 (+42): 27 new for `securescan init`, 15 new for the
+  staged-scan / pre-commit path.
+
+### Backward compatibility
+
+- No CLI flag removals.
+- No REST API path removals.
+- No config schema changes.
+- Existing `Metbcy/securescan@v1` Action consumers unaffected.
+
+### Out of scope (deferred — see GitHub issues)
+
+- VS Code extension (P2.4).
+- Hosted public demo on Fly.io / Railway (P3.4).
+- `securescan up` zero-config dashboard (P1.3) — frontend not in
+  the wheel today.
+- GitLab CI / Bitbucket Pipelines PR-comment renderers (P2.1, P2.2).
+- Homebrew tap (P1.7).
+
 ## [0.10.3] - 2026-04-30
 
 A code-review hardening release. External review surfaced ten items;
@@ -865,7 +952,8 @@ fronted by a Next.js dashboard.
 - Cross-platform setup notes (including Windows) and per-scanner
   install guidance.
 
-[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.10.3...HEAD
+[Unreleased]: https://github.com/Metbcy/securescan/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/Metbcy/securescan/releases/tag/v0.11.0
 [0.10.3]: https://github.com/Metbcy/securescan/releases/tag/v0.10.3
 [0.10.2]: https://github.com/Metbcy/securescan/releases/tag/v0.10.2
 [0.10.1]: https://github.com/Metbcy/securescan/releases/tag/v0.10.1

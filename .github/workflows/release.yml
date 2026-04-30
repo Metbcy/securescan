@@ -10,8 +10,9 @@ name: release
 #                      needed) and sign each artifact with sigstore-python.
 #   3. build-image   — build the multi-arch container, push to ghcr.io, and
 #                      sign by digest with cosign keyless (Sigstore via OIDC).
-#   4. publish-pypi  — upload the wheel + sdist to PyPI (gated on the
-#                      PYPI_TOKEN secret being configured on the repo).
+#   4. publish-pypi  — upload the wheel + sdist to PyPI via OIDC
+#                      Trusted Publishers (no long-lived token; PyPI
+#                      verifies the GitHub Actions OIDC claims).
 #   5. publish-release — extract the matching CHANGELOG.md section, append
 #                        signature-verification instructions, and create the
 #                        GitHub Release with the signed wheel + sdist + sigstore
@@ -188,56 +189,40 @@ jobs:
             "${{ steps.image.outputs.image }}@${{ steps.push.outputs.digest }}"
 
   # --------------------------------------------------------------------------
-  # 4. Publish to PyPI. Conditional: skipped when the PYPI_TOKEN repo secret
-  #    is not set, so the release-yml runs cleanly even before the maintainer
-  #    has rotated/configured a PyPI API token. Every release that needs PyPI
-  #    distribution must set the secret first; the wheel + sdist + sigstore
-  #    bundles still ship via the GitHub Release regardless, so users can
-  #    download + verify + `pip install ./securescan-*.whl` directly.
+  # 4. Publish to PyPI via OIDC Trusted Publishers. PyPI verifies the
+  #    GitHub Actions OIDC token signed for this repo + workflow file +
+  #    environment combination, then mints a short-lived upload token.
+  #    No PYPI_TOKEN secret is required. One-time setup is documented in
+  #    docs/PUBLISHING.md (configure a Trusted Publisher under
+  #    pypi.org/manage/account/publishing).
   # --------------------------------------------------------------------------
   publish-pypi:
     name: publish to PyPI
     needs: [preflight, build-wheel]
     runs-on: ubuntu-latest
+    # No PYPI_TOKEN gate. OIDC Trusted Publishers means PyPI verifies
+    # the GitHub Actions OIDC token signed for this repo+workflow+
+    # environment combination. Setup is one-time at pypi.org/manage/
+    # account/publishing — see docs/PUBLISHING.md.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/securescan
+    permissions:
+      id-token: write   # required for OIDC token minting
     steps:
-      - name: Check for PYPI_TOKEN secret
-        id: check_token
-        env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          if [ -n "$PYPI_TOKEN" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::PYPI_TOKEN secret not set on this repo; skipping PyPI upload. Set it under Settings > Secrets to enable."
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Download dist artifacts
-        if: steps.check_token.outputs.configured == 'true'
         uses: actions/download-artifact@v4
         with:
           name: dist
-          path: dist
-
-      - name: Set up Python
-        if: steps.check_token.outputs.configured == 'true'
-        uses: actions/setup-python@v5
+          path: dist/
+      - name: Upload to PyPI via OIDC
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Upload to PyPI
-        if: steps.check_token.outputs.configured == 'true'
-        shell: bash
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          python -m pip install --upgrade pip twine
-          # Sigstore bundles ship in the GitHub Release, not on PyPI; twine
-          # does not recognise *.sigstore.json and would fail the upload.
-          rm -f dist/*.sigstore.json
-          twine check dist/*.whl dist/*.tar.gz
-          twine upload --skip-existing dist/*.whl dist/*.tar.gz
+          # PyPI account is configured via Trusted Publishers — no
+          # username/password/token. Sigstore bundles ship via
+          # GitHub Release as before; PyPI does not host them.
+          packages-dir: dist/
+          skip-existing: true   # idempotent on re-runs of the same tag
 
   # --------------------------------------------------------------------------
   # 5. Create the GitHub Release; attach the signed wheel + sdist + bundles.

@@ -66,10 +66,10 @@ known consequence noted in the linked page.
 
       ```bash
       sigstore verify identity \
-        --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+        --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
         --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-        --bundle securescan-0.9.0-py3-none-any.whl.sigstore.json \
-        securescan-0.9.0-py3-none-any.whl
+        --bundle securescan-0.10.3-py3-none-any.whl.sigstore.json \
+        securescan-0.10.3-py3-none-any.whl
       ```
 
 - [ ] **Verify the container image** with cosign before pulling into a
@@ -77,7 +77,7 @@ known consequence noted in the linked page.
 
       ```bash
       cosign verify ghcr.io/metbcy/securescan@<digest> \
-        --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+        --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
         --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
       ```
 

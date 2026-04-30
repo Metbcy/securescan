@@ -149,12 +149,12 @@ step.
 auto-tracks the latest `v1.x.y` stable release. Recommended for most
 users.
 
-`Metbcy/securescan@v0.9.0` (or any specific `vX.Y.Z`) is the
+`Metbcy/securescan@v0.10.3` (or any specific `vX.Y.Z`) is the
 **immutable per-release pin** — use it when you want reproducible
 CI behavior and explicit upgrades:
 
 ```yaml
-- uses: Metbcy/securescan@v0.9.0   # pinned; you control upgrades
+- uses: Metbcy/securescan@v0.10.3   # pinned; you control upgrades
 ```
 
 ## Examples

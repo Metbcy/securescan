@@ -13,9 +13,10 @@ deployment constraints.
 ## Version pinning
 
 - The two workflow examples target `Metbcy/securescan@v1` (mutable major
-  tag) and `ghcr.io/metbcy/securescan:v0.2.0` (immutable release tag).
-- Use the immutable tag when reproducibility matters; use `:latest` or
-  `@v1` to track new releases automatically.
+  tag) and `ghcr.io/metbcy/securescan:v0.10.3` (immutable release tag).
+- Use the immutable tag (`@v0.10.3` or `:v0.10.3`) when reproducibility
+  matters; use `@v1` to track the floating major-version stable line.
+- `:latest` is **not** published; pin to a `vX.Y.Z` tag.
 
 ## Required permissions
 

@@ -29,7 +29,7 @@ The cosign verification command in
 [Verifying signed artifacts](../deployment/verifying-artifacts.md)
 includes:
 
-​    --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0'
+​    --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3'
 
 If the workflow could be re-run via `workflow_dispatch`, that
 identity would have a different ref and the verification would
@@ -74,32 +74,28 @@ Fails the whole release before spending time on builds if the metadata is out of
 ### 3. Build-image
 
 - Builds the multi-arch container (amd64 + arm64) and pushes to
-  `ghcr.io/metbcy/securescan` with three tags: `v<version>`, `v<major>`,
-  and `latest`.
+  `ghcr.io/metbcy/securescan` with the immutable per-release tag
+  `v<version>` (e.g. `v0.10.3`). `:latest` is **not** published — pin
+  to a tag.
 - Signs **by digest** with `cosign` keyless (Sigstore via OIDC). The
   signature attests the `(digest, identity)` pair, not the tag, so
   re-pointing a tag never changes what was signed.
 
-### 4. Publish-pypi (currently dormant)
+### 4. Publish-pypi (OIDC Trusted Publishers)
 
-```admonish warning
-**SecureScan is not currently published to PyPI.** This job exists
-in `.github/workflows/release.yml` and runs on every tag, but its
-upload steps are skipped because the `PYPI_TOKEN` repo secret is
-not configured. Until a token is provisioned, the wheel ships only
-via the GitHub Release page (see step 5).
-```
+- Uploads the signed wheel + sdist to PyPI via
+  [OIDC Trusted Publishers](https://docs.pypi.org/trusted-publishers/).
+  PyPI verifies the GitHub Actions OIDC token signed for this
+  `repo + workflow file + environment` combination and mints a
+  short-lived upload token; **no `PYPI_TOKEN` secret is required**.
+- Runs in the `pypi` GitHub Environment so PyPI's Trusted Publisher
+  configuration can scope the trust narrowly.
+- `skip-existing: true` makes re-runs of the same tag idempotent.
+- Note: PyPI does not host the `*.sigstore.json` bundles. They are
+  attached to the GitHub Release instead.
 
-- Uploads the signed wheel + sdist to PyPI via `twine` **once
-  enabled**.
-- Gated on the `PYPI_TOKEN` secret. If missing, the job's first step
-  emits a `::warning::`, the upload steps are skipped, and the rest
-  of the release pipeline continues normally.
-- To activate: generate a PyPI API token, add it as the `PYPI_TOKEN`
-  secret under repo Settings → Secrets and variables → Actions, and
-  re-tag (or re-run the workflow against an existing tag).
-- Note: PyPI does not host the `*.sigstore.json` bundles even when
-  active. They are attached to the GitHub Release instead.
+One-time setup (configure a pending publisher on PyPI) is documented
+in [`docs/PUBLISHING.md`](https://github.com/Metbcy/securescan/blob/main/docs/PUBLISHING.md).
 
 ### 5. Publish-release
 
@@ -124,10 +120,12 @@ Per release, the GitHub Release page hosts:
 The container image is published separately to GHCR:
 
 ```text
-ghcr.io/metbcy/securescan:v<version>
-ghcr.io/metbcy/securescan:v<major>     (e.g. v1)
-ghcr.io/metbcy/securescan:latest
+ghcr.io/metbcy/securescan:v<version>     (e.g. v0.10.3 — immutable, signed)
 ```
+
+`:latest` is **not** published. Always pin to a `vX.Y.Z` tag (or, in
+production, by digest — see
+[Verifying signed artifacts](../deployment/verifying-artifacts.md#pinning-in-production)).
 
 Cosign signature attestations are stored alongside the image in GHCR
 (use `cosign verify` to check, see
@@ -194,20 +192,20 @@ End-to-end:
 
 ```bash
 # 1. Wheel
-pip download securescan==0.9.0 --no-deps -d ./out
-gh release download v0.9.0 --repo Metbcy/securescan \
-  --pattern 'securescan-0.9.0-py3-none-any.whl.sigstore.json' --dir ./out
+pip download securescan==0.10.3 --no-deps -d ./out
+gh release download v0.10.3 --repo Metbcy/securescan \
+  --pattern 'securescan-0.10.3-py3-none-any.whl.sigstore.json' --dir ./out
 
 pip install sigstore
 sigstore verify identity \
-  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --bundle ./out/securescan-0.9.0-py3-none-any.whl.sigstore.json \
-  ./out/securescan-0.9.0-py3-none-any.whl
+  --bundle ./out/securescan-0.10.3-py3-none-any.whl.sigstore.json \
+  ./out/securescan-0.10.3-py3-none-any.whl
 
 # 2. Container image
-cosign verify ghcr.io/metbcy/securescan:v0.9.0 \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+cosign verify ghcr.io/metbcy/securescan:v0.10.3 \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
@@ -222,6 +220,7 @@ for failure-mode troubleshooting.
 
 ## Next
 
+- [Release cadence](./release-cadence.md) — when to expect new minor / patch / major releases.
 - [Verifying signed artifacts](../deployment/verifying-artifacts.md) — the consumer side.
 - [Changelog](./changelog.md) — the per-release feature record.
 - [Contributing](../contributing.md) — the path from PR to release.

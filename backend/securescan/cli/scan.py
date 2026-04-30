@@ -11,6 +11,7 @@ The command function below is registered on the root Typer app by
 import asyncio
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -54,6 +55,61 @@ from ._shared import (
     console,
     should_run_ai,
 )
+
+
+def _resolve_staged_files(repo_root: Path) -> list[Path]:
+    """Return absolute paths of currently-staged files in ``repo_root``.
+
+    Empty list if nothing is staged. Skips deletions (``git diff
+    --cached --diff-filter=ACMRT``). Filters out files that no longer
+    exist on disk (e.g. after ``git rm`` or a stash).
+    """
+    proc = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMRT"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        # Not in a git repo, or git is missing. Surface a clear error
+        # rather than silently returning an empty list — the caller
+        # would otherwise no-op and devs would assume the hook was a
+        # success.
+        raise typer.BadParameter(
+            "--staged requires git and a git repository in cwd"
+        )
+    paths: list[Path] = []
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        p = (repo_root / line).resolve()
+        if p.exists():
+            paths.append(p)
+    return paths
+
+
+def _filter_findings_to_paths(findings: list, allowed: set[Path]) -> list:
+    """Drop findings whose ``file_path`` isn't in ``allowed``.
+
+    Findings without a ``file_path`` (host-wide baseline probes, etc.)
+    are dropped — the staged-mode contract is "only report what the
+    staged change touches".
+    """
+    if not allowed:
+        return []
+    kept = []
+    for f in findings:
+        if not f.file_path:
+            continue
+        try:
+            p = Path(f.file_path).resolve()
+        except (OSError, RuntimeError):
+            continue
+        if p in allowed:
+            kept.append(f)
+    return kept
 
 
 async def _run_scan_async(
@@ -300,6 +356,16 @@ def scan(
             "directory scan."
         ),
     ),
+    staged: bool = typer.Option(
+        False,
+        "--staged",
+        help=(
+            "Scan only files in `git diff --cached --name-only` (the "
+            "currently-staged changes). Used by the pre-commit hook for "
+            "fast pre-commit feedback. When set, target_path is "
+            "interpreted as the repo root rather than the scan target."
+        ),
+    ),
 ):
     """Run a security scan on the target path."""
     if no_ai and ai:
@@ -322,6 +388,31 @@ def scan(
             err=True,
         )
         raise typer.Exit(code=2)
+
+    # --staged: pre-commit hook mode. Resolve the currently-staged
+    # files via `git diff --cached`, then narrow the scan target to
+    # their smallest common parent directory and post-filter findings
+    # to that exact set before display. If nothing is staged, exit
+    # cleanly (the pre-commit hook is a no-op in that case, which is
+    # the expected behavior).
+    staged_files_set: set[Path] | None = None
+    if staged:
+        repo_root = Path(target_path).resolve()
+        staged_paths = _resolve_staged_files(repo_root)
+        if not staged_paths:
+            console.print("[green]No staged files; nothing to scan.[/green]")
+            raise typer.Exit(code=0)
+        staged_files_set = set(staged_paths)
+        # Narrow the scan target to the smallest common parent so
+        # scanners don't walk the entire repo. We post-filter findings
+        # to ``staged_files_set`` regardless, so even if a scanner
+        # reports findings in unrelated sibling files inside that
+        # parent, they're dropped before display / gating.
+        common_str = os.path.commonpath([str(p) for p in staged_paths])
+        common = Path(common_str)
+        if common.is_file():
+            common = common.parent
+        target_path = str(common)
 
     types = (
         scan_type
@@ -379,6 +470,20 @@ def scan(
             scanner_kwargs=scanner_kwargs,
         )
     )
+
+    # --staged: drop findings outside the staged-files set BEFORE the
+    # pipeline so suppression / severity overrides / gates only see
+    # what the staged change actually touches. Approach (a) from the
+    # spec: scan a narrow common-parent dir, post-filter the output.
+    if staged_files_set is not None:
+        before = len(findings)
+        findings = _filter_findings_to_paths(findings, staged_files_set)
+        dropped = before - len(findings)
+        if dropped:
+            print(
+                f"Dropped {dropped} finding(s) outside staged files",
+                file=sys.stderr,
+            )
 
     # TS10: replace the standalone filter_against_baseline call with the
     # unified pipeline. ``apply_pipeline`` does the same baseline-

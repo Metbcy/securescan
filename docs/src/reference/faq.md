@@ -53,7 +53,7 @@ flips AI off. Pass `--ai` to force it on; `--no-ai` to be explicit.
 ### How do I get reproducible CI output?
 
 - Don't enable AI (`CI=true` handles this).
-- Pin the SecureScan version (`Metbcy/securescan@v0.9.0`, not `@v1`).
+- Pin the SecureScan version (`Metbcy/securescan@v0.10.3`, not `@v1`).
 - Pin scanner versions inside your runner (use the container —
   `prefer-image: true`).
 - Use snapshot-mode diff: `securescan scan ... --output json` on

@@ -51,6 +51,19 @@ and adds diff-awareness, signed artifacts, and a deterministic
 serialization contract on top. See
 [Architecture overview](./architecture.md) for the full picture.
 
+## How does this compare?
+
+If you're evaluating SecureScan against tools you already use or are
+also considering, the [Compare](./compare/vs-defectdojo.md) section has
+factual side-by-side write-ups:
+
+- [vs DefectDojo](./compare/vs-defectdojo.md) — different problem
+  (vuln management hub vs PR-loop scanner); many teams use both.
+- [vs Trivy](./compare/vs-trivy.md) — SecureScan wraps Trivy and
+  adds 13 more scanners plus a diff-aware PR loop.
+- [vs Snyk](./compare/vs-snyk.md) — OSS, self-hosted, deterministic
+  vs SaaS with reachability analysis.
+
 ## Project links
 
 - Source: [github.com/Metbcy/securescan](https://github.com/Metbcy/securescan)

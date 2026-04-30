@@ -26,36 +26,36 @@ Download the wheel and its sigstore bundle from the GitHub Release
 page (both ship as Release assets):
 
 ```bash
-gh release download v0.10.2 \
+gh release download v0.10.3 \
   --repo Metbcy/securescan \
-  --pattern 'securescan-0.10.2-py3-none-any.whl' \
-  --pattern 'securescan-0.10.2-py3-none-any.whl.sigstore.json'
+  --pattern 'securescan-0.10.3-py3-none-any.whl' \
+  --pattern 'securescan-0.10.3-py3-none-any.whl.sigstore.json'
 ```
 
 Verify:
 
 ```bash
 sigstore verify identity \
-  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --bundle securescan-0.9.0-py3-none-any.whl.sigstore.json \
-  securescan-0.9.0-py3-none-any.whl
+  --bundle securescan-0.10.3-py3-none-any.whl.sigstore.json \
+  securescan-0.10.3-py3-none-any.whl
 ```
 
 You should see:
 
 ```text
-OK: securescan-0.9.0-py3-none-any.whl
+OK: securescan-0.10.3-py3-none-any.whl
 ```
 
 Same shape for the sdist:
 
 ```bash
 sigstore verify identity \
-  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --bundle securescan-0.9.0.tar.gz.sigstore.json \
-  securescan-0.9.0.tar.gz
+  --bundle securescan-0.10.3.tar.gz.sigstore.json \
+  securescan-0.10.3.tar.gz
 ```
 
 ## Container image (cosign keyless)
@@ -65,8 +65,8 @@ Install cosign (≥ v2.0).
 Verify by tag:
 
 ```bash
-cosign verify ghcr.io/metbcy/securescan:v0.9.0 \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+cosign verify ghcr.io/metbcy/securescan:v0.10.3 \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
@@ -74,9 +74,9 @@ Verify by digest (the recommended pattern for production — tags can
 be re-pointed; digests cannot):
 
 ```bash
-DIGEST="$(crane digest ghcr.io/metbcy/securescan:v0.9.0)"
+DIGEST="$(crane digest ghcr.io/metbcy/securescan:v0.10.3)"
 cosign verify "ghcr.io/metbcy/securescan@${DIGEST}" \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
@@ -97,7 +97,7 @@ Successful output is JSON:
     "optional": {
       "Bundle": { "...": "..." },
       "Issuer": "https://token.actions.githubusercontent.com",
-      "Subject": "https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0"
+      "Subject": "https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3"
     }
   }
 ]
@@ -106,14 +106,14 @@ Successful output is JSON:
 ## What the verification proves
 
 - The artifact was produced **by the SecureScan release workflow at
-  the v0.9.0 tag** running on GitHub Actions.
+  the v0.10.3 tag** running on GitHub Actions.
 - The Sigstore transparency log (Rekor) has an immutable record of
   the signature.
 - The artifact has not been tampered with since signing.
 
 It does **not** prove:
 
-- That the v0.9.0 source tree itself is bug-free or malware-free.
+- That the v0.10.3 source tree itself is bug-free or malware-free.
 - That the artifact you have was downloaded from the official source
   (verify the registry / release URL too).
 
@@ -121,13 +121,13 @@ It does **not** prove:
 
 ```admonish important title="Pin by digest, not tag"
 Tags are mutable references. A registry compromise (or a careless
-re-push) could re-point `v0.9.0` to a different image. **Pin by
+re-push) could re-point `v0.10.3` to a different image. **Pin by
 digest** in production manifests:
 
 ​    image: ghcr.io/metbcy/securescan@sha256:abcdef...
 
 The `cosign verify ...@sha256:...` command above ties the running
-image to the v0.9.0 release identity, regardless of what a tag now
+image to the v0.10.3 release identity, regardless of what a tag now
 points at.
 ```
 
@@ -142,7 +142,7 @@ never starts.
 The cert identity is the workflow file path **at the tagged ref**:
 
 ```text
-https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0
+https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3
 ```
 
 That URL is self-describing:
@@ -151,7 +151,7 @@ That URL is self-describing:
 | -------------------------- | --------------------------------------------- |
 | `Metbcy/securescan`        | The repository.                               |
 | `.github/workflows/release.yml` | The workflow that signed the artifact.   |
-| `refs/tags/v0.9.0`         | The git ref the workflow ran against.         |
+| `refs/tags/v0.10.3`         | The git ref the workflow ran against.         |
 
 The OIDC issuer is GitHub Actions' fixed token issuer:
 
@@ -160,7 +160,7 @@ https://token.actions.githubusercontent.com
 ```
 
 Together they prove "this artifact was signed by Metbcy/securescan's
-release workflow when run against the v0.9.0 tag." Re-running the
+release workflow when run against the v0.10.3 tag." Re-running the
 workflow against a different tag, branch, or repository would
 produce a different identity that fails the verification.
 
@@ -178,7 +178,7 @@ Sigstore status page.
 The `--cert-identity` does not match the actual signature. Most
 common causes:
 
-- Wrong tag in the URL (`v0.9.0` vs `v0.9.1`).
+- Wrong tag in the URL (`v0.10.3` vs `v0.10.4`).
 - Verifying a `latest` image — `latest` is built from main and
   *not* signed via the tagged-release path.
 - Forking SecureScan and re-running `release.yml` from your fork.

@@ -14,16 +14,14 @@ ghcr.io/metbcy/securescan:<tag>
 
 | Tag           | Meaning                                                |
 | ------------- | ------------------------------------------------------ |
-| `v0.9.0`      | Specific tagged release. Immutable.                    |
+| `v0.10.3`     | Specific tagged release. Immutable, signed with cosign. |
 | `v1`          | Floating major-version tag. Auto-tracks `v1.x.y`.      |
-| `latest`      | Floating "tip of main branch built." Avoid in production. |
 
 ```admonish important
-**Pin to a specific tag in production.** Use `v0.9.0` or `v1`,
-never `latest`. The `cosign verify` commands in
-[Verifying signed artifacts](./verifying-artifacts.md) only work
-against tagged releases — `latest` is built from main and doesn't
-have the cosign attestation.
+**Pin to a specific tag in production.** Use `v0.10.3` or `v1`. The
+`:latest` tag is **not** published — `cosign verify` only works
+against tagged releases, so an unsigned floating reference is not
+something we ship.
 ```
 
 ## Run the backend
@@ -33,7 +31,7 @@ Minimum:
 ```bash
 docker run --rm -p 8000:8000 \
   -e SECURESCAN_API_KEY="$(openssl rand -hex 32)" \
-  ghcr.io/metbcy/securescan:v0.9.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -52,7 +50,7 @@ docker run -d \
   -v securescan-data:/data \
   -v securescan-config:/root/.config/securescan \
   --restart unless-stopped \
-  ghcr.io/metbcy/securescan:v0.9.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   serve --host 0.0.0.0 --port 8000 --workers 1
 ```
 
@@ -71,7 +69,7 @@ Notes:
 ```bash
 docker run --rm \
   -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.9.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   diff . --base-ref origin/main --head-ref HEAD \
          --output github-pr-comment
 ```
@@ -111,7 +109,7 @@ spec:
     spec:
       containers:
         - name: securescan
-          image: ghcr.io/metbcy/securescan:v0.9.0
+          image: ghcr.io/metbcy/securescan:v0.10.3
           args: [ "serve", "--host", "0.0.0.0", "--port", "8000", "--workers", "1" ]
           ports: [{ containerPort: 8000 }]
           envFrom:
@@ -155,7 +153,7 @@ ingress keyed on `scan_id`. See [Single-worker constraint](./single-worker.md).
 The bundled scanners are pinned at build time. To see versions:
 
 ```bash
-docker run --rm ghcr.io/metbcy/securescan:v0.9.0 status
+docker run --rm ghcr.io/metbcy/securescan:v0.10.3 status
 ```
 
 | Tool          | How it ships         |
@@ -200,8 +198,8 @@ first, falls back to the container if scanner binaries are missing.
 Before running in production, verify the cosign signature:
 
 ```bash
-cosign verify ghcr.io/metbcy/securescan:v0.9.0 \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.9.0' \
+cosign verify ghcr.io/metbcy/securescan:v0.10.3 \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 

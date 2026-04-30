@@ -224,6 +224,7 @@ endpoint, the `/docs` UI is the source of truth.
 
 ## Next
 
+- [OpenAPI specification](./openapi.md) — auto-generated schema, Swagger UI, ReDoc, and tooling imports.
 - [Versioning & deprecation](./versioning.md) — the legacy / v1 split.
 - [Rate limits](./rate-limits.md) — `POST /scans` rate limiting.
 - [Endpoints](./endpoints.md) — complete list with grouping.

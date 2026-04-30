@@ -57,6 +57,7 @@ from .compare import compare
 from .config import config_app
 from .diff import diff
 from .history import history
+from .init import init
 from .scan import _print_findings, _print_summary, _run_scan_async
 from .serve import serve
 from .status import status
@@ -82,6 +83,7 @@ app.command()(serve)
 app.command()(history)
 app.command()(compare)
 app.command()(baseline)
+app.command()(init)
 app.add_typer(config_app, name="config")
 
 
@@ -111,6 +113,7 @@ __all__ = [
     "diff",
     "diff_should_run_ai",
     "history",
+    "init",
     "serve",
     "should_run_ai",
     "status",

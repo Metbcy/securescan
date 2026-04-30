@@ -38,6 +38,7 @@
 # API reference
 
 - [Overview](./api/overview.md)
+- [OpenAPI specification](./api/openapi.md)
 - [Versioning & deprecation](./api/versioning.md)
 - [Rate limits](./api/rate-limits.md)
 - [Endpoints](./api/endpoints.md)
@@ -58,11 +59,22 @@
 - [Commands](./cli/commands.md)
 - [GitHub Action](./cli/github-action.md)
 
+# Integrations
+
+- [pre-commit hook](./integrations/pre-commit.md)
+
 # Reference
 
 - [Changelog](./reference/changelog.md)
 - [Release process](./reference/release-process.md)
+- [Release cadence](./reference/release-cadence.md)
 - [Glossary](./reference/glossary.md)
 - [FAQ](./reference/faq.md)
+
+# Compare
+
+- [vs DefectDojo](./compare/vs-defectdojo.md)
+- [vs Trivy](./compare/vs-trivy.md)
+- [vs Snyk](./compare/vs-snyk.md)
 
 [Contributing](./contributing.md)

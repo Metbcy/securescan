@@ -1,0 +1,11 @@
+- id: securescan
+  name: SecureScan (staged)
+  description: |
+    Run SecureScan on staged files only. Fast feedback loop before
+    commit; for full repo scans use `securescan scan .` directly.
+  entry: pre-commit-securescan
+  language: python
+  types: [text]
+  pass_filenames: false
+  stages: [pre-commit]
+  require_serial: true

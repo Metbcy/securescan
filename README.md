@@ -8,6 +8,21 @@
 [![Security Audit](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml/badge.svg)](https://github.com/Metbcy/securescan/actions/workflows/securescan.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 
+## Quick start (60 seconds)
+
+```bash
+# 1. Install
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
+
+# 2. Initialize
+securescan init
+
+# 3. Run
+securescan diff . --base-ref origin/main --head-ref HEAD
+```
+
+That gives you a unified PR-comment-style report of NEW findings only. For the full dashboard, container, and CI integrations, see below.
+
 ## Dashboard
 
 A self-hosted dashboard sits in front of every scan, finding, scanner,
@@ -54,18 +69,6 @@ one-click install for the pip-installable ones. The "Refresh status"
 control re-checks the host and shows when the last check ran.
 
 ![Scanner inventory](./docs/images/dashboard-scanners.png)
-
-> **What's new in v0.6.0**
->
-> - **Refined dashboard.** End-to-end UI redesign — OKLCH tokens,
->   single-hue severity ramp, Geist typography, dense data-table
->   layouts. New `/diff` page for PR-style scan comparison and a ⌘K
->   command palette.
-> - **API versioning.** All routes are now mounted under
->   `/api/v1/...`. The legacy `/api/...` paths still work for
->   back-compat (with a `Deprecation` header).
-> - **Rate limiting.** Configurable per-key token bucket on
->   `POST /scans` (default 60/min, burst 10).
 
 ## Why?
 
@@ -120,7 +123,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # diff needs both base and head commits
-      - uses: Metbcy/securescan@v0.2.0  # `@v1` floats to latest stable once released
+      - uses: Metbcy/securescan@v1  # floating major; pin to @v0.10.3 for fully-deterministic CI
         with:
           scan-types: code,dependency
           fail-on-severity: high
@@ -129,11 +132,17 @@ jobs:
 The action's full input/output reference lives in
 [`action/README.md`](./action/README.md).
 
+### Action versioning
+
+- `Metbcy/securescan@v1` — floating major. Auto-updates within v1.x. Recommended for most users.
+- `Metbcy/securescan@v0.10.3` — exact pin. Use when you need fully deterministic CI.
+- `:latest` is **not** published; pin a tag.
+
 ### Wheel from a GitHub Release
 
 ```bash
 # Pick the release you want — see https://github.com/Metbcy/securescan/releases
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
 ```
 
 The wheel only ships SecureScan itself. The underlying scanner CLIs
@@ -151,7 +160,7 @@ back to when wheel-mode prerequisites aren't met.
 
 ```bash
 docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.2.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   diff . --base-ref origin/main --head-ref HEAD \
          --output github-pr-comment
 ```
@@ -633,9 +642,10 @@ identity and break these verification commands).
 
 `Metbcy/securescan@v1` is the floating major-version tag — it
 auto-tracks the latest `v1.x.y` stable release and is the recommended
-pin for most users. `Metbcy/securescan@v0.2.0` (or any specific
+pin for most users. `Metbcy/securescan@v0.10.3` (or any specific
 `vX.Y.Z`) is the immutable per-release pin — use it when you want
-reproducible CI behaviour and explicit upgrades.
+reproducible CI behaviour and explicit upgrades. `:latest` is **not**
+published; pin to a tag.
 
 ## Non-goals
 

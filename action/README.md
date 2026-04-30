@@ -124,8 +124,14 @@ default `latest`:
 ```yaml
 - uses: Metbcy/securescan@v1
   with:
-    image-tag: v0.2.0
+    image-tag: v0.10.3
 ```
+
+### Action versioning
+
+- `Metbcy/securescan@v1` — floating major. Auto-updates within v1.x. Recommended for most users.
+- `Metbcy/securescan@v0.10.3` — exact pin. Use when you need fully deterministic CI.
+- `:latest` is **not** published; pin a tag.
 
 ## How it works
 

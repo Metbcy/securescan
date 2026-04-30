@@ -12,9 +12,9 @@ pre-installed at pinned versions, and is what the GitHub Action falls
 back to when wheel-mode prerequisites are not met.
 
 ```bash
-docker pull ghcr.io/metbcy/securescan:v0.9.0
+docker pull ghcr.io/metbcy/securescan:v0.10.3
 docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.9.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   diff . --base-ref origin/main --head-ref HEAD --output github-pr-comment
 ```
 
@@ -23,7 +23,7 @@ To run the dashboard backend:
 ```bash
 docker run --rm -p 8000:8000 \
   -e SECURESCAN_API_KEY="$(openssl rand -hex 32)" \
-  ghcr.io/metbcy/securescan:v0.9.0 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -45,18 +45,22 @@ Install directly from the release URL:
 
 ```bash
 # Pick the release you want.
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
 
 # Or, isolated, via pipx:
 pipx install --pip-args=--no-deps \
-  https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+  https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
 ```
 
 ```admonish note
 SecureScan is **not currently published to PyPI**. The release pipeline
-has a dormant `publish-pypi` job that activates once a `PYPI_TOKEN`
-secret is configured on the repo. Until then, install from the
-GitHub Release URL or build from source (see §4).
+has a `publish-pypi` job wired up to publish via
+[OIDC Trusted Publishers](https://docs.pypi.org/trusted-publishers/) —
+it activates once the maintainer completes the one-time PyPI setup
+documented in
+[`docs/PUBLISHING.md`](https://github.com/Metbcy/securescan/blob/main/docs/PUBLISHING.md).
+Until then, install from the GitHub Release URL or build from source
+(see §4).
 ```
 
 ```admonish note
@@ -64,7 +68,7 @@ PDF reports (`securescan scan ... --output report-pdf`) require the
 optional `[pdf]` extra, which pulls in WeasyPrint and its Cairo /
 Pango / GObject system-library chain:
 
-    pip install 'securescan[pdf] @ https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl'
+    pip install 'securescan[pdf] @ https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl'
 
 The container image ships `weasyprint` pre-installed, so PDF reports
 work out of the box there. Without the extra, requesting
@@ -100,7 +104,7 @@ wheel you just downloaded:
 
 ```bash
 # Download both the wheel and its sigstore bundle.
-RELEASE=v0.10.2
+RELEASE=v0.10.3
 gh release download $RELEASE -R Metbcy/securescan \
   -p 'securescan-*.whl' -p 'securescan-*.whl.sigstore.json'
 

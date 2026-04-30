@@ -20,11 +20,11 @@ The CLI is the same binary regardless of install path:
 
 ```bash
 # Wheel from GitHub Releases (SecureScan is not currently on PyPI):
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.2/securescan-0.10.2-py3-none-any.whl
+pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
 
 # Or, the container (everything pre-installed):
 docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.10.2 \
+  ghcr.io/metbcy/securescan:v0.10.3 \
   scan . --type code
 ```
 
