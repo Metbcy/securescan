@@ -200,10 +200,16 @@ jobs:
     name: publish to PyPI
     needs: [preflight, build-wheel]
     runs-on: ubuntu-latest
-    # No PYPI_TOKEN gate. OIDC Trusted Publishers means PyPI verifies
-    # the GitHub Actions OIDC token signed for this repo+workflow+
-    # environment combination. Setup is one-time at pypi.org/manage/
-    # account/publishing — see docs/PUBLISHING.md.
+    # publish-pypi is best-effort: GitHub Release publishing must NOT
+    # be blocked on PyPI configuration. The first time a tag is pushed
+    # before the one-time pypi.org Trusted Publisher setup is done
+    # (see docs/PUBLISHING.md), this job will fail with
+    # "invalid-publisher". That's expected; downstream GitHub Release
+    # publish (publish-release) does not depend on this job, so the
+    # signed wheel + container still ship to the GitHub Release page
+    # and to GHCR. Once Trusted Publishers is configured, this job
+    # starts succeeding on subsequent tags.
+    continue-on-error: true
     environment:
       name: pypi
       url: https://pypi.org/p/securescan
@@ -229,7 +235,9 @@ jobs:
   # --------------------------------------------------------------------------
   publish-release:
     name: publish GitHub Release
-    needs: [preflight, build-wheel, build-image, publish-pypi]
+    # publish-pypi is intentionally NOT in needs: it's best-effort and
+    # the GitHub Release page is the primary distribution channel.
+    needs: [preflight, build-wheel, build-image]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
