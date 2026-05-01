@@ -1,5 +1,6 @@
 """Git hygiene scanner — checks .gitignore coverage and repo security practices."""
 
+import asyncio
 from pathlib import Path
 
 from ..models import Finding, ScanType, Severity
@@ -122,23 +123,37 @@ class GitHygieneScanner(BaseScanner):
                             )
                         )
 
-        # Check for sensitive files in the project
-        for filename, severity, desc in SENSITIVE_FILES:
-            for found in target.rglob(filename):
-                if "node_modules" in str(found) or "venv" in str(found) or ".git/" in str(found):
-                    continue
-                findings.append(
-                    Finding(
-                        scan_id=scan_id,
-                        scanner=self.name,
-                        scan_type=self.scan_type,
-                        severity=severity,
-                        title=f"Sensitive file in project: {filename}",
-                        description=f"{desc}. File found at {found.relative_to(target)}.",
-                        file_path=str(found),
-                        rule_id=f"git-hygiene/sensitive-file-{filename.replace('.', '-')}",
-                        remediation=f"Remove '{filename}' from version control, add it to .gitignore, and rotate any credentials it contains.",
-                    )
+        # Check for sensitive files in the project. rglob is sync I/O —
+        # collect all matches in a worker thread so a large tree doesn't
+        # block the event loop. SENSITIVE_FILES is small, so the per-pattern
+        # threading overhead is minimal compared to the walk cost.
+        def _find_sensitive_files() -> list[tuple[str, Severity, str, Path]]:
+            out: list[tuple[str, Severity, str, Path]] = []
+            for filename, severity, desc in SENSITIVE_FILES:
+                for found in target.rglob(filename):
+                    if (
+                        "node_modules" in str(found)
+                        or "venv" in str(found)
+                        or ".git/" in str(found)
+                    ):
+                        continue
+                    out.append((filename, severity, desc, found))
+            return out
+
+        sensitive_matches = await asyncio.to_thread(_find_sensitive_files)
+        for filename, severity, desc, found in sensitive_matches:
+            findings.append(
+                Finding(
+                    scan_id=scan_id,
+                    scanner=self.name,
+                    scan_type=self.scan_type,
+                    severity=severity,
+                    title=f"Sensitive file in project: {filename}",
+                    description=f"{desc}. File found at {found.relative_to(target)}.",
+                    file_path=str(found),
+                    rule_id=f"git-hygiene/sensitive-file-{filename.replace('.', '-')}",
+                    remediation=f"Remove '{filename}' from version control, add it to .gitignore, and rotate any credentials it contains.",
                 )
+            )
 
         return findings

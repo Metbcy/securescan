@@ -33,12 +33,13 @@ class SafetyScanner(BaseScanner):
         if safety_bin is None:
             return findings
 
-        # Find requirements files
+        # Find requirements files. rglob is sync — offload to a thread
+        # so the event loop stays responsive on large project trees.
         req_files = []
         if target.is_file() and target.name in ("requirements.txt", "Pipfile.lock"):
             req_files = [target]
         elif target.is_dir():
-            req_files = list(target.rglob("requirements*.txt"))
+            req_files = await asyncio.to_thread(lambda: list(target.rglob("requirements*.txt")))
 
         if not req_files:
             return findings

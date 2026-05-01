@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.3] - 2026-05-01
+
+Patch release fixing the **real** root cause of the dashboard hanging
+during scans on large projects. The v0.11.2 frontend-only fix was
+correct as far as it went, but did not address the underlying
+event-loop block.
+
+### Fixed
+
+- **Scanners no longer block the asyncio event loop with synchronous
+  filesystem walks.** Every scanner that did a sync ``os.walk()`` or
+  ``Path.rglob()`` was running it directly inside its async ``scan()``
+  method, which on Python's asyncio means it monopolises the event
+  loop until done. With 11 scanners running concurrently against a
+  large project (e.g. a 4 GB Rust monorepo with 12 K files in
+  ``target/``), the loop was fully starved for the entire scan
+  duration — ``/health`` timed out (dashboard "API Offline" badge),
+  ``scanner.start`` SSE events couldn't be flushed (live progress
+  panel showed nothing), and even simple GETs queued behind the
+  walks. Reproduced via a Playwright-driven test against the live
+  dashboard: ``/health`` was unreachable for 24+ s during a bomdrift
+  scan; post-fix it answers in <2 ms throughout the run.
+
+  Sync walks moved to ``asyncio.to_thread()`` in:
+
+  - ``bandit.py``: the "is there any Python code in this tree?" pre-check
+  - ``secrets.py``: the file enumeration AND the per-file read+regex
+    batch (the heaviest path — touches every scannable file)
+  - ``dockerfile.py``: the ``rglob`` for Dockerfile patterns
+  - ``gitleaks.py``: the sensitive-file ``rglob`` sweep
+  - ``npm_audit.py``: the ``package.json`` discovery walk
+  - ``safety.py``: the ``requirements*.txt`` discovery walk
+
+- **Live progress panel renders immediately on the scan-detail page.**
+  Inherited from v0.11.2 — page no longer awaits ``fetchFindings``
+  on initial mount of a running scan. SSE drives progress; the SSE
+  terminal handler populates the findings table after ``scan.complete``.
+
+### Tests
+
+- 929 still passing. No new tests added — the fix is verified
+  end-to-end via Playwright reproduction of the original symptom
+  (``/health`` reachable throughout a multi-minute scan, dashboard
+  topbar stays "Connected", per-scanner progress streams live).
+
 ## [0.11.2] - 2026-04-30
 
 Patch release fixing the dashboard's scan-detail page hanging on

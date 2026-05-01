@@ -1,5 +1,6 @@
 """Dockerfile security scanner — checks Dockerfiles for security best practices."""
 
+import asyncio
 import re
 from pathlib import Path
 
@@ -122,10 +123,16 @@ class DockerfileScanner(BaseScanner):
             if target.name == "Dockerfile":
                 dockerfiles = [target]
         elif target.is_dir():
-            # Find all Dockerfiles
-            dockerfiles = list(target.rglob("Dockerfile"))
-            dockerfiles += list(target.rglob("Dockerfile.*"))
-            dockerfiles += list(target.rglob("*.dockerfile"))
+            # Find all Dockerfiles. rglob is sync I/O — offload to a
+            # thread so a 12k-file tree doesn't stall the event loop
+            # and starve /health, SSE delivery, and other scanners.
+            def _find_dockerfiles(t: Path) -> list[Path]:
+                out = list(t.rglob("Dockerfile"))
+                out += list(t.rglob("Dockerfile.*"))
+                out += list(t.rglob("*.dockerfile"))
+                return out
+
+            dockerfiles = await asyncio.to_thread(_find_dockerfiles, target)
 
         for dockerfile in dockerfiles:
             findings.extend(self._check_file(dockerfile, scan_id))

@@ -133,11 +133,15 @@ class SecretsScanner(BaseScanner):
         if not target.exists():
             return findings
 
-        # Scan files
-        files = self._get_scannable_files(target)
-        for file_path in files:
-            file_findings = await self._scan_file(file_path, scan_id)
-            findings.extend(file_findings)
+        # File enumeration is sync I/O; offload to a thread so a 12k-file
+        # tree doesn't block the event loop and stall /health + SSE.
+        files = await asyncio.to_thread(self._get_scannable_files, target)
+
+        # Per-file read+regex is the dominant blocking work on large
+        # trees — we route the full batch through one worker thread
+        # rather than one to_thread call per file (avoids thread-pool
+        # churn) and avoids interleaving with the event loop entirely.
+        findings.extend(await asyncio.to_thread(self._scan_files_sync, files, scan_id))
 
         # Scan git history (last 50 commits)
         if (target / ".git").exists() or self._find_git_root(target):
@@ -150,33 +154,19 @@ class SecretsScanner(BaseScanner):
 
         return findings
 
-    def _get_scannable_files(self, target: Path) -> list[Path]:
-        files = []
-        if target.is_file():
-            return [target]
-        for root, dirs, filenames in os.walk(target):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-            for fname in filenames:
-                fpath = Path(root) / fname
-                if fpath.suffix.lower() not in SKIP_EXTENSIONS:
-                    # Skip files larger than 1MB
-                    try:
-                        if fpath.stat().st_size <= 1_000_000:
-                            files.append(fpath)
-                    except OSError:
-                        pass
-        return files
+    def _scan_files_sync(self, files: list[Path], scan_id: str) -> list[Finding]:
+        """Read + regex-scan a batch of files synchronously. Always
+        invoked via asyncio.to_thread() — never call directly from an
+        async context, or you'll re-introduce the event-loop block this
+        method exists to avoid.
+        """
+        findings: list[Finding] = []
+        for file_path in files:
+            findings.extend(self._scan_file_sync(file_path, scan_id))
+        return findings
 
-    def _find_git_root(self, path: Path) -> Path | None:
-        current = path
-        while current != current.parent:
-            if (current / ".git").exists():
-                return current
-            current = current.parent
-        return None
-
-    async def _scan_file(self, file_path: Path, scan_id: str) -> list[Finding]:
-        findings = []
+    def _scan_file_sync(self, file_path: Path, scan_id: str) -> list[Finding]:
+        findings: list[Finding] = []
         try:
             content = file_path.read_text(errors="ignore")
             lines = content.split("\n")
@@ -207,6 +197,49 @@ class SecretsScanner(BaseScanner):
         except Exception:
             pass
         return findings
+
+    async def _scan_file(self, file_path: Path, scan_id: str) -> list[Finding]:
+        # Backward-compat wrapper — preserved for tests / external
+        # callers that may still invoke this directly. New scan path
+        # uses _scan_file_sync inside a single batched to_thread().
+        return await asyncio.to_thread(self._scan_file_sync, file_path, scan_id)
+
+    def _get_scannable_files(self, target: Path) -> list[Path]:
+        """Synchronous file enumeration — must be called via
+        asyncio.to_thread() from any async context. On large trees
+        (e.g. a Rust target/ directory with 12k+ files) this can take
+        several seconds of blocking I/O that would otherwise stall the
+        whole asyncio event loop including /health and SSE delivery.
+        """
+        files = []
+        if target.is_file():
+            return [target]
+        for root, dirs, filenames in os.walk(target):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            for fname in filenames:
+                fpath = Path(root) / fname
+                if fpath.suffix.lower() not in SKIP_EXTENSIONS:
+                    # Skip files larger than 1MB
+                    try:
+                        if fpath.stat().st_size <= 1_000_000:
+                            files.append(fpath)
+                    except OSError:
+                        pass
+        return files
+
+    def _find_git_root(self, path: Path) -> Path | None:
+        current = path
+        while current != current.parent:
+            if (current / ".git").exists():
+                return current
+            current = current.parent
+        return None
+
+    async def _scan_file(self, file_path: Path, scan_id: str) -> list[Finding]:
+        # Backward-compat wrapper — preserved for tests / external
+        # callers that may still invoke this directly. New scan path
+        # uses _scan_file_sync inside a single batched to_thread().
+        return await asyncio.to_thread(self._scan_file_sync, file_path, scan_id)
 
     def _is_likely_false_positive(self, line: str, file_path: str) -> bool:
         lower_line = line.lower().strip()
@@ -282,50 +315,60 @@ class SecretsScanner(BaseScanner):
     async def _scan_env_files(self, target: Path, scan_id: str) -> list[Finding]:
         findings = []
         env_patterns = ["*.env", "*.env.*", ".env.local", ".env.production", ".env.staging"]
-        for pattern in env_patterns:
-            for env_file in target.rglob(pattern):
-                if any(skip in str(env_file) for skip in SKIP_DIRS):
-                    continue
-                try:
-                    content = env_file.read_text(errors="ignore")
-                    for line_num, line in enumerate(content.split("\n"), 1):
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, _, value = line.partition("=")
-                            value = value.strip().strip('"').strip("'")
-                            if (
-                                value
-                                and len(value) > 5
-                                and not self._is_likely_false_positive(line, str(env_file))
+
+        # rglob across multiple patterns is sync I/O — collect all matches
+        # in a worker thread so a deep tree doesn't block the event loop.
+        def _find_env_files() -> list[Path]:
+            out: list[Path] = []
+            for pattern in env_patterns:
+                for env_file in target.rglob(pattern):
+                    if any(skip in str(env_file) for skip in SKIP_DIRS):
+                        continue
+                    out.append(env_file)
+            return out
+
+        env_files = await asyncio.to_thread(_find_env_files)
+        for env_file in env_files:
+            try:
+                content = env_file.read_text(errors="ignore")
+                for line_num, line in enumerate(content.split("\n"), 1):
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        value = value.strip().strip('"').strip("'")
+                        if (
+                            value
+                            and len(value) > 5
+                            and not self._is_likely_false_positive(line, str(env_file))
+                        ):
+                            key_lower = key.lower()
+                            if any(
+                                s in key_lower
+                                for s in [
+                                    "secret",
+                                    "password",
+                                    "key",
+                                    "token",
+                                    "auth",
+                                    "credential",
+                                ]
                             ):
-                                key_lower = key.lower()
-                                if any(
-                                    s in key_lower
-                                    for s in [
-                                        "secret",
-                                        "password",
-                                        "key",
-                                        "token",
-                                        "auth",
-                                        "credential",
-                                    ]
-                                ):
-                                    findings.append(
-                                        Finding(
-                                            scan_id=scan_id,
-                                            scanner=self.name,
-                                            scan_type=self.scan_type,
-                                            severity=Severity.HIGH,
-                                            title=f"Secret in env file: {key.strip()}",
-                                            description=f"Found secret value for '{key.strip()}' in {env_file.name}. Env files with secrets should not be committed to version control.",
-                                            file_path=str(env_file),
-                                            line_start=line_num,
-                                            rule_id="secrets/env-file-secret",
-                                            remediation="Add this file to .gitignore and use a secrets manager or CI/CD environment variables instead.",
-                                        )
+                                findings.append(
+                                    Finding(
+                                        scan_id=scan_id,
+                                        scanner=self.name,
+                                        scan_type=self.scan_type,
+                                        severity=Severity.HIGH,
+                                        title=f"Secret in env file: {key.strip()}",
+                                        description=f"Found secret value for '{key.strip()}' in {env_file.name}. Env files with secrets should not be committed to version control.",
+                                        file_path=str(env_file),
+                                        line_start=line_num,
+                                        rule_id="secrets/env-file-secret",
+                                        remediation="Add this file to .gitignore and use a secrets manager or CI/CD environment variables instead.",
                                     )
-                except Exception:
-                    pass
+                                )
+            except Exception:
+                pass
         return findings

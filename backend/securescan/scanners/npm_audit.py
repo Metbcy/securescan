@@ -45,14 +45,21 @@ class NpmAuditScanner(BaseScanner):
         if npm_bin is None:
             return findings
 
-        # Find package.json files (but skip node_modules)
+        # Find package.json files (but skip node_modules). rglob is sync —
+        # offload to a thread so the event loop stays responsive.
         pkg_dirs = []
         if target.is_dir() and (target / "package.json").exists():
             pkg_dirs = [target]
         elif target.is_dir():
-            for pj in target.rglob("package.json"):
-                if "node_modules" not in str(pj):
-                    pkg_dirs.append(pj.parent)
+
+            def _find_package_jsons() -> list[Path]:
+                return [
+                    pj.parent
+                    for pj in target.rglob("package.json")
+                    if "node_modules" not in str(pj)
+                ]
+
+            pkg_dirs = await asyncio.to_thread(_find_package_jsons)
 
         for pkg_dir in pkg_dirs[:5]:  # Limit to 5 projects
             # Need both package.json and package-lock.json for npm audit

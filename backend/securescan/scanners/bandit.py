@@ -31,12 +31,18 @@ class BanditScanner(BaseScanner):
     async def scan(self, target_path: str, scan_id: str, **kwargs) -> list[Finding]:
         findings: list[Finding] = []
 
-        # Only scan if target contains Python files
-        has_python = False
-        for _root, _dirs, files in os.walk(target_path):
-            if any(f.endswith(".py") for f in files):
-                has_python = True
-                break
+        # Only scan if target contains Python files. Run the walk in a
+        # worker thread — `os.walk` on a multi-thousand-file tree (e.g. a
+        # Rust project's target/ dir) takes seconds of synchronous I/O,
+        # which would otherwise block the asyncio event loop and stall
+        # /health, SSE event delivery, and every other scanner.
+        def _has_python_files(path: str) -> bool:
+            for _root, _dirs, files in os.walk(path):
+                if any(f.endswith(".py") for f in files):
+                    return True
+            return False
+
+        has_python = await asyncio.to_thread(_has_python_files, target_path)
         if not has_python:
             return findings
 
