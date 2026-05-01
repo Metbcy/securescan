@@ -6,7 +6,7 @@
 > CLI, a GitHub Action, and a web dashboard.
 
 This is the operator + developer reference for SecureScan
-**v0.9.0**. If you have not used SecureScan before,
+**v0.11.0**. If you have not used SecureScan before,
 [**Quick start: your first scan**](./quick-start.md) is the place to begin.
 
 ## What you can do with SecureScan

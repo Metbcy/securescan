@@ -118,7 +118,7 @@ SECURESCAN_CORS_ORIGINS=https://securescan.example.com
 ```bash
 docker run --env-file /etc/securescan/env \
   -v securescan-data:/data \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   serve --host 0.0.0.0 --port 8000 --workers 1
 ```
 

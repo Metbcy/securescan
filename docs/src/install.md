@@ -12,9 +12,9 @@ pre-installed at pinned versions, and is what the GitHub Action falls
 back to when wheel-mode prerequisites are not met.
 
 ```bash
-docker pull ghcr.io/metbcy/securescan:v0.10.3
+docker pull ghcr.io/metbcy/securescan:v0.11.0
 docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   diff . --base-ref origin/main --head-ref HEAD --output github-pr-comment
 ```
 
@@ -23,7 +23,7 @@ To run the dashboard backend:
 ```bash
 docker run --rm -p 8000:8000 \
   -e SECURESCAN_API_KEY="$(openssl rand -hex 32)" \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -37,30 +37,14 @@ The image follows the release schedule documented in
 [Release process](./reference/release-process.md). All tags from
 `v0.2.0` onward are signed.
 
-## 2. Wheel from a GitHub Release
-
-The signed wheel + sdist for every tagged release are attached to the
-[GitHub Releases page](https://github.com/Metbcy/securescan/releases).
-Install directly from the release URL:
+## 2. Wheel from PyPI
 
 ```bash
-# Pick the release you want.
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
+pip install securescan                  # latest stable
+pip install securescan==0.11.0          # exact pin
 
 # Or, isolated, via pipx:
-pipx install --pip-args=--no-deps \
-  https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
-```
-
-```admonish note
-SecureScan is **not currently published to PyPI**. The release pipeline
-has a `publish-pypi` job wired up to publish via
-[OIDC Trusted Publishers](https://docs.pypi.org/trusted-publishers/) —
-it activates once the maintainer completes the one-time PyPI setup
-documented in
-[`docs/PUBLISHING.md`](https://github.com/Metbcy/securescan/blob/main/docs/PUBLISHING.md).
-Until then, install from the GitHub Release URL or build from source
-(see §4).
+pipx install securescan
 ```
 
 ```admonish note
@@ -68,7 +52,7 @@ PDF reports (`securescan scan ... --output report-pdf`) require the
 optional `[pdf]` extra, which pulls in WeasyPrint and its Cairo /
 Pango / GObject system-library chain:
 
-    pip install 'securescan[pdf] @ https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl'
+    pip install 'securescan[pdf]'
 
 The container image ships `weasyprint` pre-installed, so PDF reports
 work out of the box there. Without the extra, requesting
@@ -100,11 +84,10 @@ container instead.
 ### Verify the wheel signature
 
 Every tagged release is signed with sigstore-python. To verify the
-wheel you just downloaded:
+wheel:
 
 ```bash
-# Download both the wheel and its sigstore bundle.
-RELEASE=v0.10.3
+RELEASE=v0.11.0
 gh release download $RELEASE -R Metbcy/securescan \
   -p 'securescan-*.whl' -p 'securescan-*.whl.sigstore.json'
 
@@ -116,8 +99,8 @@ sigstore verify identity \
   securescan-${RELEASE#v}-py3-none-any.whl
 ```
 
-The `*.sigstore.json` bundles ship as GitHub Release assets next to
-the wheel.
+The `*.sigstore.json` bundles ship as GitHub Release assets. PyPI
+itself does not host them.
 
 ## 3. GitHub Action (CI/CD)
 

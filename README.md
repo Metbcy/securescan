@@ -12,7 +12,7 @@
 
 ```bash
 # 1. Install
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
+pip install securescan
 
 # 2. Initialize
 securescan init
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # diff needs both base and head commits
-      - uses: Metbcy/securescan@v1  # floating major; pin to @v0.10.3 for fully-deterministic CI
+      - uses: Metbcy/securescan@v1  # floating major; pin to @v0.11.0 for fully-deterministic CI
         with:
           scan-types: code,dependency
           fail-on-severity: high
@@ -135,14 +135,15 @@ The action's full input/output reference lives in
 ### Action versioning
 
 - `Metbcy/securescan@v1` — floating major. Auto-updates within v1.x. Recommended for most users.
-- `Metbcy/securescan@v0.10.3` — exact pin. Use when you need fully deterministic CI.
+- `Metbcy/securescan@v0.11.0` — exact pin. Use when you need fully deterministic CI.
 - `:latest` is **not** published; pin a tag.
 
-### Wheel from a GitHub Release
+### Wheel from PyPI
 
 ```bash
-# Pick the release you want — see https://github.com/Metbcy/securescan/releases
-pip install https://github.com/Metbcy/securescan/releases/download/v0.10.3/securescan-0.10.3-py3-none-any.whl
+pip install securescan                  # latest
+pip install securescan==0.11.0          # exact pin
+pip install 'securescan[pdf]'           # with PDF reports (pulls WeasyPrint)
 ```
 
 The wheel only ships SecureScan itself. The underlying scanner CLIs
@@ -160,7 +161,7 @@ back to when wheel-mode prerequisites aren't met.
 
 ```bash
 docker run --rm -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   diff . --base-ref origin/main --head-ref HEAD \
          --output github-pr-comment
 ```
@@ -642,7 +643,7 @@ identity and break these verification commands).
 
 `Metbcy/securescan@v1` is the floating major-version tag — it
 auto-tracks the latest `v1.x.y` stable release and is the recommended
-pin for most users. `Metbcy/securescan@v0.10.3` (or any specific
+pin for most users. `Metbcy/securescan@v0.11.0` (or any specific
 `vX.Y.Z`) is the immutable per-release pin — use it when you want
 reproducible CI behaviour and explicit upgrades. `:latest` is **not**
 published; pin to a tag.

@@ -105,7 +105,7 @@ In containers, mount the file as a volume:
 docker run --rm -p 8000:8000 \
   -v ~/.config/securescan:/root/.config/securescan:ro \
   -e SECURESCAN_API_KEY="$(cat /run/secrets/securescan-api-key)" \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   serve --host 0.0.0.0 --port 8000
 ```
 

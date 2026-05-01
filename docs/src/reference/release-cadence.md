@@ -21,9 +21,9 @@ Adding new options, new endpoints, or new env vars is NOT breaking.
 ## Pinning
 
 - `Metbcy/securescan@v1` — floating major; safe for most users.
-- `Metbcy/securescan@v0.10.3` — exact pin; safe for fully-deterministic CI.
+- `Metbcy/securescan@v0.11.0` — exact pin; safe for fully-deterministic CI.
 - `pip install securescan` — pulls the latest stable from PyPI.
-- `pip install securescan==0.10.3` — exact pin.
+- `pip install securescan==0.11.0` — exact pin.
 
 ## Deprecation policy
 

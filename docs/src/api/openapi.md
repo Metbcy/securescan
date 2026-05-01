@@ -43,7 +43,7 @@ spec:
 
 ## Endpoint count
 
-As of v0.10.3, the auto-generated spec covers ~30 endpoints across:
+As of v0.11.0, the auto-generated spec covers ~30 endpoints across:
 - `/api/v1/scans/*` — scan lifecycle + SSE events + delete
 - `/api/v1/findings/*` — triage state + comments
 - `/api/v1/sbom/*` — SBOM generation + retrieval

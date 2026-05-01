@@ -14,11 +14,11 @@ ghcr.io/metbcy/securescan:<tag>
 
 | Tag           | Meaning                                                |
 | ------------- | ------------------------------------------------------ |
-| `v0.10.3`     | Specific tagged release. Immutable, signed with cosign. |
+| `v0.11.0`     | Specific tagged release. Immutable, signed with cosign. |
 | `v1`          | Floating major-version tag. Auto-tracks `v1.x.y`.      |
 
 ```admonish important
-**Pin to a specific tag in production.** Use `v0.10.3` or `v1`. The
+**Pin to a specific tag in production.** Use `v0.11.0` or `v1`. The
 `:latest` tag is **not** published — `cosign verify` only works
 against tagged releases, so an unsigned floating reference is not
 something we ship.
@@ -31,7 +31,7 @@ Minimum:
 ```bash
 docker run --rm -p 8000:8000 \
   -e SECURESCAN_API_KEY="$(openssl rand -hex 32)" \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   serve --host 0.0.0.0 --port 8000
 ```
 
@@ -50,7 +50,7 @@ docker run -d \
   -v securescan-data:/data \
   -v securescan-config:/root/.config/securescan \
   --restart unless-stopped \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   serve --host 0.0.0.0 --port 8000 --workers 1
 ```
 
@@ -69,7 +69,7 @@ Notes:
 ```bash
 docker run --rm \
   -v "$PWD:/work" -w /work \
-  ghcr.io/metbcy/securescan:v0.10.3 \
+  ghcr.io/metbcy/securescan:v0.11.0 \
   diff . --base-ref origin/main --head-ref HEAD \
          --output github-pr-comment
 ```
@@ -109,7 +109,7 @@ spec:
     spec:
       containers:
         - name: securescan
-          image: ghcr.io/metbcy/securescan:v0.10.3
+          image: ghcr.io/metbcy/securescan:v0.11.0
           args: [ "serve", "--host", "0.0.0.0", "--port", "8000", "--workers", "1" ]
           ports: [{ containerPort: 8000 }]
           envFrom:
@@ -153,7 +153,7 @@ ingress keyed on `scan_id`. See [Single-worker constraint](./single-worker.md).
 The bundled scanners are pinned at build time. To see versions:
 
 ```bash
-docker run --rm ghcr.io/metbcy/securescan:v0.10.3 status
+docker run --rm ghcr.io/metbcy/securescan:v0.11.0 status
 ```
 
 | Tool          | How it ships         |
@@ -175,20 +175,14 @@ a separate container and point SecureScan at it via
 
 ## Container vs wheel
 
-| Concern                         | Container                              | Wheel (GitHub Release)                             |
+| Concern                         | Container                              | Wheel (PyPI)                                       |
 | ------------------------------- | -------------------------------------- | -------------------------------------------------- |
 | Reproducible scanner versions   | ✅ pinned at image build               | ❌ depends on host                                  |
-| Easy install                    | ✅ `docker run`                        | ✅ `pip install <release-url>`                      |
-| Easy upgrade                    | ✅ image bump                          | ✅ `pip install <new-release-url>`                 |
+| Easy install                    | ✅ `docker run`                        | ✅ `pip install securescan`                        |
+| Easy upgrade                    | ✅ image bump                          | ✅ `pip install -U securescan`                     |
 | Smaller install                 | ❌ ~600MB                              | ✅ ~10MB plus whatever scanners you install        |
 | Run ZAP / nmap                  | Need separate ZAP; nmap inside         | Run on host                                        |
 | Signed artifact                 | ✅ cosign                              | ✅ sigstore-python (`*.sigstore.json` bundle)      |
-
-```admonish note
-SecureScan is **not currently on PyPI**, so the wheel install path
-goes through the GitHub Release URL. See [Install §2](../install.md)
-for the exact command.
-```
 
 The GitHub Action picks the right one for you: tries the wheel
 first, falls back to the container if scanner binaries are missing.
@@ -198,8 +192,8 @@ first, falls back to the container if scanner binaries are missing.
 Before running in production, verify the cosign signature:
 
 ```bash
-cosign verify ghcr.io/metbcy/securescan:v0.10.3 \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
+cosign verify ghcr.io/metbcy/securescan:v0.11.0 \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.11.0' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 

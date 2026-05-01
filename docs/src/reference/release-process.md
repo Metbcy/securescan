@@ -29,7 +29,7 @@ The cosign verification command in
 [Verifying signed artifacts](../deployment/verifying-artifacts.md)
 includes:
 
-​    --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3'
+​    --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.11.0'
 
 If the workflow could be re-run via `workflow_dispatch`, that
 identity would have a different ref and the verification would
@@ -75,7 +75,7 @@ Fails the whole release before spending time on builds if the metadata is out of
 
 - Builds the multi-arch container (amd64 + arm64) and pushes to
   `ghcr.io/metbcy/securescan` with the immutable per-release tag
-  `v<version>` (e.g. `v0.10.3`). `:latest` is **not** published — pin
+  `v<version>` (e.g. `v0.11.0`). `:latest` is **not** published — pin
   to a tag.
 - Signs **by digest** with `cosign` keyless (Sigstore via OIDC). The
   signature attests the `(digest, identity)` pair, not the tag, so
@@ -120,7 +120,7 @@ Per release, the GitHub Release page hosts:
 The container image is published separately to GHCR:
 
 ```text
-ghcr.io/metbcy/securescan:v<version>     (e.g. v0.10.3 — immutable, signed)
+ghcr.io/metbcy/securescan:v<version>     (e.g. v0.11.0 — immutable, signed)
 ```
 
 `:latest` is **not** published. Always pin to a `vX.Y.Z` tag (or, in
@@ -192,20 +192,20 @@ End-to-end:
 
 ```bash
 # 1. Wheel
-pip download securescan==0.10.3 --no-deps -d ./out
-gh release download v0.10.3 --repo Metbcy/securescan \
-  --pattern 'securescan-0.10.3-py3-none-any.whl.sigstore.json' --dir ./out
+pip download securescan==0.11.0 --no-deps -d ./out
+gh release download v0.11.0 --repo Metbcy/securescan \
+  --pattern 'securescan-0.11.0-py3-none-any.whl.sigstore.json' --dir ./out
 
 pip install sigstore
 sigstore verify identity \
-  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
+  --cert-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.11.0' \
   --cert-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  --bundle ./out/securescan-0.10.3-py3-none-any.whl.sigstore.json \
-  ./out/securescan-0.10.3-py3-none-any.whl
+  --bundle ./out/securescan-0.11.0-py3-none-any.whl.sigstore.json \
+  ./out/securescan-0.11.0-py3-none-any.whl
 
 # 2. Container image
-cosign verify ghcr.io/metbcy/securescan:v0.10.3 \
-  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.10.3' \
+cosign verify ghcr.io/metbcy/securescan:v0.11.0 \
+  --certificate-identity 'https://github.com/Metbcy/securescan/.github/workflows/release.yml@refs/tags/v0.11.0' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
 ```
 
