@@ -12,7 +12,6 @@ import types
 
 from fastapi.testclient import TestClient
 
-from securescan import main as main_module
 from securescan.main import app
 
 client = TestClient(app)
@@ -45,11 +44,17 @@ def test_ready_response_includes_scanner_count():
     assert count > 0
 
 
-def test_ready_returns_503_when_init_db_fails(monkeypatch):
+def test_ready_returns_503_when_db_unreachable(monkeypatch):
+    """When the DB ping fails, /ready returns 503 with a clear error."""
+
     async def boom():
         raise RuntimeError("database is unreachable")
 
-    monkeypatch.setattr(main_module, "init_db", boom)
+    # /ready calls db_ping (lightweight SELECT 1), not init_db, so monkey-
+    # patch the import that the endpoint uses to simulate DB unreachability.
+    from securescan import database as database_module
+
+    monkeypatch.setattr(database_module, "db_ping", boom)
 
     response = client.get("/ready")
     assert response.status_code == 503
@@ -93,7 +98,29 @@ def test_ready_does_not_require_api_key(monkeypatch):
     assert response.json()["status"] == "ready"
 
 
-def test_health_and_ready_are_distinct():
+def test_ready_does_not_run_schema_migrations(monkeypatch):
+    """Regression for: dashboard "Offline" badge during heavy scans.
+
+    /ready must NOT call init_db() — running ~15 DDL statements on every
+    probe contends with concurrent scan writes for SQLite's write lock,
+    exceeding busy_timeout and producing false 503s. The probe should
+    use db_ping() (a single SELECT 1) instead.
+    """
+    init_calls = {"n": 0}
+
+    async def tracking_init_db():
+        init_calls["n"] += 1
+
+    from securescan import database as database_module
+
+    monkeypatch.setattr(database_module, "init_db", tracking_init_db)
+
+    response = client.get("/ready")
+    assert response.status_code == 200
+    assert init_calls["n"] == 0, (
+        "/ready must not invoke init_db (DDL contends with scan writes); "
+        "use db_ping for liveness instead"
+    )
     health_response = client.get("/health")
     ready_response = client.get("/ready")
 

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from datetime import datetime
@@ -28,6 +29,14 @@ from .models import (
 from .scoring import calculate_risk_score
 
 _db_path: str = settings.database_path
+
+# Tracks whether init_db() has already created the schema for the
+# current `_db_path`. Re-running init_db on every /ready probe is
+# expensive enough (~15 DDL statements, several requiring write locks)
+# that under concurrent scan load it can exceed SQLite's busy_timeout
+# and make /ready falsely report 503 → dashboard "Offline" badge.
+_db_initialized: bool = False
+_db_init_lock: asyncio.Lock | None = None
 
 
 # SQLite (and Postgres) identifiers can technically be quoted to allow
@@ -82,8 +91,11 @@ def _is_duplicate_column(exc: BaseException) -> bool:
 
 
 def set_db_path(path: str) -> None:
-    global _db_path
+    global _db_path, _db_initialized
     _db_path = path
+    # Path change → schema for the new file may not exist yet, so any
+    # subsequent init_db() call must re-run the DDL. Tests rely on this.
+    _db_initialized = False
 
 
 async def _get_db() -> aiosqlite.Connection:
@@ -92,7 +104,35 @@ async def _get_db() -> aiosqlite.Connection:
     return db
 
 
+async def db_ping() -> None:
+    """Lightweight DB reachability check for the readiness probe.
+
+    Opens a connection and runs SELECT 1. Does NOT run any DDL, so it
+    does not contend with concurrent writes during a scan. Used by
+    /ready instead of full init_db().
+    """
+    db = await aiosqlite.connect(_db_path, timeout=2.0)
+    try:
+        async with db.execute("SELECT 1") as cur:
+            await cur.fetchone()
+    finally:
+        await db.close()
+
+
 async def init_db() -> None:
+    global _db_initialized, _db_init_lock
+    if _db_initialized:
+        return
+    if _db_init_lock is None:
+        _db_init_lock = asyncio.Lock()
+    async with _db_init_lock:
+        if _db_initialized:
+            return
+        await _init_db_impl()
+        _db_initialized = True
+
+
+async def _init_db_impl() -> None:
     db = await _get_db()
     try:
         await db.execute("PRAGMA journal_mode=WAL")

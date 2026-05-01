@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.1] - 2026-04-30
+
+Patch release fixing a false-positive "API Offline" indicator in the
+dashboard during heavy scans.
+
+### Fixed
+
+- **`/ready` no longer runs schema migrations on every probe.** The
+  endpoint was calling `init_db()` per request, which issues ~15
+  DDL statements (CREATE TABLE / ALTER TABLE / CREATE INDEX). Under
+  concurrent scan-write load (11 scanners writing findings in
+  parallel), the ALTER TABLEs would block on SQLite's write lock past
+  the 5s `busy_timeout`, returning 503 and making the dashboard's
+  topbar status indicator flip from "Connected" to "Offline" mid-scan.
+  `/ready` now uses a new `db_ping()` helper (single `SELECT 1`),
+  unaffected by write contention. `init_db()` is also now idempotent
+  fast-path: subsequent calls return immediately after the first
+  successful schema setup.
+
+### Tests
+
+- 929 → 930 (+1): regression test asserting `/ready` does not invoke
+  `init_db`.
+
 ## [0.11.0] - 2026-04-30
 
 OSS adoption foundations release: a 60-second first-run path, a

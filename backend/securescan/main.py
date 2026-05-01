@@ -146,13 +146,22 @@ async def _shutdown_webhook_dispatcher():
 @app.get("/ready", tags=["health"])
 async def ready():
     """Readiness probe: returns 200 only when the app is fully ready
-    to serve API traffic (database openable, scanner registry loaded).
+    to serve API traffic (database reachable, scanner registry loaded).
     Returns 503 with details when not ready.
+
+    Uses ``db_ping()`` (a single ``SELECT 1``) for the DB check, NOT
+    ``init_db()``. The latter issues ~15 DDL statements every call and
+    can contend with concurrent scan writes for the SQLite write lock,
+    causing the dashboard to falsely flip "Offline" mid-scan. Schema
+    initialization is done once at startup; the readiness probe only
+    needs to confirm the DB is currently reachable.
     """
     checks = {}
 
     try:
-        await init_db()
+        from .database import db_ping
+
+        await db_ping()
         checks["db"] = {"status": "ok"}
     except Exception as e:
         checks["db"] = {"status": "fail", "error": str(e)}
