@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -708,15 +707,6 @@ function DiffPageInner() {
       <PageHeader
         title="Diff"
         meta="See what's new, gone, or unchanged between two scans."
-        actions={
-          <Link
-            href="/compare"
-            className="text-sm text-muted hover:text-foreground-strong inline-flex items-center gap-1"
-          >
-            Side-by-side compare
-            <ArrowRight size={14} strokeWidth={1.5} aria-hidden />
-          </Link>
-        }
       />
 
       {/* Sticky selector row */}

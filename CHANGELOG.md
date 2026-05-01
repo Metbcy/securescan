@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.8] - 2026-05-01
+
+Cleanup release. Consolidated the redundant ``/compare`` and
+``/diff`` dashboard pages into one.
+
+### Removed
+
+- **`/compare` page** — was a 703-LOC client component calling the
+  exact same backend endpoint (``GET /api/v1/scans/compare``) with
+  the exact same 2-dropdown UI as ``/diff``. Even cross-linked to
+  itself from the diff page header, which gave away the duplication.
+  ``frontend/src/lib/api.ts`` had ``fetchScanDiff()`` defined as a
+  one-line wrapper around ``compareScans()``. The CLI does have a
+  real distinction (``securescan diff`` runs against git refs,
+  ``securescan compare`` runs against a saved baseline JSON), but
+  the dashboard never exposed the baseline-JSON path so the two
+  pages were functionally identical.
+
+### Changed
+
+- **`/compare` now 308-redirects to `/diff`** in
+  ``next.config.ts``. Existing bookmarks / external links / browser
+  history continue to land on a working page. ``/diff`` is the
+  canonical name (matches the ``securescan diff`` CLI command).
+- **Sidebar nav** — dropped the "Compare" entry; "Diff" is the
+  only consolidated route.
+- **Command palette** — same change; "G C" shortcut now jumps to
+  ``/diff`` instead of ``/compare``.
+- **Diff page header** — removed the cross-link to ``/compare``
+  (which would now just bounce back here).
+
 ## [0.11.7] - 2026-05-01
 
 Patch: kill the last hydration mismatch + lint-clean the

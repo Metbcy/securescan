@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { useEffect, useState, type ComponentType } from "react";
 import {
-  ArrowLeftRight,
   Clock,
   Copy,
   FileDiff,
@@ -34,8 +33,7 @@ const PAGES: PageEntry[] = [
   { label: "Overview", href: "/", icon: LayoutDashboard, shortcut: "G O" },
   { label: "New Scan", href: "/scan", icon: ScanSearch, shortcut: "G N" },
   { label: "History", href: "/history", icon: HistoryIcon, shortcut: "G H" },
-  { label: "Compare", href: "/compare", icon: ArrowLeftRight, shortcut: "G C" },
-  { label: "Diff", href: "/diff", icon: FileDiff },
+  { label: "Diff", href: "/diff", icon: FileDiff, shortcut: "G C" },
   { label: "SBOM", href: "/sbom", icon: Package, shortcut: "G B" },
   { label: "Scanners", href: "/scanners", icon: Settings },
 ];

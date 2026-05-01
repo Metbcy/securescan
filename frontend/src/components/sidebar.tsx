@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMemo, useSyncExternalStore } from "react";
 import {
-  ArrowLeftRight,
   Bell,
   GitCompare,
   History,
@@ -20,7 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const APP_VERSION = "0.11.7";
+const APP_VERSION = "0.11.8";
 const RECENTS_STORAGE_KEY = "securescan:recent-scans";
 
 type NavGroup = "main" | "settings";
@@ -35,7 +34,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
   { label: "New Scan", href: "/scan", icon: ScanSearch },
-  { label: "Compare", href: "/compare", icon: ArrowLeftRight },
   { label: "Diff", href: "/diff", icon: GitCompare },
   { label: "History", href: "/history", icon: History },
   { label: "Notifications", href: "/notifications", icon: Bell },
