@@ -177,12 +177,12 @@ sequenceDiagram
   autonumber
   participant Dev as Developer
   participant API as SecureScan
-  Dev->>API: PATCH /findings/FP-2/state {status:fixed,note:"PR #42"}
-  Note over Dev: ... time passes; rescan ...
+  Dev->>API: PATCH /findings/FP-2/state {status:fixed,note:"fixed in PR 42"}
+  Note over Dev: ... time passes, rescan ...
   Dev->>API: POST /api/v1/scans
   API-->>Dev: scan_3 — FP-2 not present (truly fixed)
   Note over Dev: regression check passes
-  Note over Dev: ... time passes; refactor ...
+  Note over Dev: ... time passes, refactor ...
   Dev->>API: POST /api/v1/scans
   API-->>Dev: scan_4 — FP-2 present again
   Note over Dev: dashboard shows FP-2 with strikethrough fixed pill — regression signal

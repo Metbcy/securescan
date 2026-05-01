@@ -41,13 +41,12 @@ always work against the published artifacts.
 
 ```mermaid
 flowchart LR
-  Tag[Tag pushed] --> Pre[1. preflight]
-  Pre --> Wheel[2. build-wheel sigstore-python signed]
-  Pre --> Image[3. build-image cosign keyless signed]
-  Wheel --> PyPI[4. publish-pypi]
-  Wheel --> Rel[5. publish-release]
+  Tag["Tag pushed"] --> Pre["preflight"]
+  Pre --> Wheel["build-wheel<br/>sigstore-python signed"]
+  Pre --> Image["build-image<br/>cosign keyless signed"]
+  Wheel --> PyPI["publish-pypi"]
+  Wheel --> Rel["publish-release"]
   Image --> Rel
-  PyPI --> Rel
 ```
 
 Five jobs:
