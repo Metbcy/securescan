@@ -238,7 +238,11 @@ export default function Home() {
         if (latest && latest.status === "completed") {
           const [sum, fin] = await Promise.all([
             fetchScanSummary(latest.id),
-            fetchFindings(latest.id),
+            // Overview only renders top 5 findings ("Top findings"
+            // panel). Pass limit=5 so we don't ship a multi-MB payload
+            // for a 5-row preview — backend returns findings sorted
+            // by severity desc, so this is the 5 most-severe.
+            fetchFindings(latest.id, { limit: 5 }),
           ]);
           if (cancelled) return;
           setLatestSummary(sum);

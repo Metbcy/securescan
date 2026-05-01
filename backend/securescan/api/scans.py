@@ -777,6 +777,12 @@ async def list_findings(
     severity: str | None = None,
     scan_type: str | None = None,
     compliance: str | None = None,
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=10_000,
+        description="Cap the number of returned findings (default: unlimited). Findings are sorted by severity desc, so limit=N returns the N most-severe.",
+    ),
 ):
     """Get findings for a scan, optionally filtered by severity, scan_type, or compliance tag.
 
@@ -786,13 +792,22 @@ async def list_findings(
     on every later rescan of the same target. This is the ONLY endpoint
     that returns the enriched payload -- SARIF / JSON / baseline / CLI
     exporters all keep using the bare `Finding` shape via `get_findings`.
+
+    `limit` is intended for callers that only render a top-N preview
+    (the Overview page's "Top findings" panel, the notification bell's
+    severity counts, etc.). The full unlimited list is still the
+    default so SARIF exporters and the scan-detail table keep their
+    existing contract.
     """
     scan = await get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
-    return await get_findings_with_state(
+    findings = await get_findings_with_state(
         scan_id, severity=severity, scan_type=scan_type, compliance=compliance
     )
+    if limit is not None:
+        findings = findings[:limit]
+    return findings
 
 
 @router.get(

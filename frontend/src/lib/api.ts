@@ -155,10 +155,18 @@ export async function fetchScan(id: string): Promise<Scan> {
   return res.json();
 }
 
-export async function fetchFindings(scanId: string, severity?: string): Promise<Finding[]> {
+export async function fetchFindings(
+  scanId: string,
+  options?: { severity?: string; limit?: number },
+): Promise<Finding[]> {
   const params = new URLSearchParams();
-  if (severity) params.set("severity", severity);
-  const res = await apiFetch(`${API_BASE}/scans/${scanId}/findings?${params}`, { cache: "no-store" });
+  if (options?.severity) params.set("severity", options.severity);
+  if (options?.limit != null) params.set("limit", String(options.limit));
+  const qs = params.toString();
+  const url = qs
+    ? `${API_BASE}/scans/${scanId}/findings?${qs}`
+    : `${API_BASE}/scans/${scanId}/findings`;
+  const res = await apiFetch(url, { cache: "no-store" });
   if (!res.ok) throw new Error("Failed to fetch findings");
   return res.json();
 }

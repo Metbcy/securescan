@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.9] - 2026-05-01
+
+Performance: Overview page no longer downloads megabytes of findings
+to render a 5-row preview.
+
+### Fixed
+
+- **`/api/v1/scans/{id}/findings`** got an optional `limit` query
+  param (`1..10000`). Default is unlimited (preserves the existing
+  contract for SARIF exporters / scan-detail tables / CLI). The
+  Overview page now passes `limit=5` because the "Top findings" panel
+  only ever shows 5 rows. Backend already returns findings sorted by
+  severity desc, so `limit=5` is the 5 most-severe findings.
+
+  Empirical: on a scan with 20,274 findings against the dashboard's
+  own working tree, this dropped the response payload from
+  **14.5 MB → 5.2 KB** (-99.96%). Network time alone went from
+  ~500ms to ~440ms; the bigger savings are downstream — JSON parse
+  + initial React render no longer choke on a 14.5 MB payload.
+
+### Changed
+
+- **`fetchFindings(scanId, severity?)`** in `frontend/src/lib/api.ts`
+  signature changed to `fetchFindings(scanId, options?)` where
+  `options` is `{ severity?, limit? }`. Backward-compatible at the
+  default-arg level — existing callers that pass no args keep working.
+
 ## [0.11.8] - 2026-05-01
 
 Cleanup release. Consolidated the redundant ``/compare`` and

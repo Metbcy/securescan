@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const APP_VERSION = "0.11.8";
+const APP_VERSION = "0.11.9";
 const RECENTS_STORAGE_KEY = "securescan:recent-scans";
 
 type NavGroup = "main" | "settings";
