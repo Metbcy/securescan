@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.5] - 2026-05-01
+
+Patch release fixing notification body truncation.
+
+### Fixed
+
+- **scan.complete notifications now show the target path.** The
+  ``scan.complete`` lifecycle event was published without a ``target``
+  field (only ``scan.start`` had one), so the notification body
+  builder produced ``"20274 findings on "`` with a trailing space and
+  no path. Added ``target=scan.target_path`` to the publish call.
+  Belt-and-braces: the notification builder now also drops the
+  ``" on "`` suffix when no target is supplied, so any future
+  publishing-site regressions degrade gracefully to ``"<N> findings"``
+  instead of producing a dangling string.
+
+  Pre-existing notifications keep their old bodies (they're
+  immutable history); newly-created notifications use the fixed
+  format.
+
 ## [0.11.4] - 2026-05-01
 
 Self-audit hotpatch. Ran SecureScan against itself, triaged the

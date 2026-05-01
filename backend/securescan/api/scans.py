@@ -178,10 +178,19 @@ async def _create_notification_for_event(event: str, scan_id: str, fields: dict[
             severity = (
                 NotificationSeverity.WARNING if findings_count > 0 else NotificationSeverity.INFO
             )
+            # Build the body defensively: if the publishing site forgot
+            # to include a target field, fall back to "<N> findings"
+            # rather than producing the dangling "<N> findings on "
+            # string the dashboard ended up rendering pre-v0.11.5.
+            body = (
+                f"{findings_count} findings on {target_path}"
+                if target_path
+                else f"{findings_count} findings"
+            )
             await insert_notification(
                 type="scan.complete",
                 title="Scan complete",
-                body=f"{findings_count} findings on {target_path}",
+                body=body,
                 link=f"/scan/{scan_id}",
                 severity=severity,
             )
@@ -425,6 +434,7 @@ async def _run_scan(scan_id: str) -> None:
         _log_scan_event(
             "scan.complete",
             scan_id=scan.id,
+            target=scan.target_path,
             duration_s=round(time.perf_counter() - scan_started_perf, 2),
             scanner_count=len(scanners_run),
             findings_count=summary.total_findings,
