@@ -39,6 +39,8 @@ The home page. Layout:
 - **Recent scans** compact table — last ~10 rows.
 - **Compliance coverage cards** — one per framework. See [Compliance](../scanning/compliance.md).
 
+![Overview page](../images/dashboard-overview.png)
+
 Source: `frontend/src/app/page.tsx`.
 
 ## New scan (`/scan`)
@@ -106,12 +108,22 @@ Findings table  (compact, sortable, severity-tinted left edge)
   ...
 ```
 
+![Scan detail with risk score, scanner chips, and the findings table](../images/dashboard-scan-findings.png)
+
 Expand a row to reveal:
 
 - Matched line (mono, 5-line context).
 - AI explanation + remediation hint (when `--ai` was on; off by default in CI).
 - **Triage panel** — status dropdown + note textarea.
 - **Comments panel** — thread, lazy-loaded.
+
+![Expanded finding showing the triage and comments panels](../images/dashboard-triage.png)
+
+The live progress panel above the findings table only shows while a
+scan is `pending` or `running` — it animates from queued → running →
+complete per scanner over Server-Sent Events:
+
+![Live scan progress streaming over SSE](../images/dashboard-live-progress.png)
 
 See [Real-time scan progress](./realtime.md) for the SSE flow and
 [Triage workflow](../scanning/triage.md) for the verdict mechanics.
@@ -131,6 +143,8 @@ A real **data table**, not a card grid (the v0.6.0 redesign:
 - URL-persisted sort + page-size — the URL is the truth, so sharing a
   filtered view is a copy-paste.
 
+![Scan history table](../images/dashboard-history.png)
+
 ## Scanners (`/scanners`)
 
 Categorized scanner directory.
@@ -147,6 +161,8 @@ Web (DAST)        ●builtin_dast  ●zap
 - Each card: name, category, version (if installed), install hint or
   install button (for scanners that can be `pip install`ed).
 - "Install all available" bulk action.
+
+![Scanner inventory](../images/dashboard-scanners.png)
 
 ## Diff (`/diff`)
 
@@ -188,6 +204,8 @@ Full feed of in-app notifications. See [Notifications](./notifications.md).
 
 - `/settings/keys` — list, create, revoke API keys. See [API keys](../auth/api-keys.md).
 - `/settings/webhooks` — list, create, edit, test webhooks. See [Webhooks](./webhooks.md).
+
+![Webhooks settings page](../images/dashboard-webhooks.png)
 
 ## Topbar widgets
 

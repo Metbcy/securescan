@@ -35,7 +35,7 @@ deployment scanning real targets (`/home/amirb/quantsense`,
 Risk-score trend across all scans, the latest scan summary with its
 top findings, and severity totals at a glance.
 
-![Overview](./docs/images/dashboard-overview.png)
+![Overview](./docs/src/images/dashboard-overview.png)
 
 ### Live scan progress
 
@@ -44,7 +44,7 @@ Every scan streams its lifecycle events over SSE — per-scanner state
 and finding count, and elapsed wall-clock time, all in a single panel
 that updates as the scan runs.
 
-![Live scan progress](./docs/images/dashboard-live-progress.png)
+![Live scan progress](./docs/src/images/dashboard-live-progress.png)
 
 ### Scan detail
 
@@ -53,14 +53,14 @@ findings table with severity + triage-status filters. Each finding
 expands to show the rule, file, snippet, remediation, and per-finding
 comment thread.
 
-![Scan detail with findings](./docs/images/dashboard-scan-findings.png)
+![Scan detail with findings](./docs/src/images/dashboard-scan-findings.png)
 
 ### History
 
 Sortable, filterable list of every scan with the scanners that ran,
 finding counts, and risk scores. Click a row for the full detail.
 
-![Scan history](./docs/images/dashboard-history.png)
+![Scan history](./docs/src/images/dashboard-history.png)
 
 ### Scanners
 
@@ -68,7 +68,7 @@ All 14 supported scanners with per-scanner availability, version, and
 one-click install for the pip-installable ones. The "Refresh status"
 control re-checks the host and shows when the last check ran.
 
-![Scanner inventory](./docs/images/dashboard-scanners.png)
+![Scanner inventory](./docs/src/images/dashboard-scanners.png)
 
 ## Why?
 
