@@ -20,6 +20,7 @@ import {
   Sun,
 } from "lucide-react";
 import { fetchScans, type Scan } from "@/lib/api";
+import { RelativeTime } from "@/components/relative-time";
 
 interface PageEntry {
   label: string;
@@ -54,21 +55,6 @@ const ITEM_CLASSES = `
   data-[selected=true]:bg-accent-soft
   data-[selected=true]:text-accent
 `;
-
-function formatRelative(iso?: string): string {
-  if (!iso) return "";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const diff = Date.now() - t;
-  const sec = Math.max(0, Math.round(diff / 1000));
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  return `${day}d ago`;
-}
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -228,9 +214,10 @@ export function CommandPalette() {
                   <span className="flex-1 truncate font-mono text-xs">
                     {scan.target_path}
                   </span>
-                  <span className="text-[0.6875rem] text-muted shrink-0">
-                    {formatRelative(scan.started_at ?? scan.completed_at)}
-                  </span>
+                  <RelativeTime
+                    iso={scan.started_at ?? scan.completed_at}
+                    className="text-[0.6875rem] text-muted shrink-0"
+                  />
                 </Command.Item>
               ))}
             </Command.Group>

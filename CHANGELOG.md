@@ -9,6 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.6] - 2026-05-01
+
+Frontend audit pass. Installed the
+[`vercel-labs/next-skills`](https://github.com/vercel-labs/next-skills)
+`next-best-practices` skill and applied it across the dashboard.
+
+### Added
+
+- **`app/error.tsx`** — app-level error boundary with friendly UI +
+  retry button. Catches uncaught render/effect errors anywhere below
+  the page boundary instead of dropping the user on Next's default
+  red-screen overlay (which is what we hit when the dev server got
+  stuck on stale 16.2.1 yesterday).
+- **`app/global-error.tsx`** — fallback for crashes above the page
+  boundary (i.e. inside the root layout itself). Includes its own
+  ``<html>``/``<body>`` because the root layout isn't rendered when
+  this component takes over.
+- **`app/not-found.tsx`** — custom 404 inside the dashboard shell.
+  Replaces Next's default "404 — This page could not be found" with
+  an in-style page that keeps the sidebar/topbar visible and offers a
+  "Back to overview" link.
+- **`lib/use-relative-time.ts`** + **`components/relative-time.tsx`**
+  — render-safe relative-time hook. Uses ``useSyncExternalStore`` for
+  a single shared 30s ticker (so a list of 100 timestamps doesn't
+  spawn 100 setIntervals) and returns the empty string on the SSR
+  / pre-hydration render so the post-mount label swap is a single
+  text-node update with no layout shift.
+- **`frontend/.agents/skills/next-best-practices/`** — the skill
+  files themselves are checked in so any agent working in this repo
+  picks them up automatically. ``skills-lock.json`` records the
+  source + content hash for reproducible installs.
+
+### Changed
+
+- **`notification-bell.tsx`**, **`finding-row.tsx`**,
+  **`history-table.tsx`**, **`command-palette.tsx`** — removed local
+  ``formatRelative`` / ``relativeTime`` helpers (each called
+  ``Date.now()`` during render → hydration mismatch warnings whenever
+  the rounding boundary crossed between SSR and hydrate). All four
+  now use the shared ``<RelativeTime />`` component, which defers
+  the calculation to client-side after mount.
+
+### Fixed
+
+- Hydration mismatch warnings on every page that displayed relative
+  timestamps (most pages — notifications, history, scan-detail,
+  command palette).
+
 ## [0.11.5] - 2026-05-01
 
 Patch release fixing notification body truncation.

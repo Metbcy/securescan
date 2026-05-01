@@ -18,6 +18,7 @@ import {
   type Notification,
   type NotificationSeverity,
 } from "@/lib/api";
+import { RelativeTime } from "./relative-time";
 
 const POLL_MS = 30_000;
 const POPOVER_LIMIT = 10;
@@ -27,25 +28,6 @@ const SEVERITY_DOT: Record<NotificationSeverity, string> = {
   warning: "bg-sev-medium",
   error: "bg-sev-critical",
 };
-
-function formatRelative(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const diff = Date.now() - t;
-  const sec = Math.max(0, Math.round(diff / 1000));
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.round(day / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  const yr = Math.round(mo / 12);
-  return `${yr}y ago`;
-}
 
 function fullTime(iso: string): string {
   const d = new Date(iso);
@@ -298,13 +280,11 @@ export function NotificationBell() {
                           >
                             {n.title}
                           </p>
-                          <time
-                            className="shrink-0 text-[0.6875rem] text-muted tabular-nums"
-                            dateTime={n.created_at}
+                          <RelativeTime
+                            iso={n.created_at}
                             title={fullTime(n.created_at)}
-                          >
-                            {formatRelative(n.created_at)}
-                          </time>
+                            className="shrink-0 text-[0.6875rem] text-muted tabular-nums"
+                          />
                         </div>
                         {n.body && (
                           <p

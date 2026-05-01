@@ -8,6 +8,7 @@ import type { Scan } from "@/lib/api";
 import { startScan, cancelScan, deleteScan } from "@/lib/api";
 import { DataTable, type Column, type SortState } from "@/components/data-table";
 import { StatusIcon } from "@/components/status-icon";
+import { RelativeTime } from "@/components/relative-time";
 
 /* ------------------------------------------------------------------ */
 /* Local fallbacks for DSH3 primitives (`SeverityPillStrip`).          */
@@ -84,26 +85,6 @@ function truncateMiddle(value: string, max = 48): string {
   if (value.length <= max) return value;
   const keep = Math.floor((max - 1) / 2);
   return `${value.slice(0, keep)}…${value.slice(value.length - keep)}`;
-}
-
-function relativeTime(iso?: string): string {
-  if (!iso) return "—";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "—";
-  const diff = Date.now() - then;
-  const sec = Math.round(diff / 1000);
-  if (sec < 5) return "just now";
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min} minute${min === 1 ? "" : "s"} ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
-  const day = Math.round(hr / 24);
-  if (day < 30) return `${day} day${day === 1 ? "" : "s"} ago`;
-  const mo = Math.round(day / 30);
-  if (mo < 12) return `${mo} month${mo === 1 ? "" : "s"} ago`;
-  const yr = Math.round(mo / 12);
-  return `${yr} year${yr === 1 ? "" : "s"} ago`;
 }
 
 function fullTime(iso?: string): string {
@@ -336,7 +317,7 @@ function ComparePicker({ base, candidates, onClose }: ComparePickerProps) {
                         <div className="flex items-center gap-2 text-xs text-muted">
                           <span className="font-mono">{shortId(s.id)}</span>
                           <span>•</span>
-                          <time title={fullTime(scanDate(s))}>{relativeTime(scanDate(s))}</time>
+                          <RelativeTime iso={scanDate(s)} title={fullTime(scanDate(s))} />
                         </div>
                         <div className="text-sm">
                           {s.findings_count} findings
@@ -493,15 +474,12 @@ export function HistoryTable({
       width: "w-[160px]",
       cell: (s) => {
         const iso = scanDate(s);
-        const label = relativeTime(iso);
         return (
-          <time
-            className="text-sm text-foreground/90"
+          <RelativeTime
+            iso={iso}
             title={fullTime(iso)}
-            dateTime={iso ?? undefined}
-          >
-            {label}
-          </time>
+            className="text-sm text-foreground/90"
+          />
         );
       },
     },

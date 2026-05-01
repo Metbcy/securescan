@@ -13,6 +13,7 @@ import {
   type TriageStatus,
 } from "@/lib/api";
 import { severityEdgeClass, type Severity } from "@/components/severity-edge";
+import { RelativeTime } from "@/components/relative-time";
 
 export type SuppressionReason = "inline" | "config" | "baseline";
 
@@ -100,25 +101,6 @@ export function getSuppressionNote(metadata: Record<string, unknown> | undefined
   if (!metadata) return null;
   const raw = metadata["suppression_note"] ?? metadata["suppressed_reason"];
   return typeof raw === "string" && raw.length > 0 ? raw : null;
-}
-
-function formatRelative(iso?: string | null): string {
-  if (!iso) return "—";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "—";
-  const seconds = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.round(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  const years = Math.round(days / 365);
-  return `${years}y ago`;
 }
 
 /**
@@ -481,9 +463,10 @@ function TriagePanel({ fingerprint, state, onPatchState }: TriagePanelProps) {
         <p className="text-[0.6875rem] text-muted">
           Updated by{" "}
           <span className="text-foreground">{state.updated_by ?? "anonymous"}</span>{" "}
-          <span title={new Date(state.updated_at).toLocaleString()}>
-            {formatRelative(state.updated_at)}
-          </span>
+          <RelativeTime
+            iso={state.updated_at}
+            title={new Date(state.updated_at).toLocaleString()}
+          />
         </p>
       )}
     </div>
@@ -582,9 +565,10 @@ function CommentsPanel({ fingerprint }: CommentsPanelProps) {
                 <p className="text-[0.6875rem] text-muted truncate">
                   <span className="text-foreground">{c.author ?? "anonymous"}</span>
                   <span className="mx-1">·</span>
-                  <span title={new Date(c.created_at).toLocaleString()}>
-                    {formatRelative(c.created_at)}
-                  </span>
+                  <RelativeTime
+                    iso={c.created_at}
+                    title={new Date(c.created_at).toLocaleString()}
+                  />
                 </p>
                 <button
                   type="button"
