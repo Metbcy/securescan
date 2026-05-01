@@ -191,7 +191,8 @@ async def _init_db_impl() -> None:
         for col in ["target_url", "target_host"]:
             safe = _safe_ident(col)
             try:
-                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT")
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT")  # nosec B608 -- safe via _safe_ident allowlist
             except aiosqlite.OperationalError as e:
                 if not _is_duplicate_column(e):
                     raise
@@ -202,7 +203,8 @@ async def _init_db_impl() -> None:
         for col in ["scanners_run", "scanners_skipped"]:
             safe = _safe_ident(col)
             try:
-                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT DEFAULT '[]'")
+                # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query, python.lang.security.audit.formatted-sql-query.formatted-sql-query
+                await db.execute(f"ALTER TABLE scans ADD COLUMN {safe} TEXT DEFAULT '[]'")  # nosec B608 -- safe via _safe_ident allowlist
             except aiosqlite.OperationalError as e:
                 if not _is_duplicate_column(e):
                     raise
@@ -683,8 +685,9 @@ async def get_finding_states_bulk(
         if not unique:
             return {}
         placeholders = ",".join("?" * len(unique))
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         cursor = await db.execute(
-            f"SELECT * FROM finding_states WHERE fingerprint IN ({placeholders})",
+            f"SELECT * FROM finding_states WHERE fingerprint IN ({placeholders})",  # nosec B608 -- placeholders is just '?' chars, never user data
             unique,
         )
         rows = await cursor.fetchall()
@@ -1373,7 +1376,11 @@ async def update_webhook(
     params.append(webhook_id)
     db = await _get_db()
     try:
-        cursor = await db.execute(f"UPDATE webhooks SET {', '.join(sets)} WHERE id = ?", params)
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+        cursor = await db.execute(
+            f"UPDATE webhooks SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- sets is built from literal column-name strings only; values use ? placeholders
+            params,
+        )
         await db.commit()
         if cursor.rowcount == 0:
             return None
@@ -1554,8 +1561,9 @@ async def update_delivery_status(
     params.append(delivery_id)
     db = await _get_db()
     try:
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
         await db.execute(
-            f"UPDATE webhook_deliveries SET {', '.join(sets)} WHERE id = ?",
+            f"UPDATE webhook_deliveries SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- sets is built from literal column-name strings only; values use ? placeholders
             params,
         )
         await db.commit()
