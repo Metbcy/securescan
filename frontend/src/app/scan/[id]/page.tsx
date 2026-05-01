@@ -266,14 +266,17 @@ export default function ScanDetailPage() {
           setFindings(fin);
           setSummary(sum);
         } else if (scanData.status === "running" || scanData.status === "pending") {
-          // Initial load only — fetch any partial findings the backend has so far.
-          try {
-            const fin = await fetchFindings(id);
-            setFindings(fin);
-            setSummary(deriveSummaryFromFindings(fin));
-          } catch {
-            // Server may not return findings until complete; ignore.
-          }
+          // Don't fetch findings during the initial render of a running
+          // scan. On a project producing tens of thousands of findings
+          // (e.g. a 4 GB Rust repo with bandit chewing through target/),
+          // this single GET can return >10 MB of JSON and serialize
+          // behind the orchestrator's concurrent finding INSERTs, blocking
+          // the page render until the scan completes. The SSE stream
+          // already delivers live per-scanner progress, and the SSE
+          // terminal handler does a `load()` after `scan.complete` that
+          // populates the findings table at the right moment.
+          setFindings([]);
+          setSummary(null);
         } else {
           setFindings([]);
           setSummary(null);

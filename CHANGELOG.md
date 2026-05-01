@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.2] - 2026-04-30
+
+Patch release fixing the dashboard's scan-detail page hanging on
+projects that produce many findings.
+
+### Fixed
+
+- **Scan-detail page no longer blocks initial render on
+  ``fetchFindings``.** When a user navigated to ``/scan/[id]`` while
+  the scan was still running, the page awaited the full findings list
+  before rendering, even though the SSE stream is what drives the
+  live progress panel. On a project producing tens of thousands of
+  findings (e.g. a 4 GB Rust monorepo where ``bandit`` enumerates
+  every file in ``target/``), the GET could return >10 MB of JSON
+  and serialize behind the orchestrator's concurrent finding INSERTs
+  — making the dashboard appear to "hang" until the scan completed.
+
+  The page now skips the initial findings fetch when ``status`` is
+  ``running`` or ``pending``. The SSE stream delivers per-scanner
+  ``scanner.start`` / ``scanner.complete`` events as before, and the
+  SSE terminal handler already calls ``load()`` after
+  ``scan.complete`` to populate the findings table at the right
+  moment. No backend change required; no scanner exclusions required.
+
 ## [0.11.1] - 2026-04-30
 
 Patch release fixing a false-positive "API Offline" indicator in the
