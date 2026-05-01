@@ -27,8 +27,8 @@ That gives you a unified PR-comment-style report of NEW findings only. For the f
 
 A self-hosted dashboard sits in front of every scan, finding, scanner,
 SBOM, and webhook. The screenshots below are the live local
-deployment scanning real targets (`/home/amirb/quantsense`,
-`/home/amirb/Documents/securescan/backend`).
+deployment scanning real targets (`~/quantsense`,
+`~/securescan/backend`).
 
 ### Overview
 
