@@ -39,6 +39,14 @@ on:
     - cron: '0 6 * * 1'
   workflow_dispatch:
 
+# Default to the most-restrictive permission set; the `scan` job below
+# explicitly opts back into security-events: write where it needs to
+# upload SARIF. Without this top-level block, GHA defaults to
+# write-all whenever a job omits its own permissions: stanza, which is
+# exactly the failure mode CKV2_GHA_1 guards against.
+permissions:
+  contents: read
+
 jobs:
   scan:
     name: Security audit

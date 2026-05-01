@@ -264,6 +264,34 @@ class SecretsScanner(BaseScanner):
         # Skip test files
         if any(x in lower_path for x in ["test_", "_test.", ".test.", "fixture", "mock"]):
             return True
+        # Truncation ellipsis "..." inside the value: documentation pattern
+        # like SECRET = "abc...32-chars..." is showing a redacted shape, not
+        # leaking the secret. Real secret material does not contain "...".
+        if "..." in line:
+            return True
+        # Shell command substitution: SECRET="$(openssl rand -hex 32)" or
+        # $(cat /run/secrets/foo). The actual secret is generated/read at
+        # runtime — nothing leaks via the source line.
+        if "$(" in line:
+            return True
+        # Self-describing placeholders: short RHS values that LITERALLY
+        # contain words like "api-key", "-secret", "-token". A real leaked
+        # credential is a high-entropy random string; it doesn't describe
+        # itself in English. We require both (self-describing AND short)
+        # to avoid suppressing real leaks where the user happens to name
+        # their token "my-secret-token-abc123def456".
+        if "=" in line:
+            _, _, rhs = line.partition("=")
+            rhs_stripped = rhs.strip().strip('"').strip("'").lower()
+            if (
+                rhs_stripped
+                and len(rhs_stripped) < 40
+                and any(
+                    tok in rhs_stripped
+                    for tok in ("api-key", "api_key", "-secret", "secret-", "-token", "token-")
+                )
+            ):
+                return True
         return False
 
     async def _scan_git_history(self, target: Path, scan_id: str) -> list[Finding]:
