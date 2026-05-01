@@ -20,6 +20,7 @@ import {
   Sun,
 } from "lucide-react";
 import { fetchScans, type Scan } from "@/lib/api";
+import { useIsMounted } from "@/lib/use-is-mounted";
 import { RelativeTime } from "@/components/relative-time";
 
 interface PageEntry {
@@ -62,6 +63,17 @@ export function CommandPalette() {
   const [recentLoaded, setRecentLoaded] = useState(false);
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+
+  // Per next-best-practices/hydration-error.md + theme-toggle.tsx:
+  // resolvedTheme is undefined during SSR (next-themes resolves it
+  // client-side from localStorage / system preference). Reading it
+  // directly in JSX produces hydration mismatch when the server
+  // renders the default-theme icon and the client picks a different
+  // one. useIsMounted() returns false during SSR and true post-
+  // hydration so we render a stable "dark" default until the client
+  // takes over.
+  const mounted = useIsMounted();
+  const isDark = mounted ? resolvedTheme === "dark" : true;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -229,7 +241,7 @@ export function CommandPalette() {
               onSelect={toggleTheme}
               className={ITEM_CLASSES}
             >
-              {resolvedTheme === "dark" ? (
+              {isDark ? (
                 <Sun size={14} strokeWidth={1.5} />
               ) : (
                 <Moon size={14} strokeWidth={1.5} />

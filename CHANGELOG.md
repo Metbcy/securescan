@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.7] - 2026-05-01
+
+Patch: kill the last hydration mismatch + lint-clean the
+``mounted`` flag pattern.
+
+### Fixed
+
+- **Command palette theme icon** rendered ``<Sun/>`` vs ``<Moon/>``
+  based on ``resolvedTheme`` from next-themes WITHOUT a mounted
+  guard. ``resolvedTheme`` is undefined during SSR (next-themes
+  resolves it client-side from localStorage / system preference),
+  so the SSR HTML and the post-hydration HTML could pick different
+  icons → hydration mismatch. Gated behind a new ``useIsMounted``
+  hook (uses ``useSyncExternalStore``, returns false in SSR / true
+  post-hydrate). Same pattern back-applied to ``theme-toggle.tsx``
+  to clear its react-hooks/set-state-in-effect lint.
+
+### Added
+
+- **`lib/use-is-mounted.ts`** — small hook that returns false during
+  SSR and true once the client has mounted. Replaces the classic
+  ``useState(false) + useEffect(() => setMounted(true), [])`` flag,
+  which works at runtime but trips the
+  ``react-hooks/set-state-in-effect`` lint rule.
+
 ## [0.11.6] - 2026-05-01
 
 Frontend audit pass. Installed the
