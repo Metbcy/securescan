@@ -31,6 +31,7 @@ from ..database import (
 )
 from ..dedup import dedup_key, deduplicate_findings
 from ..events import TERMINAL, bus
+from ..exporters import findings_to_sarif
 from ..fingerprint import populate_fingerprints
 from ..models import (
     Finding,
@@ -593,9 +594,25 @@ async def compare_scans(
 @router.get("/{scan_id}/report", dependencies=[Depends(require_scope("read"))])
 async def generate_report(
     scan_id: str,
-    format: str = Query("html", description="Report format: html or pdf"),
+    format: str = Query(
+        "html",
+        description="Report format: html, pdf, or sarif",
+        pattern="^(html|pdf|sarif)$",
+    ),
 ):
-    """Generate a security assessment report for a scan."""
+    """Generate a security assessment report for a scan.
+
+    Three formats:
+
+    - ``html`` (default) — full editorial report with severity tables,
+      compliance coverage, top findings. Returns ``text/html``.
+    - ``pdf`` — same content rendered via WeasyPrint. Requires the
+      ``[pdf]`` extra. Returns ``application/pdf`` as a download.
+    - ``sarif`` — SARIF v2.1.0 JSON for GitHub/GitLab Code Scanning
+      ingestion. Deterministic ordering, ``partialFingerprints`` under
+      ``securescan/v1`` namespace, suppressed findings filtered. Returns
+      ``application/sarif+json`` as a download.
+    """
     scan = await get_scan(scan_id)
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
@@ -603,6 +620,23 @@ async def generate_report(
         raise HTTPException(status_code=400, detail="Scan must be completed to generate a report")
 
     findings_list = await get_findings(scan_id)
+
+    # SARIF export is independent of HTML / PDF rendering — no template,
+    # no compliance mapping (SARIF carries its own taxonomy via tags
+    # on rules). Cheaper to short-circuit before instantiating the
+    # ReportGenerator.
+    if format == "sarif":
+        sarif_doc = findings_to_sarif(findings_list, scan)
+        return Response(
+            content=json.dumps(sarif_doc, indent=2, sort_keys=True),
+            media_type="application/sarif+json",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="securescan-{scan_id[:8]}.sarif.json"'
+                )
+            },
+        )
+
     summary_data = await get_scan_summary(scan_id)
 
     compliance_coverage = []
@@ -622,9 +656,10 @@ async def generate_report(
                 "Content-Disposition": f'attachment; filename="securescan-report-{scan_id[:8]}.pdf"'
             },
         )
-    else:
-        html = generator.generate_html(scan, findings_list, summary_data, compliance_coverage)
-        return HTMLResponse(content=html)
+
+    # Default: html
+    html = generator.generate_html(scan, findings_list, summary_data, compliance_coverage)
+    return HTMLResponse(content=html)
 
 
 @router.get("/{scan_id}", response_model=Scan, dependencies=[Depends(require_scope("read"))])

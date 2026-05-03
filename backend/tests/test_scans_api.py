@@ -222,3 +222,68 @@ def test_delete_scan_cascade_returns_true_and_clears_rows(temp_db):
     assert asyncio.run(delete_scan_cascade(scan_id)) is True
     assert asyncio.run(get_scan(scan_id)) is None
     assert asyncio.run(_count_findings(temp_db, scan_id)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Report endpoint — format=sarif regression
+# ---------------------------------------------------------------------------
+# Pre-fix the endpoint silently fell through to HTML for any format other
+# than 'pdf', so the dashboard's "Download SARIF" button returned a 37 KB
+# HTML page that GitHub Code Scanning's upload action then rejected.
+
+
+def test_report_sarif_returns_sarif_json(client: TestClient):
+    scan_id, _ = _seed_scan(ScanStatus.COMPLETED, findings=2)
+
+    resp = client.get(f"/api/v1/scans/{scan_id}/report?format=sarif")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/sarif+json"
+    assert "attachment" in resp.headers.get("content-disposition", "")
+    assert resp.headers["content-disposition"].endswith('.sarif.json"')
+
+    body = resp.json()
+    # SARIF v2.1.0 has a fixed top-level shape.
+    assert body["$schema"] == "https://json.schemastore.org/sarif-2.1.0.json"
+    assert body["version"] == "2.1.0"
+    assert isinstance(body["runs"], list) and len(body["runs"]) == 1
+    run = body["runs"][0]
+    assert run["tool"]["driver"]["name"].lower().startswith("securescan")
+    # 2 findings seeded => 2 results.
+    assert len(run["results"]) == 2
+
+
+def test_report_html_default_unchanged(client: TestClient):
+    """The default html path must keep working — the fix only adds a
+    branch, it must not regress the existing format=html / no-format
+    callers (the report-generator template lookup, jinja autoescape,
+    etc all still need to fire)."""
+    scan_id, _ = _seed_scan(ScanStatus.COMPLETED, findings=1)
+
+    resp = client.get(f"/api/v1/scans/{scan_id}/report")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "<!DOCTYPE html>" in resp.text
+
+
+def test_report_rejects_unknown_format(client: TestClient):
+    """The new pattern guard rejects bogus formats with 422 instead of
+    silently falling through to HTML — so downstream callers see a clear
+    contract violation, not a surprise content-type."""
+    scan_id, _ = _seed_scan(ScanStatus.COMPLETED, findings=1)
+
+    resp = client.get(f"/api/v1/scans/{scan_id}/report?format=xml")
+
+    assert resp.status_code == 422  # FastAPI Query pattern validation
+
+
+def test_report_404_when_scan_missing(client: TestClient):
+    resp = client.get("/api/v1/scans/missing-scan-id/report?format=sarif")
+    assert resp.status_code == 404
+
+
+def test_report_400_when_scan_not_completed(client: TestClient):
+    scan_id, _ = _seed_scan(ScanStatus.RUNNING, findings=0)
+    resp = client.get(f"/api/v1/scans/{scan_id}/report?format=sarif")
+    assert resp.status_code == 400

@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.10] - 2026-05-03
+
+Patch: SARIF download endpoint actually returns SARIF.
+
+### Fixed
+
+- **`GET /api/v1/scans/{id}/report?format=sarif`** silently fell through
+  to the HTML branch because the handler only checked for ``format == "pdf"``
+  and returned HTML for everything else. The dashboard's "Download SARIF"
+  button (in the scan-detail page header) has been emitting a 37 KB HTML
+  page since launch — every download was a broken file that GitHub Code
+  Scanning's upload action would reject.
+
+  Wired the existing ``securescan.exporters.findings_to_sarif()``
+  generator (already used by the CLI's ``--output sarif`` path: deterministic
+  ordering, ``partialFingerprints`` under ``securescan/v1`` namespace,
+  duplicate-fingerprint dedup, suppressed-finding filtering) into the
+  endpoint. Returns ``application/sarif+json`` with a proper attachment
+  Content-Disposition header. Tightened the ``format`` Query param with
+  a regex pattern so unknown formats now 422 instead of silently
+  defaulting to HTML — protects future callers from the same surprise.
+
+### Tests
+
+- 929 → 934 (+5): SARIF round-trip (status, content-type, attachment
+  header, schema URL, results count); HTML default still works;
+  unknown format rejected; 404 for missing scan; 400 for non-completed
+  scan.
+
 ## [0.11.9] - 2026-05-01
 
 Performance: Overview page no longer downloads megabytes of findings
