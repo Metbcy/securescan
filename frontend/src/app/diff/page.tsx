@@ -590,17 +590,15 @@ function DiffPageInner() {
     () => scans.find((s) => s.id === base) ?? null,
     [scans, base],
   );
-  const headScan = useMemo(
-    () => scans.find((s) => s.id === head) ?? null,
-    [scans, head],
-  );
 
   const baseChoices = scans;
   const headChoices = useMemo(() => {
+    // Show every scan except the currently-selected base. Cross-target
+    // diffs (fork vs upstream, service-A vs service-B) are valid since
+    // the v0.11.8 /compare → /diff merge — the backend handles them
+    // and the headChoices filter shouldn't pretend otherwise.
     if (!baseScan) return scans;
-    return scans.filter(
-      (s) => s.target_path === baseScan.target_path && s.id !== baseScan.id,
-    );
+    return scans.filter((s) => s.id !== baseScan.id);
   }, [scans, baseScan]);
 
   const writeUrl = useCallback(
@@ -647,34 +645,24 @@ function DiffPageInner() {
         setResult(null);
         return;
       }
-      const bs = scans.find((s) => s.id === b);
-      const hs = scans.find((s) => s.id === h);
-      if (bs && hs && bs.target_path !== hs.target_path) {
-        setError(
-          "Both scans must be of the same target. Use Compare for cross-target diffs.",
-        );
-        setResult(null);
-        return;
-      }
+      // The v0.11.8 consolidation merged /compare into /diff. Before
+      // that merge this branch refused cross-target pairs and
+      // suggested "Use Compare for cross-target diffs" — but Compare
+      // is gone now and the backend's /api/v1/scans/compare endpoint
+      // handles cross-target fine. Cross-target diffs are useful
+      // (fork vs upstream, service-A vs service-B), so allow them.
+      // Same-scan (b === h) is the only real input error.
       setError(null);
       await runDiff(b, h);
     },
-    [scans, runDiff],
+    [runDiff],
   );
 
   function handleBaseChange(id: string) {
-    let nextHead = head;
-    if (id) {
-      const next = scans.find((s) => s.id === id);
-      if (next && headScan && headScan.target_path !== next.target_path) {
-        nextHead = "";
-      }
-    }
     setBase(id);
-    setHead(nextHead);
-    writeUrl(id, nextHead);
-    if (id && nextHead) {
-      void validateAndRun(id, nextHead);
+    writeUrl(id, head);
+    if (id && head) {
+      void validateAndRun(id, head);
     } else {
       setResult(null);
     }

@@ -9,6 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.12] - 2026-05-03
+
+Patch: drop the cross-target restriction left behind by the v0.11.8
+``/compare`` → ``/diff`` consolidation.
+
+### Fixed
+
+- **Diff page silently sabotaged cross-target pairs and pointed users
+  at a deleted page.** Three artifacts of when ``/compare`` was a
+  separate route:
+  1. ``validateAndRun`` rejected pairs whose ``target_path`` differed
+     with the message *"Use Compare for cross-target diffs"* — but
+     Compare doesn't exist after v0.11.8 (it 308-redirects to
+     ``/diff``).
+  2. ``handleBaseChange`` silently auto-cleared the head selection
+     whenever the new base came from a different repo, with no UI
+     hint that anything changed.
+  3. ``headChoices`` filtered the head dropdown down to same-target
+     scans only, so a "fork vs upstream" or "service-A vs service-B"
+     diff couldn't even be selected.
+
+  All three blocked legitimate use cases that the backend's
+  ``/api/v1/scans/compare`` endpoint already supports. Removed the
+  cross-target check entirely; ``b === h`` (same scan twice) remains
+  the only real input error.
+
+  Verified live: with a bomdrift scan as base, the head dropdown now
+  shows scans from quantsense, securescan, and securescan-ss14 alongside
+  the other bomdrift scans — pre-fix it would have shown only
+  same-target options.
+
 ## [0.11.11] - 2026-05-03
 
 Patch: SARIF Download button uses an absolute URL.
