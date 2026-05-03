@@ -26,6 +26,19 @@ export function getScanEventsUrl(scanId: string): string {
   return `${API_BASE}/scans/${scanId}/events`;
 }
 
+// Absolute URL for the report endpoint. Used by the dashboard's
+// "Download SARIF" / "Download PDF" buttons — `<a href>` resolves
+// relative paths against the page origin (localhost:3000), which would
+// hit Next.js's app router and fall through to /not-found instead of
+// proxying to the FastAPI backend on :8000. Always use this helper for
+// any direct-link to /api/v1/* the user is supposed to download.
+export function getScanReportUrl(
+  scanId: string,
+  format: "html" | "pdf" | "sarif" = "html",
+): string {
+  return `${API_BASE}/scans/${scanId}/report?format=${format}`;
+}
+
 // EventSource cannot attach custom headers (no X-API-Key). When the deploy
 // is configured with an API key, the SSE endpoint will reject the request
 // and we must transparently fall back to status polling.

@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- New features land here on each PR. -->
 
+## [0.11.11] - 2026-05-03
+
+Patch: SARIF Download button uses an absolute URL.
+
+### Fixed
+
+- **Dashboard "Download SARIF" button hit the in-app 404 page.** The
+  href was a relative path ``/api/v1/scans/<id>/report?format=sarif``,
+  which the browser resolves against the page origin (``localhost:3000``).
+  Next.js's app router has no ``/api/v1/...`` route and falls through
+  to the v0.11.6 custom ``not-found.tsx``, so the user got
+  *"the URL you visited doesn't match any dashboard route"* instead of
+  the SARIF download. Next.js does NOT proxy ``/api/*`` to the FastAPI
+  backend.
+
+  Fix: new ``getScanReportUrl(scanId, format)`` helper in ``lib/api.ts``
+  that builds the absolute backend URL (``http://localhost:8000/api/v1/...``
+  or whatever ``NEXT_PUBLIC_API_URL`` resolves to). The scan-detail
+  page now calls it instead of templating a relative path. Pairs with
+  the v0.11.10 backend fix where the endpoint started actually returning
+  SARIF; without the absolute URL the user couldn't reach it.
+
 ## [0.11.10] - 2026-05-03
 
 Patch: SARIF download endpoint actually returns SARIF.

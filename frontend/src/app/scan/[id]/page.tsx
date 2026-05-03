@@ -29,6 +29,7 @@ import {
   fetchScan,
   fetchScanSummary,
   getScanEventsUrl,
+  getScanReportUrl,
   mintScanEventToken,
   startScan,
 } from "@/lib/api";
@@ -678,7 +679,7 @@ export default function ScanDetailPage() {
           </ActionButton>
           <ActionButton
             variant="secondary"
-            href={`/api/v1/scans/${scan.id}/report?format=sarif`}
+            href={getScanReportUrl(scan.id, "sarif")}
             title="Download SARIF report"
           >
             <Download size={14} strokeWidth={1.5} />
