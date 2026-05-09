@@ -105,8 +105,8 @@ def _discord_format(event: str, data: dict) -> dict:
 
     color_map = {
         "scan.complete": 0x2ECC71,
-        "scan.failed": 0xE74C3C,
-        "scanner.failed": 0xFF8C00,
+        "scan.failed": 0xFF8C00,
+        "scanner.failed": 0xE74C3C,
         "webhook.test": 0x3498DB,
     }
     color = color_map.get(event, 0x3498DB)
