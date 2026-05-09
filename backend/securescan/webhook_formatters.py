@@ -74,16 +74,25 @@ def _slack_format(event: str, data: dict) -> dict:
             blocks.append({"type": "section", "fields": sev_fields})
     elif event == "scan.failed":
         err = data.get("error", "Unknown error")
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f":x: *Error:* {err}"}})
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f":x: *Error:* {err}"}}
+        )
     elif event == "scanner.failed":
         scanner = data.get("scanner", "?")
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f":warning: *Scanner failed:* `{scanner}`"}})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f":warning: *Scanner failed:* `{scanner}`"},
+            }
+        )
 
     # Context block with timestamp
-    blocks.append({
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f"SecureScan • {now}"}],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"SecureScan • {now}"}],
+        }
+    )
 
     return {"text": text, "blocks": blocks}
 
