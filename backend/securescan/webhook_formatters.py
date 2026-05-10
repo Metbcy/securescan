@@ -22,7 +22,7 @@ already-decoded ``data`` dict and the configured webhook URL.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def format_payload(webhook_url: str, event: str, data: dict) -> dict:
@@ -46,22 +46,96 @@ def format_payload(webhook_url: str, event: str, data: dict) -> dict:
 
 def _slack_format(event: str, data: dict) -> dict:
     text = _summary_text(event, data)
-    return {
-        "text": text,
-        "blocks": [
-            {"type": "section", "text": {"type": "mrkdwn", "text": text}},
-        ],
-    }
+    now = datetime.now(timezone.utc).isoformat()
+    scan_id = str(data.get("scan_id", "—"))[:8]
+    findings = data.get("findings_count", 0)
+
+    # Header block with event title
+    blocks: list[dict] = [
+        {"type": "header", "text": {"type": "plain_text", "text": text, "emoji": True}},
+    ]
+
+    # Main fields section
+    fields = [
+        {"type": "mrkdwn", "text": f"*Scan ID:*\n`{scan_id}`"},
+        {"type": "mrkdwn", "text": f"*Findings:*\n{findings}"},
+    ]
+    blocks.append({"type": "section", "fields": fields})
+
+    # Event-specific blocks
+    if event == "scan.complete":
+        severity_counts = data.get("severity_counts", {})
+        if severity_counts:
+            blocks.append({"type": "divider"})
+            sev_fields = [
+                {"type": "mrkdwn", "text": f"*{level.capitalize()}:* {count}"}
+                for level, count in severity_counts.items()
+            ]
+            blocks.append({"type": "section", "fields": sev_fields})
+    elif event == "scan.failed":
+        err = data.get("error", "Unknown error")
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f":x: *Error:* {err}"}}
+        )
+    elif event == "scanner.failed":
+        scanner = data.get("scanner", "?")
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f":warning: *Scanner failed:* `{scanner}`"},
+            }
+        )
+
+    # Context block with timestamp
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"SecureScan • {now}"}],
+        }
+    )
+
+    return {"text": text, "blocks": blocks}
 
 
 def _discord_format(event: str, data: dict) -> dict:
     text = _summary_text(event, data)
-    # 0xff8c00 = SecureScan brand orange. Discord ignores fields it
-    # does not know so the embed stays valid even on schema bumps.
-    return {
-        "content": text,
-        "embeds": [{"description": text, "color": 0xFF8C00}],
+    now = datetime.now(timezone.utc).isoformat()
+    scan_id = str(data.get("scan_id", "—"))[:8]
+    findings = data.get("findings_count", 0)
+
+    color_map = {
+        "scan.complete": 0x2ECC71,
+        "scan.failed": 0xFF8C00,
+        "scanner.failed": 0xE74C3C,
+        "webhook.test": 0x3498DB,
     }
+    color = color_map.get(event, 0x3498DB)
+
+    embed_fields = [
+        {"name": "Scan ID", "value": f"`{scan_id}`", "inline": True},
+        {"name": "Findings", "value": str(findings), "inline": True},
+    ]
+
+    if event == "scan.complete":
+        severity_counts = data.get("severity_counts", {})
+        for level, count in severity_counts.items():
+            embed_fields.append({"name": level.capitalize(), "value": str(count), "inline": True})
+    elif event == "scan.failed":
+        err = data.get("error", "Unknown error")
+        embed_fields.append({"name": "Error", "value": err, "inline": False})
+    elif event == "scanner.failed":
+        scanner = data.get("scanner", "?")
+        embed_fields.append({"name": "Failed Scanner", "value": f"`{scanner}`", "inline": True})
+
+    embed = {
+        "title": text,
+        "color": color,
+        "fields": embed_fields,
+        "timestamp": now,
+        "footer": {"text": "SecureScan"},
+    }
+
+    return {"content": text, "embeds": [embed]}
 
 
 def _summary_text(event: str, data: dict) -> str:
