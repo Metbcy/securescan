@@ -69,7 +69,7 @@ async def test_terminal_event_never_dropped(fresh_bus: ScanEventBus) -> None:
     # Saturate the queue with non-terminal events.
     for i in range(ScanEventBus.QUEUE_CAP):
         await fresh_bus.publish(sid, "scanner.complete", {"i": i})
-    
+
     # Yield to let forwarder tasks drain backend into q
     await asyncio.sleep(0.1)
     assert q.qsize() == ScanEventBus.QUEUE_CAP

@@ -94,6 +94,7 @@ class ScanEventBus:
             # For now, let's keep it simple: the backend add_to_replay sets an expiry.
             # If we want RETAIN_AFTER_TERMINAL_S specifically:
             from .pubsub import RedisBackend
+
             if isinstance(self.backend, RedisBackend):
                 key = f"{self.backend.prefix}replay:{scan_id}"
                 await self.backend.redis.expire(key, int(self.RETAIN_AFTER_TERMINAL_S))
@@ -164,11 +165,11 @@ class ScanEventBus:
         """Test helper: clear all bus state."""
         if scan_id is None:
             for q in list(self._sub_tasks.keys()):
-                self.unsubscribe("", q) # scan_id doesn't matter for task cancellation
+                self.unsubscribe("", q)  # scan_id doesn't matter for task cancellation
             self._subs.clear()
             # Note: cannot easily clear all replays in Redis without scanning keys
             return
-        
+
         for q in list(self._subs.get(scan_id, [])):
             self.unsubscribe(scan_id, q)
         await self.backend.clear_replay(scan_id)

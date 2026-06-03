@@ -180,7 +180,7 @@ class WebhookDispatcher:
         did = row["id"]
         prefix = settings.redis_key_prefix
         queue_key = f"{prefix}webhook:{wid}:queue"
-        
+
         # Add to the per-webhook queue.
         await redis.lpush(queue_key, did)
         # Signal that this webhook needs a drainer.
@@ -191,29 +191,29 @@ class WebhookDispatcher:
         redis = get_redis_client()
         if not redis:
             return
-        
+
         prefix = settings.redis_key_prefix
         lock_key = f"{prefix}webhook:{wid}:lock"
         queue_key = f"{prefix}webhook:{wid}:queue"
         token = str(uuid.uuid4())
-        
+
         # Try to acquire the lock. Only one worker processes a webhook at a time.
         if not await redis.set(lock_key, token, nx=True, ex=60):
             return
-            
+
         try:
             while not self._stop.is_set():
                 # BRPOP returns (key, value)
                 res = await redis.brpop(queue_key, timeout=1)
                 if not res:
                     break
-                
+
                 delivery_id = res[1]
                 row = await get_webhook_delivery(delivery_id)
                 if row:
                     # _deliver_one handles claiming from DB (concurrency safety)
                     await self._deliver_one(row, skip_inflight_clear=True)
-                
+
                 # Refresh lock expiry
                 await redis.expire(lock_key, 60)
         finally:

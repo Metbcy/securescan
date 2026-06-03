@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from .config import settings
 
