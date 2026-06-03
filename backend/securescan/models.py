@@ -216,6 +216,44 @@ class NotificationSeverity(str, Enum):
     ERROR = "error"
 
 
+class NotificationEventType(str, Enum):
+    """Event types that can trigger an in-app notification.
+
+    Currently the dispatcher only persists notifications for these
+    three events. Adding a new value here also requires extending
+    `_create_notification_for_event` so the threshold is consulted
+    consistently.
+    """
+
+    SCAN_COMPLETE = "scan.complete"
+    SCAN_FAILED = "scan.failed"
+    SCANNER_FAILED = "scanner.failed"
+
+
+class NotificationThresholdSetting(BaseModel):
+    """Per-event minimum severity threshold for notification dispatch.
+
+    `min_severity` is one of the finding `Severity` values
+    (info/low/medium/high/critical). Lower means "fire for more
+    events"; setting "info" matches the pre-issue-6 always-fire
+    behavior for failure events.
+    """
+
+    event_type: NotificationEventType
+    min_severity: Severity
+    updated_at: datetime | None = None
+
+
+class NotificationSettings(BaseModel):
+    """Aggregate response for `GET /api/v1/settings/notifications`.
+
+    Returns one entry per known event type, with defaults filled in
+    server-side when the row is absent.
+    """
+
+    thresholds: list[NotificationThresholdSetting]
+
+
 class Notification(BaseModel):
     """In-app notification surfaced in the dashboard topbar bell.
 

@@ -13,7 +13,9 @@ from .models import (
     FindingState,
     FindingWithState,
     Notification,
+    NotificationEventType,
     NotificationSeverity,
+    NotificationThresholdSetting,
     SBOMComponent,
     SBOMDocument,
     Scan,
@@ -993,6 +995,109 @@ async def prune_old_notifications(older_than_days: int = 30) -> int:
         )
         await db.commit()
         return cursor.rowcount
+    finally:
+        await db.close()
+
+
+# --- Notification settings (issue #6) ------------------------------------
+#
+# Per-event-type minimum severity thresholds. The table is populated
+# lazily: a missing row means "use the application default" so existing
+# deployments upgrade without behavior change. Defaults are kept in code
+# (here) rather than seeded via a migration so they are easy to tune in
+# a future release without writing a data migration.
+
+# Default minimum severity per event type. `medium` for scan.complete
+# is an intentional, documented approximation of the pre-issue-6 rule
+# ("any non-zero findings_count fires"); see migration 007 for the
+# rationale. `info` is the lowest threshold and effectively means
+# "always notify" -- fail events are synthesized with severity
+# `critical` so any threshold up to and including `critical` will pass.
+NOTIFICATION_THRESHOLD_DEFAULTS: dict[str, Severity] = {
+    NotificationEventType.SCAN_COMPLETE.value: Severity.MEDIUM,
+    NotificationEventType.SCAN_FAILED.value: Severity.INFO,
+    NotificationEventType.SCANNER_FAILED.value: Severity.INFO,
+}
+
+
+async def get_notification_settings() -> list[NotificationThresholdSetting]:
+    """Return one threshold per known event type, with defaults filled in.
+
+    Always returns a row for every value of `NotificationEventType`,
+    even when the table is empty. Order matches the enum declaration
+    so the UI renders deterministically.
+    """
+    db = await _get_db()
+    try:
+        async with db.execute(
+            "SELECT event_type, min_severity, updated_at FROM notification_settings"
+        ) as cursor:
+            rows = {r["event_type"]: r for r in await cursor.fetchall()}
+    finally:
+        await db.close()
+    out: list[NotificationThresholdSetting] = []
+    for event in NotificationEventType:
+        row = rows.get(event.value)
+        if row is None:
+            out.append(
+                NotificationThresholdSetting(
+                    event_type=event,
+                    min_severity=NOTIFICATION_THRESHOLD_DEFAULTS[event.value],
+                    updated_at=None,
+                )
+            )
+        else:
+            out.append(
+                NotificationThresholdSetting(
+                    event_type=event,
+                    min_severity=Severity(row["min_severity"]),
+                    updated_at=datetime.fromisoformat(row["updated_at"]),
+                )
+            )
+    return out
+
+
+async def get_notification_threshold(event_type: str) -> Severity:
+    """Return the configured min severity for ``event_type``, or its default.
+
+    Convenience wrapper used by the dispatcher hot-path. A separate
+    query (rather than reusing `get_notification_settings`) keeps the
+    per-event work to a single SELECT on a tiny table.
+    """
+    default = NOTIFICATION_THRESHOLD_DEFAULTS.get(event_type, Severity.INFO)
+    db = await _get_db()
+    try:
+        async with db.execute(
+            "SELECT min_severity FROM notification_settings WHERE event_type = ?",
+            (event_type,),
+        ) as cursor:
+            row = await cursor.fetchone()
+    finally:
+        await db.close()
+    if row is None:
+        return default
+    try:
+        return Severity(row["min_severity"])
+    except ValueError:
+        # Defensive: a manually-edited DB could hold a stale value.
+        # Fall back to the default rather than throwing in the
+        # notification dispatch path.
+        return default
+
+
+async def upsert_notification_threshold(event_type: str, min_severity: Severity) -> None:
+    """Insert or replace one row of `notification_settings`."""
+    now = datetime.utcnow().isoformat()
+    db = await _get_db()
+    try:
+        await db.execute(
+            "INSERT INTO notification_settings (event_type, min_severity, updated_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(event_type) DO UPDATE SET "
+            "min_severity = excluded.min_severity, updated_at = excluded.updated_at",
+            (event_type, min_severity.value, now),
+        )
+        await db.commit()
     finally:
         await db.close()
 

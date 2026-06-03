@@ -22,6 +22,7 @@ from ..database import (
     delete_scan_cascade,
     get_findings,
     get_findings_with_state,
+    get_notification_threshold,
     get_scan,
     get_scan_summary,
     get_scans,
@@ -42,6 +43,7 @@ from ..models import (
     ScanRequest,
     ScanStatus,
     ScanSummary,
+    Severity,
 )
 from ..reports import ReportGenerator
 from ..scanners import get_scanners_for_types
@@ -145,23 +147,76 @@ _NOTIF_BODY_TRUNCATE = 200
 _NOTIF_SCANNER_ERROR_TRUNCATE = 100
 
 
+# Numeric ordering for the finding-severity ladder used by per-event
+# notification thresholds (issue #6). The dispatcher emits a
+# notification only when the event's effective severity is >= the
+# configured threshold.
+_SEVERITY_RANK: dict[Severity, int] = {
+    Severity.INFO: 0,
+    Severity.LOW: 1,
+    Severity.MEDIUM: 2,
+    Severity.HIGH: 3,
+    Severity.CRITICAL: 4,
+}
+
+
+def _severity_rank(value: Severity | str | None) -> int:
+    """Map a Severity enum / raw string to its rank, defaulting to info.
+
+    Defensive against unexpected string values (e.g. a future severity
+    label) so a typo cannot accidentally suppress notifications: an
+    unknown level is treated as `info` (lowest rank).
+    """
+    if value is None:
+        return _SEVERITY_RANK[Severity.INFO]
+    if isinstance(value, Severity):
+        return _SEVERITY_RANK[value]
+    try:
+        return _SEVERITY_RANK[Severity(value)]
+    except (ValueError, KeyError):
+        return _SEVERITY_RANK[Severity.INFO]
+
+
+def _max_severity_from_summary(fields: dict[str, Any]) -> Severity | None:
+    """Return the highest finding severity present in a scan.complete event.
+
+    Looks at an explicit ``max_severity`` field first (preferred --
+    cheap to compute at publish time). Falls back to scanning the
+    standard summary count fields (``critical``/``high``/...). Returns
+    ``None`` when the event has no findings -- the caller treats that
+    as "do not notify" regardless of threshold, preserving the
+    pre-issue-6 "no bell on a clean scan" behavior.
+    """
+    explicit = fields.get("max_severity")
+    if explicit:
+        try:
+            return Severity(explicit) if not isinstance(explicit, Severity) else explicit
+        except ValueError:
+            pass
+    for sev in (Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, Severity.LOW, Severity.INFO):
+        count = fields.get(sev.value)
+        if isinstance(count, int) and count > 0:
+            return sev
+    return None
+
+
 async def _create_notification_for_event(event: str, scan_id: str, fields: dict[str, Any]) -> None:
     """Persist a notification for the small subset of events that warrant one.
 
-    Filtering rules (deliberately conservative -- the bell should
-    surface signal, not be a duplicate of the SSE feed):
+    Per-event thresholds (issue #6, see
+    `database.NOTIFICATION_THRESHOLD_DEFAULTS` and the
+    `notification_settings` table) gate dispatch:
 
-    * ``scan.complete`` — only when ``findings_count > 0``. Severity
-      is ``warning`` whenever findings were found, ``info`` otherwise.
-      Per spec we use the simple count-based rule rather than fetching
-      the scan summary to count critical/high (extra DB call per
-      event). When findings_count == 0 we don't notify at all, so
-      the ``info`` branch is structurally unreachable today; it's
-      kept for symmetry in case the filter is loosened later.
-    * ``scan.failed`` — always notify; severity ``error``.
-    * ``scanner.failed`` — always notify; severity ``warning``.
+    * ``scan.complete``  - effective severity is the highest finding
+      severity in the scan summary (or `None` for a clean scan, which
+      always skips). Default threshold: ``medium``.
+    * ``scan.failed``    - effective severity is ``critical`` (always
+      passes any threshold up to and including ``critical``). Default
+      threshold: ``info`` (always notify).
+    * ``scanner.failed`` - same as ``scan.failed``. Default threshold:
+      ``info``.
     * Everything else (scan.start, scanner.start, scanner.complete,
-      scanner.skipped, scan.cancelled) — no notification. Those
+      scanner.skipped, scan.cancelled) -- no notification. Those
       events are loud on the SSE stream while the dashboard is open;
       persisting them all would drown the bell.
 
@@ -174,15 +229,20 @@ async def _create_notification_for_event(event: str, scan_id: str, fields: dict[
         if event == "scan.complete":
             findings_count = int(fields.get("findings_count", 0) or 0)
             if findings_count <= 0:
+                # A clean scan never buzzes the bell, regardless of
+                # threshold -- there is no "event severity" to test.
+                return
+            # Treat a missing max_severity as "critical" so legacy
+            # callers (e.g. older publish sites or unit tests that
+            # only pass `findings_count`) continue to fire under the
+            # default `medium` threshold. The hot path always
+            # provides max_severity.
+            event_sev = _max_severity_from_summary(fields) or Severity.CRITICAL
+            threshold = await get_notification_threshold("scan.complete")
+            if _severity_rank(event_sev) < _severity_rank(threshold):
                 return
             target_path = fields.get("target") or fields.get("target_path") or ""
-            severity = (
-                NotificationSeverity.WARNING if findings_count > 0 else NotificationSeverity.INFO
-            )
-            # Build the body defensively: if the publishing site forgot
-            # to include a target field, fall back to "<N> findings"
-            # rather than producing the dangling "<N> findings on "
-            # string the dashboard ended up rendering pre-v0.11.5.
+            severity = NotificationSeverity.WARNING
             body = (
                 f"{findings_count} findings on {target_path}"
                 if target_path
@@ -198,6 +258,11 @@ async def _create_notification_for_event(event: str, scan_id: str, fields: dict[
             return
 
         if event == "scan.failed":
+            threshold = await get_notification_threshold("scan.failed")
+            # Failure events are synthesized at "critical" so any
+            # threshold up to the top of the ladder still fires.
+            if _severity_rank(Severity.CRITICAL) < _severity_rank(threshold):
+                return
             error = str(fields.get("error", "") or "")[:_NOTIF_BODY_TRUNCATE]
             await insert_notification(
                 type="scan.failed",
@@ -209,6 +274,9 @@ async def _create_notification_for_event(event: str, scan_id: str, fields: dict[
             return
 
         if event == "scanner.failed":
+            threshold = await get_notification_threshold("scanner.failed")
+            if _severity_rank(Severity.CRITICAL) < _severity_rank(threshold):
+                return
             scanner = fields.get("scanner", "scanner")
             error = str(fields.get("error", "") or "")[:_NOTIF_SCANNER_ERROR_TRUNCATE]
             await insert_notification(
@@ -439,6 +507,22 @@ async def _run_scan(scan_id: str) -> None:
             duration_s=round(time.perf_counter() - scan_started_perf, 2),
             scanner_count=len(scanners_run),
             findings_count=summary.total_findings,
+            # Highest severity present in the run, used by the
+            # notification dispatcher to gate on the per-event
+            # threshold (issue #6). `None` for a clean scan.
+            max_severity=(
+                Severity.CRITICAL.value
+                if summary.critical
+                else Severity.HIGH.value
+                if summary.high
+                else Severity.MEDIUM.value
+                if summary.medium
+                else Severity.LOW.value
+                if summary.low
+                else Severity.INFO.value
+                if summary.info
+                else None
+            ),
         )
     except asyncio.CancelledError:
         latest_scan = await get_scan(scan_id)
