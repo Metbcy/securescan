@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -10,10 +8,14 @@ services:
     environment:
       - SECURESCAN_DATABASE_PATH=/data/securescan.db
       - SECURESCAN_GROQ_API_KEY=${GROQ_API_KEY:-}
+      - SECURESCAN_REDIS_URL=${SECURESCAN_REDIS_URL:-}
+      - SECURESCAN_REDIS_KEY_PREFIX=${SECURESCAN_REDIS_KEY_PREFIX:-ss:}
     volumes:
       - scan-data:/data
     # NOTE: Docker socket mount removed for security.
     # For container scanning with Trivy, use DinD or mount specific image tarballs.
+    depends_on:
+      - redis
     restart: unless-stopped
 
   frontend:
@@ -28,15 +30,18 @@ services:
       - backend
     restart: unless-stopped
 
-volumes:
-  scan-data:
-  redis-data:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-    depends_on:
-      - backend
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
 volumes:
   scan-data:
+  redis-data:
