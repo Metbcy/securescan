@@ -92,7 +92,7 @@ def test_staged_flag_registered_on_scan_command():
     scan_cmd = cli.commands["scan"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in scan_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--staged" in opts
 

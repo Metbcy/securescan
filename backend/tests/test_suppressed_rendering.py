@@ -929,7 +929,7 @@ def test_diff_command_help_lists_new_flags():
     diff_cmd = cli.commands["diff"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in diff_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--show-suppressed" in opts
     assert "--no-suppress" in opts
@@ -944,7 +944,7 @@ def test_compare_command_help_lists_new_flags():
     compare_cmd = cli.commands["compare"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in compare_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--show-suppressed" in opts
     assert "--no-suppress" in opts

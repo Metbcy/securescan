@@ -58,7 +58,7 @@ def test_diff_command_registered_in_cli():
 
     opts: set[str] = set()
     for param in diff_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--base-ref" in opts
     assert "--base-snapshot" in opts

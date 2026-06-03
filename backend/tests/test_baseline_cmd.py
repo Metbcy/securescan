@@ -90,7 +90,7 @@ def test_baseline_command_registered():
 
     opts: set[str] = set()
     for param in baseline_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--output-file" in opts
     assert "--no-ai" in opts

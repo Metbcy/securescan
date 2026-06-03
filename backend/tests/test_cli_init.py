@@ -343,7 +343,7 @@ def test_init_command_registered():
 
     opts: set[str] = set()
     for param in init_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     for expected in (
         "--force",
