@@ -46,17 +46,21 @@ import json
 import logging
 import random
 import time
+import uuid
 from datetime import datetime, timedelta
 
 import httpx
 
+from .config import settings
 from .database import (
+    get_webhook_delivery,
     get_webhook_row,
     list_pending_deliveries,
     mark_delivery_delivering,
     reset_stale_delivering_deliveries,
     update_delivery_status,
 )
+from .pubsub import get_redis_client
 from .webhook_formatters import format_payload
 
 # Tunables. Module-level so tests can monkeypatch them without
@@ -156,14 +160,72 @@ class WebhookDispatcher:
         """
         rows = await list_pending_deliveries(limit=20)
         scheduled = 0
+        redis = get_redis_client()
         for row in rows:
             wid = row["webhook_id"]
-            if wid in self._inflight_per_webhook:
-                continue
-            self._inflight_per_webhook.add(wid)
-            asyncio.create_task(self._deliver_one(row), name=f"webhook-deliver-{row['id']}")
-            scheduled += 1
+            if redis:
+                await self._enqueue_redis(redis, row)
+                scheduled += 1
+            else:
+                if wid in self._inflight_per_webhook:
+                    continue
+                self._inflight_per_webhook.add(wid)
+                asyncio.create_task(self._deliver_one(row), name=f"webhook-deliver-{row['id']}")
+                scheduled += 1
         return scheduled
+
+    async def _enqueue_redis(self, redis, row: dict) -> None:
+        """Push a delivery to a Redis queue and ensure a drainer is running."""
+        wid = row["webhook_id"]
+        did = row["id"]
+        prefix = settings.redis_key_prefix
+        queue_key = f"{prefix}webhook:{wid}:queue"
+
+        # Add to the per-webhook queue.
+        await redis.lpush(queue_key, did)
+        # Signal that this webhook needs a drainer.
+        asyncio.create_task(self._drain_redis(wid))
+
+    async def _drain_redis(self, wid: str) -> None:
+        """Drain a per-webhook Redis queue while holding a global lock."""
+        redis = get_redis_client()
+        if not redis:
+            return
+
+        prefix = settings.redis_key_prefix
+        lock_key = f"{prefix}webhook:{wid}:lock"
+        queue_key = f"{prefix}webhook:{wid}:queue"
+        token = str(uuid.uuid4())
+
+        # Try to acquire the lock. Only one worker processes a webhook at a time.
+        if not await redis.set(lock_key, token, nx=True, ex=60):
+            return
+
+        try:
+            while not self._stop.is_set():
+                # BRPOP returns (key, value)
+                res = await redis.brpop(queue_key, timeout=1)
+                if not res:
+                    break
+
+                delivery_id = res[1]
+                row = await get_webhook_delivery(delivery_id)
+                if row:
+                    # _deliver_one handles claiming from DB (concurrency safety)
+                    await self._deliver_one(row, skip_inflight_clear=True)
+
+                # Refresh lock expiry
+                await redis.expire(lock_key, 60)
+        finally:
+            # Atomic release-by-token
+            script = """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+            """
+            await redis.eval(script, 1, lock_key, token)
 
     async def _run(self) -> None:
         """Poll loop. Sleeps `POLL_INTERVAL_SECONDS` between ticks."""
@@ -180,7 +242,7 @@ class WebhookDispatcher:
             except asyncio.TimeoutError:
                 pass
 
-    async def _deliver_one(self, row: dict) -> None:
+    async def _deliver_one(self, row: dict, skip_inflight_clear: bool = False) -> None:
         """Dispatch a single delivery row end-to-end.
 
         Always clears the FIFO guard in `finally` so a thrown
@@ -226,7 +288,8 @@ class WebhookDispatcher:
             except Exception:
                 logger.exception("failed to record terminal-failure status")
         finally:
-            self._inflight_per_webhook.discard(webhook_id)
+            if not skip_inflight_clear:
+                self._inflight_per_webhook.discard(webhook_id)
 
     async def _send_and_record(self, *, row: dict, webhook_row: dict) -> None:
         """Build, sign, send, then transition state based on response.

@@ -153,7 +153,27 @@ in the log to confirm).
 | ----------------------------------------------------- | ------------------- |
 | In-process event bus (single worker)                  | ✅ shipped v0.7.0   |
 | In-process webhook dispatcher                         | ✅ shipped v0.9.0   |
-| Redis pubsub backplane (cross-worker bus)             | Roadmap             |
+| Redis pubsub backplane (cross-worker bus)             | ✅ shipped v0.12.0  |
+| Distributed queue + leader election for dispatcher    | ✅ shipped v0.12.0  |
+| PostgreSQL-backed `webhook_deliveries`                | Roadmap             |
+
+When the roadmap items land, this page will become "horizontal
+scaling guide" rather than "constraint."
+
+## Source
+
+- Event bus: [`backend/securescan/events.py`](https://github.com/Metbcy/securescan/blob/main/backend/securescan/events.py)
+- Webhook dispatcher: [`backend/securescan/webhook_dispatcher.py`](https://github.com/Metbcy/securescan/blob/main/backend/securescan/webhook_dispatcher.py)
+- Bus subscription on the SSE route: `event_stream` in
+  [`backend/securescan/api/scans.py`](https://github.com/Metbcy/securescan/blob/main/backend/securescan/api/scans.py)
+
+## Next
+
+- [Real-time scan progress](../dashboard/realtime.md) — the consumer of the in-process bus.
+- [Webhooks](../dashboard/webhooks.md) — the dispatcher's job.
+- [Production checklist](./production-checklist.md) — `--workers 1` is on it.
+duction-checklist.md) — `--workers 1` is on it.
+sub backplane (cross-worker bus)             | Roadmap             |
 | Distributed queue + leader election for dispatcher    | Roadmap             |
 | PostgreSQL-backed `webhook_deliveries`                | Roadmap (after Redis) |
 

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     zap_api_key: str | None = None
     zap_address: str = "http://localhost:8080"
     dast_timeout: int = 120
+    redis_url: str | None = None
+    redis_key_prefix: str = "ss:"
 
     model_config = {"env_prefix": "SECURESCAN_"}
 

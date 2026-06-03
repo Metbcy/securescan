@@ -718,7 +718,7 @@ async def stream_scan_events(scan_id: str) -> StreamingResponse:
         # Subscribe FIRST so any event published while we're setting
         # up makes it onto our queue (the bus seeds the queue from the
         # replay buffer atomically inside subscribe()).
-        q = bus.subscribe(scan_id)
+        q = await bus.subscribe(scan_id)
         try:
             # If the scan is already terminal AND the replay buffer is
             # empty (backend restarted, or the 30s grace expired),
@@ -726,7 +726,7 @@ async def stream_scan_events(scan_id: str) -> StreamingResponse:
             # client can close cleanly. Otherwise the replay buffer
             # already has the real terminal event queued and we just
             # let the normal loop deliver it.
-            if scan.status in _TERMINAL_STATUSES and not bus.has_replay(scan_id):
+            if scan.status in _TERMINAL_STATUSES and not await bus.has_replay(scan_id):
                 terminal_event = _STATUS_TO_TERMINAL_EVENT[scan.status]
                 yield _sse_format(terminal_event, {"status": scan.status.value})
                 return

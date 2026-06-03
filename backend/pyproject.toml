@@ -40,6 +40,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "PyYAML>=6.0",
     "python-dotenv>=1.0.0",
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -125,3 +126,7 @@ ignore = [
 # Settings is imported (Settings reads env at class-body time). The late
 # imports below `load_user_env()` are the documented pattern.
 "securescan/main.py" = ["E402"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
