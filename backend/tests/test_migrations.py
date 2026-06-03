@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "sbom_components",
     "api_keys",
     "notifications",
+    "notification_settings",
     "webhooks",
     "webhook_deliveries",
     "schedules",
@@ -80,6 +81,18 @@ async def _get_max_version(db: aiosqlite.Connection) -> int:
     async with db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
     return row[0] if row and row[0] is not None else 0
+
+
+def _all_migration_versions() -> list[int]:
+    """Versions of every migration module shipped in the package, sorted asc.
+
+    Computed from the modules themselves so adding a new migration
+    (e.g. issue #6 added VERSION=7 with 6 reserved for an unrelated
+    feature) does not require updating every assertion.
+    """
+    from securescan.migrations import _load_all_migrations
+
+    return [m.VERSION for m in _load_all_migrations()]
 
 
 async def _build_legacy_db(db: aiosqlite.Connection) -> None:
@@ -143,7 +156,7 @@ async def test_fresh_db_max_version(tmp_path):
         await run_migrations(db)
         max_v = await _get_max_version(db)
 
-    assert max_v == 6
+    assert max_v == max(_all_migration_versions())
 
 
 @pytest.mark.asyncio
@@ -208,7 +221,7 @@ async def test_forward_migration_from_v1(tmp_path):
     assert EXPECTED_TABLES.issubset(tables)
     assert EXPECTED_SCANS_COLS.issubset(scans_cols)
     assert EXPECTED_FINDINGS_COLS.issubset(findings_cols)
-    assert max_v == 6
+    assert max_v == max(_all_migration_versions())
 
 
 @pytest.mark.asyncio
@@ -226,8 +239,10 @@ async def test_idempotency(tmp_path):
             row = await cur.fetchone()
         count = row[0]
 
-    assert v_after_first == v_after_second == 6
-    assert count == 6  # exactly one row per migration version
+    expected_max = max(_all_migration_versions())
+    expected_count = len(_all_migration_versions())
+    assert v_after_first == v_after_second == expected_max
+    assert count == expected_count  # exactly one row per migration version
 
 
 @pytest.mark.asyncio
@@ -246,7 +261,7 @@ async def test_preexisting_legacy_db(tmp_path):
     assert EXPECTED_TABLES.issubset(tables)
     assert EXPECTED_SCANS_COLS.issubset(scans_cols)
     assert EXPECTED_FINDINGS_COLS.issubset(findings_cols)
-    assert max_v == 6
+    assert max_v == max(_all_migration_versions())
 
 
 @pytest.mark.asyncio
@@ -277,4 +292,4 @@ async def test_schema_version_table_records_all_versions(tmp_path):
         async with db.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             rows = await cur.fetchall()
     versions = [r[0] for r in rows]
-    assert versions == [1, 2, 3, 4, 5, 6]
+    assert versions == sorted(_all_migration_versions())

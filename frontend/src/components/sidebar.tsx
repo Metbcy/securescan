@@ -43,6 +43,7 @@ const navItems: NavItem[] = [
   { label: "API keys", href: "/settings/keys", icon: KeyRound, group: "settings" },
   { label: "Webhooks", href: "/settings/webhooks", icon: Webhook, group: "settings" },
   { label: "Schedules", href: "/settings/schedules", icon: CalendarClock, group: "settings" },
+  { label: "Notification rules", href: "/settings/notifications", icon: Bell, group: "settings" },
 ];
 
 interface RecentScan {

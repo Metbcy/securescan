@@ -1369,3 +1369,61 @@ export async function revokeApiKey(keyId: string): Promise<void> {
   if (res.status === 404) throw new Error("Key not found.");
   throw new Error(`Failed to revoke API key (${res.status})`);
 }
+
+// --- Notification threshold settings (issue #6) -------------------------
+//
+// Per-event minimum severity threshold. Defaults are filled in
+// server-side so a freshly-installed deployment renders sensibly
+// before the operator changes anything.
+
+export type NotificationEventType =
+  | "scan.complete"
+  | "scan.failed"
+  | "scanner.failed";
+
+export type ThresholdSeverity =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low"
+  | "info";
+
+export interface NotificationThresholdSetting {
+  event_type: NotificationEventType;
+  min_severity: ThresholdSeverity;
+  updated_at: string | null;
+}
+
+export interface NotificationSettings {
+  thresholds: NotificationThresholdSetting[];
+}
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const res = await apiFetch(`${API_BASE}/settings/notifications`, {
+    cache: "no-store",
+  });
+  if (res.ok) return (await res.json()) as NotificationSettings;
+  throw new Error(`Failed to load notification settings (${res.status})`);
+}
+
+export async function updateNotificationSettings(
+  thresholds: { event_type: NotificationEventType; min_severity: ThresholdSeverity }[],
+): Promise<NotificationSettings> {
+  const res = await apiFetch(`${API_BASE}/settings/notifications`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ thresholds }),
+  });
+  if (res.ok) return (await res.json()) as NotificationSettings;
+  if (res.status === 400 || res.status === 422) {
+    let detail = "Invalid notification settings.";
+    try {
+      const data = (await res.json()) as { detail?: string };
+      if (data?.detail) detail = data.detail;
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+  throw new Error(`Failed to update notification settings (${res.status})`);
+}

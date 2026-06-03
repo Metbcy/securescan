@@ -20,6 +20,7 @@ from .api.notifications import router as notifications_router
 from .api.sbom import router as sbom_router
 from .api.scans import router as scans_router
 from .api.schedules import router as schedules_router
+from .api.settings import router as settings_router
 from .api.triage import router as triage_router
 from .api.versioning import alias_router_at_v1
 from .api.webhooks import router as webhooks_router
@@ -54,6 +55,7 @@ for _r in (
     triage_router,
     keys_router,
     notifications_router,
+    settings_router,
     webhooks_router,
     schedules_router,
 ):
