@@ -81,7 +81,6 @@ def test_baseline_command_registered():
     flags. Uses Click's command introspection (durable across terminal
     widths and rendering changes) instead of asserting on help-text
     output."""
-    import click
     from typer.main import get_command
 
     cli = get_command(app)

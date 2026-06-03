@@ -15,7 +15,6 @@ that's the actual contract we care about: are the flags wired up?
 
 from __future__ import annotations
 
-import click
 from typer.main import get_command
 from typer.testing import CliRunner
 

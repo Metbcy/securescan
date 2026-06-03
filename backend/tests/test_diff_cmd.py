@@ -49,7 +49,6 @@ def test_diff_command_registered_in_cli():
     """Verify the diff subcommand is registered with the expected flags.
     Uses Click's command introspection rather than asserting on rendered
     help output (which collapses without a TTY in CI)."""
-    import click
     from typer.main import get_command
 
     cli = get_command(app)
