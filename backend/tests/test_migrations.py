@@ -1,7 +1,6 @@
 """Tests for the tracked migration system."""
 from __future__ import annotations
 
-import asyncio
 
 import aiosqlite
 import pytest
