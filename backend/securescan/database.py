@@ -21,6 +21,8 @@ from .models import (
     ScanStatus,
     ScanSummary,
     ScanType,
+    Schedule,
+    ScheduleRun,
     Severity,
     TriageStatus,
     Webhook,
@@ -1368,5 +1370,190 @@ async def reset_stale_delivering_deliveries() -> int:
         )
         await db.commit()
         return cursor.rowcount
+    finally:
+        await db.close()
+
+
+# ---------------------------------------------------------------------------
+# Schedules (FEAT-SCHEDULES)
+# ---------------------------------------------------------------------------
+
+
+def _row_to_schedule(row: aiosqlite.Row) -> Schedule:
+    return Schedule(
+        id=row["id"],
+        name=row["name"],
+        target_path=row["target_path"],
+        scan_types=[ScanType(t) for t in json.loads(row["scan_types"])],
+        cron_expression=row["cron_expression"],
+        last_run=datetime.fromisoformat(row["last_run"]) if row["last_run"] else None,
+        enabled=bool(row["enabled"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+async def insert_schedule(
+    *,
+    id: str,
+    name: str,
+    target_path: str,
+    scan_types: list[str],
+    cron_expression: str,
+    enabled: bool,
+    created_at: datetime,
+) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            """INSERT INTO schedules
+               (id, name, target_path, scan_types, cron_expression, enabled, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                id,
+                name,
+                target_path,
+                json.dumps(scan_types),
+                cron_expression,
+                1 if enabled else 0,
+                created_at.isoformat(),
+            ),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def get_schedule(schedule_id: str) -> Schedule | None:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT * FROM schedules WHERE id = ?", (schedule_id,))
+        row = await cursor.fetchone()
+        return _row_to_schedule(row) if row else None
+    finally:
+        await db.close()
+
+
+async def list_schedules(*, only_enabled: bool = False) -> list[Schedule]:
+    db = await _get_db()
+    try:
+        if only_enabled:
+            cursor = await db.execute(
+                "SELECT * FROM schedules WHERE enabled = 1 ORDER BY created_at DESC"
+            )
+        else:
+            cursor = await db.execute("SELECT * FROM schedules ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        return [_row_to_schedule(r) for r in rows]
+    finally:
+        await db.close()
+
+
+async def update_schedule(
+    schedule_id: str,
+    *,
+    name: str | None = None,
+    target_path: str | None = None,
+    scan_types: list[str] | None = None,
+    cron_expression: str | None = None,
+    enabled: bool | None = None,
+) -> Schedule | None:
+    sets: list[str] = []
+    params: list = []
+    if name is not None:
+        sets.append("name = ?")
+        params.append(name)
+    if target_path is not None:
+        sets.append("target_path = ?")
+        params.append(target_path)
+    if scan_types is not None:
+        sets.append("scan_types = ?")
+        params.append(json.dumps(scan_types))
+    if cron_expression is not None:
+        sets.append("cron_expression = ?")
+        params.append(cron_expression)
+    if enabled is not None:
+        sets.append("enabled = ?")
+        params.append(1 if enabled else 0)
+    if not sets:
+        return await get_schedule(schedule_id)
+    params.append(schedule_id)
+    db = await _get_db()
+    try:
+        # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+        cursor = await db.execute(
+            f"UPDATE schedules SET {', '.join(sets)} WHERE id = ?",  # nosec B608 -- sets is literal column names only
+            params,
+        )
+        await db.commit()
+        if cursor.rowcount == 0:
+            return None
+    finally:
+        await db.close()
+    return await get_schedule(schedule_id)
+
+
+async def delete_schedule(schedule_id: str) -> bool:
+    db = await _get_db()
+    try:
+        cursor = await db.execute("SELECT 1 FROM schedules WHERE id = ?", (schedule_id,))
+        existed = await cursor.fetchone() is not None
+        if not existed:
+            return False
+        await db.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+        await db.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+        await db.commit()
+        return True
+    finally:
+        await db.close()
+
+
+async def touch_schedule_last_run(schedule_id: str, last_run: datetime) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            "UPDATE schedules SET last_run = ? WHERE id = ?",
+            (last_run.isoformat(), schedule_id),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def insert_schedule_run(
+    *,
+    id: str,
+    schedule_id: str,
+    scan_id: str | None,
+    triggered_at: datetime,
+) -> None:
+    db = await _get_db()
+    try:
+        await db.execute(
+            "INSERT INTO schedule_runs (id, schedule_id, scan_id, triggered_at) "
+            "VALUES (?, ?, ?, ?)",
+            (id, schedule_id, scan_id, triggered_at.isoformat()),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def list_schedule_runs(schedule_id: str, *, limit: int = 50) -> list[ScheduleRun]:
+    db = await _get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT * FROM schedule_runs WHERE schedule_id = ? ORDER BY triggered_at DESC LIMIT ?",
+            (schedule_id, limit),
+        )
+        rows = await cursor.fetchall()
+        return [
+            ScheduleRun(
+                id=r["id"],
+                schedule_id=r["schedule_id"],
+                scan_id=r["scan_id"],
+                triggered_at=datetime.fromisoformat(r["triggered_at"]),
+            )
+            for r in rows
+        ]
     finally:
         await db.close()

@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "notifications",
     "webhooks",
     "webhook_deliveries",
+    "schedules",
+    "schedule_runs",
     "schema_version",
 }
 
@@ -141,7 +143,7 @@ async def test_fresh_db_max_version(tmp_path):
         await run_migrations(db)
         max_v = await _get_max_version(db)
 
-    assert max_v == 5
+    assert max_v == 6
 
 
 @pytest.mark.asyncio
@@ -206,7 +208,7 @@ async def test_forward_migration_from_v1(tmp_path):
     assert EXPECTED_TABLES.issubset(tables)
     assert EXPECTED_SCANS_COLS.issubset(scans_cols)
     assert EXPECTED_FINDINGS_COLS.issubset(findings_cols)
-    assert max_v == 5
+    assert max_v == 6
 
 
 @pytest.mark.asyncio
@@ -224,8 +226,8 @@ async def test_idempotency(tmp_path):
             row = await cur.fetchone()
         count = row[0]
 
-    assert v_after_first == v_after_second == 5
-    assert count == 5  # exactly one row per migration version
+    assert v_after_first == v_after_second == 6
+    assert count == 6  # exactly one row per migration version
 
 
 @pytest.mark.asyncio
@@ -244,7 +246,7 @@ async def test_preexisting_legacy_db(tmp_path):
     assert EXPECTED_TABLES.issubset(tables)
     assert EXPECTED_SCANS_COLS.issubset(scans_cols)
     assert EXPECTED_FINDINGS_COLS.issubset(findings_cols)
-    assert max_v == 5
+    assert max_v == 6
 
 
 @pytest.mark.asyncio
@@ -275,4 +277,4 @@ async def test_schema_version_table_records_all_versions(tmp_path):
         async with db.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             rows = await cur.fetchall()
     versions = [r[0] for r in rows]
-    assert versions == [1, 2, 3, 4, 5]
+    assert versions == [1, 2, 3, 4, 5, 6]
