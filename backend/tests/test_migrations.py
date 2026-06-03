@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-
 import aiosqlite
 import pytest
 
 from securescan.migrations import run_migrations
-
 
 # ---------------------------------------------------------------------------
 # Helpers
