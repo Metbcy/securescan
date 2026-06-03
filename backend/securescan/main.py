@@ -19,6 +19,7 @@ from .api.keys import router as keys_router
 from .api.notifications import router as notifications_router
 from .api.sbom import router as sbom_router
 from .api.scans import router as scans_router
+from .api.schedules import router as schedules_router
 from .api.triage import router as triage_router
 from .api.versioning import alias_router_at_v1
 from .api.webhooks import router as webhooks_router
@@ -32,6 +33,7 @@ from .auth import (
 )
 from .database import count_admin_keys_active, init_db, prune_old_notifications
 from .middleware.rate_limit import RateLimitMiddleware
+from .scheduler import scheduler as scan_scheduler
 from .webhook_dispatcher import dispatcher as webhook_dispatcher
 
 _auth = [Depends(require_api_key)]
@@ -53,6 +55,7 @@ for _r in (
     keys_router,
     notifications_router,
     webhooks_router,
+    schedules_router,
 ):
     app.include_router(_r, dependencies=_auth)
     # Parallel /api/v1/* mount — the preferred path going forward. Same
@@ -134,6 +137,15 @@ async def _startup_webhook_dispatcher():
         _logger.exception("webhook dispatcher failed to start")
 
 
+@app.on_event("startup")
+async def _startup_scan_scheduler():
+    """Boot the cron-based scan scheduler (FEAT-SCHEDULES)."""
+    try:
+        await scan_scheduler.start()
+    except Exception:
+        _logger.exception("scan scheduler failed to start")
+
+
 @app.on_event("shutdown")
 async def _shutdown_webhook_dispatcher():
     """Gracefully drain the dispatcher and close its httpx client."""
@@ -141,6 +153,15 @@ async def _shutdown_webhook_dispatcher():
         await webhook_dispatcher.stop()
     except Exception:
         _logger.exception("webhook dispatcher shutdown error")
+
+
+@app.on_event("shutdown")
+async def _shutdown_scan_scheduler():
+    """Stop the cron scheduler gracefully."""
+    try:
+        await scan_scheduler.stop()
+    except Exception:
+        _logger.exception("scan scheduler shutdown error")
 
 
 @app.get("/ready", tags=["health"])

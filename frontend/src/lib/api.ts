@@ -1240,6 +1240,100 @@ export async function testWebhook(id: string): Promise<{ delivery_id: string }> 
   throw new Error(`Failed to fire test webhook (${res?.status ?? "network"})`);
 }
 
+// --- Scheduled scans (admin) -------------------------------------------
+//
+// Endpoints (all behind require_scope("admin")):
+//   POST   /schedules                  → 201 Schedule
+//   GET    /schedules                  → Schedule[]
+//   GET    /schedules/{id}             → Schedule
+//   PATCH  /schedules/{id}             → Schedule (updated)
+//   DELETE /schedules/{id}             → 204
+//   GET    /schedules/{id}/runs        → ScheduleRun[] (last 50)
+
+export type ScanType = "code" | "dependency" | "iac" | "baseline" | "dast" | "network";
+
+export interface Schedule {
+  id: string;
+  name: string;
+  target_path: string;
+  scan_types: ScanType[];
+  cron_expression: string;
+  last_run: string | null;
+  enabled: boolean;
+  created_at: string;
+}
+
+export interface ScheduleRun {
+  id: string;
+  schedule_id: string;
+  scan_id: string | null;
+  triggered_at: string;
+}
+
+export async function listSchedules(): Promise<Schedule[]> {
+  const res = await apiFetch(`${API_BASE}/schedules`, { cache: "no-store" });
+  if (res.ok) return (await res.json()) as Schedule[];
+  throw new Error(`Failed to load schedules (${res.status})`);
+}
+
+export async function createSchedule(body: {
+  name: string;
+  target_path: string;
+  scan_types: ScanType[];
+  cron_expression: string;
+}): Promise<Schedule> {
+  const res = await apiFetch(`${API_BASE}/schedules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return (await res.json()) as Schedule;
+  if (res.status === 422) {
+    let detail = "Invalid schedule request.";
+    try {
+      const data = (await res.json()) as { detail?: string | { msg: string }[] };
+      if (typeof data?.detail === "string") detail = data.detail;
+      else if (Array.isArray(data?.detail)) detail = data.detail.map((d) => d.msg).join("; ");
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+  throw new Error(`Failed to create schedule (${res.status})`);
+}
+
+export async function patchSchedule(
+  id: string,
+  body: Partial<Pick<Schedule, "name" | "target_path" | "scan_types" | "cron_expression" | "enabled">>,
+): Promise<Schedule> {
+  const res = await apiFetch(`${API_BASE}/schedules/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) return (await res.json()) as Schedule;
+  if (res.status === 404) throw new Error("Schedule not found.");
+  throw new Error(`Failed to update schedule (${res.status})`);
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const res = await apiFetch(`${API_BASE}/schedules/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (res.ok || res.status === 204) return;
+  if (res.status === 404) throw new Error("Schedule not found.");
+  throw new Error(`Failed to delete schedule (${res.status})`);
+}
+
+export async function listScheduleRuns(id: string): Promise<ScheduleRun[]> {
+  const res = await apiFetch(`${API_BASE}/schedules/${encodeURIComponent(id)}/runs`, {
+    cache: "no-store",
+  });
+  if (res.ok) return (await res.json()) as ScheduleRun[];
+  if (res.status === 404) throw new Error("Schedule not found.");
+  throw new Error(`Failed to load schedule runs (${res.status})`);
+}
+
 export async function revokeApiKey(keyId: string): Promise<void> {
   const res = await apiFetch(`${API_BASE}/keys/${encodeURIComponent(keyId)}`, {
     method: "DELETE",

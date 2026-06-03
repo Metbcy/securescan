@@ -345,3 +345,36 @@ class WebhookDelivery(BaseModel):
     updated_at: datetime
     response_code: int | None = None
     response_body: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Scheduled scans (FEAT-SCHEDULES)
+# ---------------------------------------------------------------------------
+
+
+class Schedule(BaseModel):
+    """A recurring scan schedule driven by a cron expression."""
+
+    id: str
+    name: str
+    target_path: str
+    scan_types: list[ScanType]
+    cron_expression: str
+    last_run: datetime | None = None
+    enabled: bool
+    created_at: datetime
+
+
+class ScheduleRun(BaseModel):
+    """One execution record produced when a schedule fires.
+
+    `scan_id` is None if the scheduler could not start the scan (e.g.
+    lock contention prevented double-fire -- only the winning worker
+    creates a row, but the check happens before the DB insert, so
+    normally scan_id is always populated).
+    """
+
+    id: str
+    schedule_id: str
+    scan_id: str | None = None
+    triggered_at: datetime

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useSyncExternalStore } from "react";
 import {
   Bell,
+  CalendarClock,
   GitCompare,
   History,
   KeyRound,
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { label: "Scanners", href: "/scanners", icon: Settings },
   { label: "API keys", href: "/settings/keys", icon: KeyRound, group: "settings" },
   { label: "Webhooks", href: "/settings/webhooks", icon: Webhook, group: "settings" },
+  { label: "Schedules", href: "/settings/schedules", icon: CalendarClock, group: "settings" },
 ];
 
 interface RecentScan {
