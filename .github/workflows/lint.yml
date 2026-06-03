@@ -63,12 +63,7 @@ jobs:
           COLUMNS: '200'
         run: |
           cd backend
-          # Deselected: test_github_review_output assumes a specific
-          # git history layout that's brittle in CI checkouts (resolves
-          # commits that don't exist in the runner's clone). Tracked
-          # as a follow-up to harden the test fixture.
-          pytest --cov=securescan --cov-fail-under=77 tests/ \
-            --deselect tests/test_github_review_output.py::test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode
+          pytest --cov=securescan --cov-fail-under=77 tests/
       - name: pip-audit
         # pip-audit on PRs catches CVE-bumped deps immediately instead of
         # waiting for the weekly cron in securescan.yml. continue-on-error
