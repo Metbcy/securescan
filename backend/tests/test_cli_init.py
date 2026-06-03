@@ -334,7 +334,6 @@ def test_scan_types_flag_rejects_unknown(tmp_path):
 
 def test_init_command_registered():
     """Verify ``init`` is on the root Typer app with the expected flags."""
-    import click
     from typer.main import get_command
 
     cli = get_command(app)
@@ -343,7 +342,7 @@ def test_init_command_registered():
 
     opts: set[str] = set()
     for param in init_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     for expected in (
         "--force",

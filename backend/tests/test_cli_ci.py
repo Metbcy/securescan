@@ -15,7 +15,6 @@ that's the actual contract we care about: are the flags wired up?
 
 from __future__ import annotations
 
-import click
 from typer.main import get_command
 from typer.testing import CliRunner
 
@@ -29,7 +28,7 @@ def _scan_options() -> set[str]:
     scan = cli.commands["scan"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in scan.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)  # both long and short forms
     return opts
 

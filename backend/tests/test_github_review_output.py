@@ -697,7 +697,7 @@ def test_github_review_resolves_base_sha_from_base_ref_in_diff(tmp_path):
     subprocess.run(["git", "--version"], capture_output=True).returncode != 0,
     reason="git not available on this host",
 )
-def test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode(tmp_path):
+def test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode(tmp_path, monkeypatch):
     """The proper ref-mode path: ``--base-ref main`` should auto-set
     ``base_sha`` from the live repo via ``git rev-parse``.
 
@@ -713,10 +713,16 @@ def test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode(tmp_path
     head_sha = _git(["rev-parse", "HEAD"], cwd=repo)
 
     runner = CliRunner()
-    env = {
-        **os.environ,
-        "SECURESCAN_FAKE_NOW": "2026-01-01T00:00:00",
-    }
+    # Strip GITHUB_* envvars so the runner's own checkout (e.g.
+    # GITHUB_SHA on a GH-hosted runner, which is wired up to --sha
+    # via Typer's envvar=) cannot leak in and shadow the per-test
+    # tmp_path fixture's shas. Without this, --sha resolves to the
+    # runner's commit, which doesn't exist in the tmp_path repo, and
+    # `git diff base..sha` fails with "bad object <head-sha>".
+    for key in list(os.environ):
+        if key.startswith("GITHUB_"):
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("SECURESCAN_FAKE_NOW", "2026-01-01T00:00:00")
     result = runner.invoke(
         app,
         [
@@ -732,7 +738,6 @@ def test_github_review_resolves_base_sha_from_base_ref_in_diff_ref_mode(tmp_path
             "Metbcy/securescan",
             "--no-ai",
         ],
-        env=env,
     )
     assert result.exit_code == 0, (result.stderr, result.stdout)
     payload = json.loads(result.stdout)

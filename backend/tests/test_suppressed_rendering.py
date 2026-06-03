@@ -922,14 +922,13 @@ def test_scan_command_accepts_no_suppress_flag(monkeypatch):
 def test_diff_command_help_lists_new_flags():
     """Verify diff registers --show-suppressed and --no-suppress.
     Uses Click introspection rather than asserting on rendered help."""
-    import click
     from typer.main import get_command
 
     cli = get_command(app)
     diff_cmd = cli.commands["diff"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in diff_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--show-suppressed" in opts
     assert "--no-suppress" in opts
@@ -937,14 +936,13 @@ def test_diff_command_help_lists_new_flags():
 
 def test_compare_command_help_lists_new_flags():
     """Verify compare registers --show-suppressed and --no-suppress."""
-    import click
     from typer.main import get_command
 
     cli = get_command(app)
     compare_cmd = cli.commands["compare"]  # type: ignore[union-attr]
     opts: set[str] = set()
     for param in compare_cmd.params:
-        if isinstance(param, click.Option):
+        if getattr(param, "param_type_name", None) == "option":
             opts.update(param.opts)
     assert "--show-suppressed" in opts
     assert "--no-suppress" in opts
