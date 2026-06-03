@@ -5,6 +5,7 @@ fingerprint on read when it is empty.
 
 Idempotent: skipped if the column already exists.
 """
+
 import aiosqlite
 
 VERSION = 3

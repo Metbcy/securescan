@@ -2,6 +2,7 @@
 
 Idempotent: skipped per column if already present.
 """
+
 import aiosqlite
 
 VERSION = 4

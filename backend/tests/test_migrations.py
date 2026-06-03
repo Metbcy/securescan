@@ -1,4 +1,5 @@
 """Tests for the tracked migration system."""
+
 from __future__ import annotations
 
 
@@ -27,22 +28,44 @@ EXPECTED_TABLES = {
 }
 
 EXPECTED_SCANS_COLS = {
-    "id", "target_path", "scan_types", "status", "started_at", "completed_at",
-    "findings_count", "risk_score", "summary", "error",
-    "target_url", "target_host", "scanners_run", "scanners_skipped",
+    "id",
+    "target_path",
+    "scan_types",
+    "status",
+    "started_at",
+    "completed_at",
+    "findings_count",
+    "risk_score",
+    "summary",
+    "error",
+    "target_url",
+    "target_host",
+    "scanners_run",
+    "scanners_skipped",
 }
 
 EXPECTED_FINDINGS_COLS = {
-    "id", "scan_id", "scanner", "scan_type", "severity", "title", "description",
-    "file_path", "line_start", "line_end", "rule_id", "cwe", "remediation",
-    "metadata", "fingerprint", "compliance_tags",
+    "id",
+    "scan_id",
+    "scanner",
+    "scan_type",
+    "severity",
+    "title",
+    "description",
+    "file_path",
+    "line_start",
+    "line_end",
+    "rule_id",
+    "cwe",
+    "remediation",
+    "metadata",
+    "fingerprint",
+    "compliance_tags",
 }
 
 
 async def _get_tables(db: aiosqlite.Connection) -> set[str]:
-    async with db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ) as cur:
+    async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
         rows = await cur.fetchall()
     return {row[0] for row in rows}
 

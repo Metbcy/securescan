@@ -3,6 +3,7 @@
 Idempotent: skipped if the column already exists (e.g., fresh install via
 migration 001 which includes the column in the CREATE TABLE statement).
 """
+
 import aiosqlite
 
 VERSION = 2

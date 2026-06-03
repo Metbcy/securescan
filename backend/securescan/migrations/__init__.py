@@ -8,6 +8,7 @@ Each migration file in this package is named NNN_description.py and exposes:
 
 run_migrations() is the public entry point called by database.init_db().
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -21,10 +22,7 @@ _MIGRATIONS_DIR = os.path.dirname(__file__)
 
 def _load_all_migrations() -> list:
     """Load all NNN_*.py migration modules sorted by VERSION."""
-    files = sorted(
-        f for f in os.listdir(_MIGRATIONS_DIR)
-        if f[0].isdigit() and f.endswith(".py")
-    )
+    files = sorted(f for f in os.listdir(_MIGRATIONS_DIR) if f[0].isdigit() and f.endswith(".py"))
     modules = []
     for fname in files:
         fpath = os.path.join(_MIGRATIONS_DIR, fname)
@@ -41,11 +39,20 @@ async def _get_recorded_versions(conn: aiosqlite.Connection) -> set[int]:
     return {row[0] for row in rows}
 
 
-_MIGRATION_1_TABLES = frozenset({
-    "scans", "findings", "finding_states", "finding_comments",
-    "sbom_documents", "sbom_components", "api_keys",
-    "notifications", "webhooks", "webhook_deliveries",
-})
+_MIGRATION_1_TABLES = frozenset(
+    {
+        "scans",
+        "findings",
+        "finding_states",
+        "finding_comments",
+        "sbom_documents",
+        "sbom_components",
+        "api_keys",
+        "notifications",
+        "webhooks",
+        "webhook_deliveries",
+    }
+)
 
 
 async def _introspect_applied_versions(conn: aiosqlite.Connection) -> set[int]:
@@ -56,9 +63,7 @@ async def _introspect_applied_versions(conn: aiosqlite.Connection) -> set[int]:
     """
     applied: set[int] = set()
 
-    async with conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ) as cur:
+    async with conn.execute("SELECT name FROM sqlite_master WHERE type='table'") as cur:
         all_tables = {row[0] for row in await cur.fetchall()}
 
     if not all_tables:

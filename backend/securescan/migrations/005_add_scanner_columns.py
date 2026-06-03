@@ -4,6 +4,7 @@ Default '[]' so old rows decode as empty lists.
 
 Idempotent: skipped per column if already present.
 """
+
 import aiosqlite
 
 VERSION = 5

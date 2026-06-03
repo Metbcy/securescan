@@ -4,6 +4,7 @@ This migration is the full schema for fresh installs. Pre-existing databases
 created before the migration system existed are detected via introspection and
 have this version recorded without re-running the CREATE TABLE statements.
 """
+
 import aiosqlite
 
 VERSION = 1
@@ -74,9 +75,7 @@ async def up(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_finding_comments_fingerprint ON finding_comments(fingerprint)"
     )
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id)"
-    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_findings_scan_id ON findings(scan_id)")
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS sbom_documents (
             id TEXT PRIMARY KEY,
@@ -112,9 +111,7 @@ async def up(conn: aiosqlite.Connection) -> None:
             revoked_at TEXT
         )
     """)
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)"
-    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at)")
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
