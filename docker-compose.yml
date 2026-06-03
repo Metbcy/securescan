@@ -30,3 +30,13 @@ services:
 
 volumes:
   scan-data:
+  redis-data:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  scan-data:

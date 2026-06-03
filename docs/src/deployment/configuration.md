@@ -88,6 +88,19 @@ than the shell environment, so they persist across reboots. See
 
 In containers, mount a volume at this path. See [Docker](./docker.md).
 
+## Redis / Multi-worker
+
+| Variable                            | Default                              | Description                                                                |
+| ----------------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
+| `SECURESCAN_REDIS_URL`              | (unset)                              | Redis URL (e.g. `redis://localhost:6379/0`). Enables multi-worker support.  |
+| `SECURESCAN_REDIS_KEY_PREFIX`       | `ss:`                                | Key prefix for all Redis keys (events, replays, webhook locks).            |
+
+When `SECURESCAN_REDIS_URL` is set, SecureScan uses Redis as a backplane for:
+- **Event Bus**: SSE events (scan progress) are fanned out across all workers.
+- **Webhook FIFO**: Ensures deliveries for the same webhook are processed in order even across multiple workers.
+
+Required when running with `uvicorn --workers > 1`.
+
 ## Examples
 
 ### Minimum production env

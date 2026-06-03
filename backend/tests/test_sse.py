@@ -32,14 +32,14 @@ def fresh_bus() -> ScanEventBus:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_module_bus():
+async def _isolate_module_bus():
     """Make sure the module-level ``bus`` singleton starts each test
     empty, even when prior tests left replay buffers / cleanup tasks
     lying around. Tests that go through the FastAPI endpoint share
     that singleton with the production code path."""
-    bus.reset()
+    await bus.reset()
     yield
-    bus.reset()
+    await bus.reset()
 
 
 @pytest.mark.asyncio
@@ -51,7 +51,7 @@ async def test_subscribe_get_replay(fresh_bus: ScanEventBus) -> None:
     await fresh_bus.publish(sid, "scan.start", {"target": "/x"})
     await fresh_bus.publish(sid, "scanner.start", {"scanner": "alpha"})
 
-    q = fresh_bus.subscribe(sid)
+    q = await fresh_bus.subscribe(sid)
     e1, p1 = await asyncio.wait_for(q.get(), timeout=1.0)
     e2, p2 = await asyncio.wait_for(q.get(), timeout=1.0)
     assert (e1, p1) == ("scan.start", {"target": "/x"})
@@ -64,13 +64,18 @@ async def test_terminal_event_never_dropped(fresh_bus: ScanEventBus) -> None:
     events — losing scan.complete would leave the UI stuck on
     'running' forever."""
     sid = "scan-B"
-    q = fresh_bus.subscribe(sid)
+    q = await fresh_bus.subscribe(sid)
+    await asyncio.sleep(0.1)  # Wait for forwarder to register with backend
     # Saturate the queue with non-terminal events.
     for i in range(ScanEventBus.QUEUE_CAP):
         await fresh_bus.publish(sid, "scanner.complete", {"i": i})
+    
+    # Yield to let forwarder tasks drain backend into q
+    await asyncio.sleep(0.1)
     assert q.qsize() == ScanEventBus.QUEUE_CAP
 
     await fresh_bus.publish(sid, "scan.complete", {"findings_count": 7})
+    await asyncio.sleep(0.1)
 
     drained = []
     while not q.empty():
@@ -88,12 +93,14 @@ async def test_oldest_nonterminal_evicted_on_overflow(fresh_bus: ScanEventBus) -
     more drops the OLDEST non-terminal — preserving the head order
     of any terminal events (none here, but the semantics are pinned)."""
     sid = "scan-C"
-    q = fresh_bus.subscribe(sid)
+    q = await fresh_bus.subscribe(sid)
+    await asyncio.sleep(0.1)  # Wait for forwarder to register
     for i in range(ScanEventBus.QUEUE_CAP):
         await fresh_bus.publish(sid, "scanner.complete", {"i": i})
 
     # Overflow with a non-terminal event.
     await fresh_bus.publish(sid, "scanner.complete", {"i": "overflow"})
+    await asyncio.sleep(0.1)
 
     items = []
     while not q.empty():
@@ -114,7 +121,7 @@ async def test_replay_cap(fresh_bus: ScanEventBus) -> None:
     for i in range(ScanEventBus.REPLAY_CAP + extra):
         await fresh_bus.publish(sid, "scanner.complete", {"i": i})
 
-    q = fresh_bus.subscribe(sid)
+    q = await fresh_bus.subscribe(sid)
     drained = []
     while not q.empty():
         drained.append(q.get_nowait())
@@ -136,11 +143,11 @@ async def test_replay_cleanup_after_terminal(
     sid = "scan-E"
     await fresh_bus.publish(sid, "scan.start", {})
     await fresh_bus.publish(sid, "scan.complete", {"findings_count": 0})
-    assert fresh_bus.has_replay(sid)
+    assert await fresh_bus.has_replay(sid)
 
     # Yield to the loop so the cleanup task gets a chance to run.
     await asyncio.sleep(0.05)
-    assert not fresh_bus.has_replay(sid), "replay buffer should be GC'd after grace"
+    assert not await fresh_bus.has_replay(sid), "replay buffer should be GC'd after grace"
 
 
 @pytest.mark.asyncio
@@ -153,7 +160,7 @@ async def test_subscribe_after_terminal_within_grace(fresh_bus: ScanEventBus) ->
     await fresh_bus.publish(sid, "scanner.start", {"scanner": "alpha"})
     await fresh_bus.publish(sid, "scan.complete", {"findings_count": 0})
 
-    q = fresh_bus.subscribe(sid)
+    q = await fresh_bus.subscribe(sid)
     drained = []
     while not q.empty():
         drained.append(q.get_nowait())
@@ -184,7 +191,7 @@ async def test_log_scan_event_publishes_to_bus() -> None:
     # enough — but go around once more just in case.
     await asyncio.sleep(0)
 
-    replay = bus.replay_for(sid)
+    replay = await bus.replay_for(sid)
     assert len(replay) == 1
     event, payload = replay[0]
     assert event == "scan.start"
@@ -277,7 +284,7 @@ async def test_sse_endpoint_terminal_state_immediate_close(temp_db) -> None:
     scan = Scan(target_path="/", scan_types=[ScanType.CODE], status=ScanStatus.COMPLETED)
     await save_scan(scan)
     # No replay buffer for this scan_id.
-    assert not bus.has_replay(scan.id)
+    assert not await bus.has_replay(scan.id)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
