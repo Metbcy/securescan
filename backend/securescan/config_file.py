@@ -55,6 +55,29 @@ class ConfigError(Exception):
         return f"{self.message} (in {self.path})"
 
 
+class ReachabilityConfig(BaseModel):
+    """Config for the reachability-analysis pass (``[reachability]`` section).
+
+    Reachability classifies each finding as reachable / unreachable / unknown
+    by analyzing whether its code or dependency is wired into something that
+    runs (see :mod:`securescan.reachability`). It is opt-in and best-effort:
+    an unreachable verdict never *removes* a finding, it annotates it (and,
+    when ``demote_unreachable`` is set, lowers its severity by one step so the
+    NEW-findings PR comment stops leading with dead-code noise).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Master switch. Off by default so existing scans are byte-identical until
+    # a user opts in; flipping it on is the only change needed to get verdicts.
+    enabled: bool = False
+    # When True, an UNREACHABLE finding's severity is lowered one step
+    # (critical->high->medium->low->info) before suppression/scoring. REACHABLE
+    # and UNKNOWN are never touched. This is how reachability changes the
+    # *ranking* without ever hiding a finding outright.
+    demote_unreachable: bool = False
+
+
 class SecureScanConfig(BaseModel):
     """Typed schema for ``.securescan.yml``.
 
@@ -70,6 +93,7 @@ class SecureScanConfig(BaseModel):
     semgrep_rules: list[Path] = []
     fail_on_severity: Severity | None = None
     ai: bool | None = None
+    reachability: ReachabilityConfig = ReachabilityConfig()
 
     def resolve_paths(self, base: Path) -> SecureScanConfig:
         """Return a copy with ``semgrep_rules`` resolved against ``base``.

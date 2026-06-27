@@ -61,6 +61,8 @@ from pathlib import Path
 from .config_file import SecureScanConfig, load_config
 from .fingerprint import populate_fingerprints
 from .models import Finding
+from .reachability import analyze as analyze_reachability
+from .reachability_demote import demote_unreachable_findings
 from .severity import apply_severity_overrides
 from .suppression import SuppressionContext
 
@@ -154,6 +156,18 @@ def apply_pipeline(
         resolved = loaded.resolve_paths(base)
 
     populate_fingerprints(findings)
+
+    # Reachability enrichment (opt-in via [reachability] config). Runs after
+    # fingerprints so a verdict can ride on a stable identity, and before
+    # severity overrides + suppression so an UNREACHABLE demotion (when
+    # enabled) flows through scoring and the fail-on gate. Best-effort: a
+    # failure here never aborts the pipeline -- analyze() swallows analyzer
+    # errors and the demotion helper is a no-op when disabled.
+    reach_cfg = resolved.reachability
+    if reach_cfg.enabled:
+        analyze_reachability(findings, target_path=Path(target_path), enabled=True)
+        if reach_cfg.demote_unreachable:
+            demote_unreachable_findings(findings)
 
     findings, n_overridden = apply_severity_overrides(findings, resolved)
 
